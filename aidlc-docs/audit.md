@@ -296,3 +296,21 @@ Append-only. Complete raw user inputs captured verbatim. ISO 8601 timestamps.
 **Approval Prompt**: "U4 code complete + verified. Approve & Continue to U5 HITL, or Request Changes."
 
 ---
+
+## U4 Approved (committed+pushed); U5 HITL begins
+**Timestamp**: 2026-07-15T05:30:00Z
+**User Input**: "continue"
+**AI Response**: U4 approved, committed+pushed. Entering U5 Revisión y aprobación (HITL) — el gate humano médico-legal. Wrote U5 consolidated design + design plan. Scope: side-by-side review, inline edit, exam confirm/"cargar normal", BLOCKING approval (exam pending/required empty), sign → immutable PDF + ApprovalRecord + audit. GATE.
+**Context**: CONSTRUCTION / U5 — consolidated design gate
+**Approval Prompt**: "U5 design posted. Answer questions + approve to proceed to U5 Code Generation."
+
+---
+
+## U5 Design Approved (all A); Code Gen
+**Timestamp**: 2026-07-15T05:45:00Z
+**User Input**: "continue" then "revisa denuevo" — re-read: Q1/Q2/Q3 = A/A/A.
+**AI Response**: U5 design approved: Q1=A standard normal-exam values (fuente=anestesiologo); Q2=A ApprovalRecord snapshot+hash+lockedPdfUrl+edit guard; Q3=A visual signature + name/specialty/registry/timestamp/legend. Writing code-gen plan + generating U5 (canApprove blocking, ApprovalService, review routes, ReviewApprovalPage).
+**Context**: CONSTRUCTION / U5 — Code Generation
+**Approval Prompt**: "U5 code complete + verified. Approve & Continue to U6, or Request Changes."
+
+---

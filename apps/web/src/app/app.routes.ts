@@ -28,6 +28,10 @@ export const routes: Routes = [
         path: 'presets',
         loadComponent: () => import('./pages/preset-list.page').then((m) => m.PresetListPage),
       },
+      {
+        path: 'cases/:id/review',
+        loadComponent: () => import('./pages/review-approval.page').then((m) => m.ReviewApprovalPage),
+      },
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
     ],
   },

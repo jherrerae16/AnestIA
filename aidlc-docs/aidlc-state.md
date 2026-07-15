@@ -82,8 +82,8 @@
 - [x] U1 Captura — DONE (approved 2026-07-15, committed+pushed). US-1.1…1.7. 14 tests green, backend smoke full, Angular builds.
 - [x] U2 Lab Intelligence — DONE (approved, committed+pushed). 22 tests green, pipeline verified with real worker.
 - [x] U3 Motor clínico — DONE (approved, committed+pushed). US-3.1/3.2/3.3. 29 tests green, pipeline verified with real worker.
-- [~] U4 Documento — Code GENERATED + verified end-to-end → GATE. US-4.1. 34 tests green (PBT buildDocumentHtml determinism/watermark/escape). Playwright renders real PDF (101KB, 1 page). FULL pipeline verified: form.submitted→…→document.rendered, status PENDIENTE_REVISION. Storage → apps/api/storage (gitignored **/storage/).
-- [ ] U5 HITL
+- [x] U4 Documento — DONE (approved, committed+pushed). US-4.1. 34 tests green, real PDF, full pipeline verified.
+- [~] U5 HITL — Code GENERATED + verified (backend smoke) → GATE. US-5.1…5.5. 37 tests green (PBT canApprove blocking invariant). Blocking gate verified: approve-with-exam-pending→422, load-normal→approvable, approve→APROBADO+immutable PDF+ApprovalRecord, edit-after→409 lock. CS1/CS3/CS7 enforced. Angular builds. (canApprove folded into review GET, no separate route.)
 - [ ] U6 Distribución/historial
 - [ ] U7 Afinado
 - [ ] Build and Test (after all units)

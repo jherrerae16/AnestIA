@@ -48,4 +48,21 @@ export class ApiService {
     fd.append('type', type);
     return firstValueFrom(this.http.post<{ id: string }>(`/api/form/${token}/upload`, fd));
   }
+
+  // --- U5 revisión / aprobación ---
+  getReview(caseId: string): Promise<any> {
+    return firstValueFrom(this.http.get<any>(`/api/panel/cases/${caseId}/review`));
+  }
+  editField(caseId: string, section: string, key: string, value: string): Promise<unknown> {
+    return firstValueFrom(this.http.patch(`/api/panel/cases/${caseId}/assessment`, { section, key, value }));
+  }
+  loadExamNormal(caseId: string): Promise<unknown> {
+    return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/exam`, { mode: 'normal' }));
+  }
+  approve(caseId: string): Promise<{ ok: boolean; blockers?: string[] }> {
+    return firstValueFrom(this.http.post<{ ok: boolean; blockers?: string[] }>(`/api/panel/cases/${caseId}/approve`, {}));
+  }
+  reject(caseId: string, reason: string): Promise<unknown> {
+    return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/reject`, { reason }));
+  }
 }
