@@ -27,7 +27,11 @@ const STATUS_LABEL: Record<string, string> = {
   `],
   template: `
     <div data-testid="dashboard-root">
-      <h2>Casos</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2>Casos</h2>
+        <button style="background:#0f9d58;color:#fff;border:0;border-radius:8px;padding:.5rem 1rem;cursor:pointer" (click)="exportSheets()" data-testid="export-sheets-button">Exportar a Sheets</button>
+      </div>
+      @if (exportMsg()) { <p style="font-size:.85rem;color:#5b6b73">{{ exportMsg() }}</p> }
       <div class="kpis">
         <div class="kpi"><b>{{ data()?.indicadores?.total ?? 0 }}</b>Total</div>
         <div class="kpi"><b>{{ data()?.indicadores?.pendienteRevision ?? 0 }}</b>Pendiente revisión</div>
@@ -53,6 +57,12 @@ const STATUS_LABEL: Record<string, string> = {
 export class DashboardPage implements OnInit {
   private api = inject(ApiService);
   data = signal<any>(null);
+  exportMsg = signal('');
   async ngOnInit() { this.data.set(await this.api.dashboard()); }
   label(s: string) { return STATUS_LABEL[s] ?? s; }
+  async exportSheets() {
+    this.exportMsg.set('Exportando…');
+    const res = await this.api.exportSheets();
+    this.exportMsg.set(res.ok ? `✔ Exportados ${res.count} casos a Sheets.` : `⚠ ${res.error}`);
+  }
 }
