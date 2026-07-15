@@ -16,6 +16,7 @@
     "argon2": "^0.41.1",
     "jose": "^5.9.6",
     "next": "^15.1.4",
+    "nodemailer": "^9.0.3",
     "pg-boss": "^10.1.6",
     "pino": "^9.6.0",
     "playwright": "^1.61.1",
@@ -25,6 +26,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19.0.4",
     "fast-check": "^3.23.2",
     "tsx": "^4.19.2",

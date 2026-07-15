@@ -8,3 +8,4 @@ export * from './glp1';
 export * from './clinical';
 export * from './pdf-template';
 export * from './approval';
+export * from './distribution';
