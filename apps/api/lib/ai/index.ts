@@ -1,4 +1,4 @@
-import type { DocumentJSON } from '@anestia/shared';
+import type { DocumentJSON, DocField } from '@anestia/shared';
 
 /**
  * AIProvider — ÚNICO punto de dependencia de la key. Dos métodos:
@@ -17,17 +17,22 @@ export interface FileRef {
 export interface ExtractedLab {
   analyte: string;
   value: string;
-  unit?: string;
-  refRange?: string;
-  sourceRef?: string;
+  unit?: string | null;
+  refRange?: string | null;
+  sourceRef?: string | null;
+}
+
+/** Lab con flag ya aplicado (entrada al motor clínico). */
+export interface FlaggedLab extends ExtractedLab {
+  flag: string;
 }
 
 export interface ClinicalInput {
   caseId: string;
-  answers: Record<string, unknown>;
-  labs: ExtractedLab[];
-  glp1?: { declared: boolean; lastDose?: string };
-  imc?: number;
+  answers: Record<string, { value: unknown; type: string }>;
+  labs: FlaggedLab[];
+  glp1?: { declared: boolean; drug?: string; lastDose?: string };
+  imc?: number | null;
 }
 
 export interface AIProvider {
@@ -88,7 +93,7 @@ class StubAIProvider implements AIProvider {
         patologicos: ok(val('13') ?? val('12'), 'formulario:P12-13'),
         medicamentos: ok(val('14'), 'formulario:P14'),
         glp1: glp1
-          ? { valor: `Agonista GLP-1 declarado (${input.glp1.drug})`, estado: 'ok', fuente: 'derivado:P14', alerta: true }
+          ? { valor: `Agonista GLP-1 declarado (${input.glp1?.drug ?? ''})`, estado: 'ok', fuente: 'derivado:P14', alerta: true }
           : { valor: null, estado: 'no_reportado', fuente: null },
         alergias: ok(val('15'), 'formulario:P15'),
         grupo_sanguineo: ok(val('11'), 'formulario:P11'),

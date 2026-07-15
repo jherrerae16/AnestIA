@@ -88,7 +88,11 @@
 - [x] U7 Afinado — DONE. US-7.1/7.2/7.3. 42 tests green (PBT rateLimit). Audit endpoint (12-event timeline verified), rate-limit live (429), pg-boss retries, npm audit documented, compliance-report.md (CS1-CS8 all ✅). ALL 8 UNITS COMPLETE.
 - [ ] Build and Test (after all units)
 - [ ] Build and Test (after all units)
+- [x] Build and Test — DONE. 3/3 builds pass (fixed 6 next-build-only type errors); 42 unit tests green; 4 integration scenarios verified; compliance CS1-CS8 ✅. Ready for supervised pilot.
 - Infrastructure Design — SKIP (all units)
+
+## PILOT COMPLETE
+All 8 units (U0-U7) + Build&Test done. Full cycle works end-to-end with AI stubbed. Operations = future placeholder.
 ### 🟡 OPERATIONS
 - [ ] Operations — PLACEHOLDER
 
