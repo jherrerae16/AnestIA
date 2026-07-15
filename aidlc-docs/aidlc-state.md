@@ -79,8 +79,11 @@
 - [x] Units Generation — EXECUTE (approved 2026-07-15). Q1=A sequential, Q2=B consolidated per-unit gates (1 design + 1 code gate/unit).
 ### 🟢 CONSTRUCTION (per unit ×8, sequential; per-unit: Design gate [FD+NFR] then Code gate)
 - [x] U0 Fundaciones — DONE (approved 2026-07-15). US-0.1 + US-0.2. 8 tests green, auth verified, seed idempotent.
-- [~] U1 Captura — Code GENERATED + verified end-to-end → GATE (awaiting code approval). US-1.1…1.7. 14 tests green (PBT conditional/validate/round-trip). Backend smoke full (consent gate, validation, submit, patient upsert, form.submitted enqueued, idempotent). Angular builds. Note: token-entropy PBT + upload verified via smoke, not separate unit test.
-- [ ] U2 Lab Intelligence
+- [x] U1 Captura — DONE (approved 2026-07-15, committed+pushed). US-1.1…1.7. 14 tests green, backend smoke full, Angular builds.
+- [~] U2 Lab Intelligence — Code GENERATED + verified end-to-end (real worker) → GATE. US-2.1/2.2/2.3. 22 tests green (PBT flagLab determinism/monotonicity/oracle + GLP-1). Pipeline: extract 7 analytes+sourceRef, deterministic flags, GLP-1 ozempic detected, LABS_ANALIZADOS, clinical.generate enqueued, idempotent. (Note: skipped needless lib/labs/engine.ts wrapper; logic in shared+service.)
+
+## Git
+- Private repo: https://github.com/jherrerae16/AnestIA (origin/main). Commit+push after each unit. .env/node_modules/storage gitignored; seed password redacted from audit.md.
 - [ ] U3 Motor clínico
 - [ ] U4 Documento
 - [ ] U5 HITL

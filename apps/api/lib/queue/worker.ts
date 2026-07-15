@@ -1,14 +1,18 @@
 import { getBoss } from './index';
 import { logger } from '../logger';
+import { onLabExtract, onLabFlag } from './handlers';
 
 /**
- * Worker entry (npm run worker). En U0 sólo arranca pg-boss; los handlers del
- * pipeline se registran aquí a partir de U2.
+ * Worker (npm run worker): arranca pg-boss y registra los handlers del pipeline.
+ * U2: form.submitted → lab.extract → lab.flag. (clinical.generate/document.render en U3/U4.)
  */
 async function main() {
-  await getBoss();
-  logger.info('worker_ready (sin handlers en U0)');
-  // Mantener vivo el proceso.
+  const boss = await getBoss();
+
+  await boss.work('form.submitted', onLabExtract);
+  await boss.work('lab.flag', onLabFlag);
+
+  logger.info('worker_ready — handlers: form.submitted→lab.extract, lab.flag');
   process.stdin.resume();
 }
 
