@@ -3,6 +3,7 @@ import { prisma } from '../prisma';
 import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
 import { logAudit } from '../audit';
+import { brandingDataUri } from '../pdf/branding';
 import {
   canApprove,
   applyExamNormal,
@@ -81,17 +82,6 @@ export async function setExam(
   await logAudit({ action: 'assessment.exam_confirmed', entity: 'Case', entityId: caseId, meta: { mode: 'manual' } });
 }
 
-async function toDataUri(publicPath: string | null | undefined): Promise<string | null> {
-  if (!publicPath) return null;
-  try {
-    const { readFile } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    const bytes = await readFile(join(process.cwd(), 'public', publicPath.replace(/^\//, '')));
-    const mime = publicPath.endsWith('.svg') ? 'image/svg+xml' : 'image/png';
-    return `data:${mime};base64,${bytes.toString('base64')}`;
-  } catch { return null; }
-}
-
 /**
  * Aprobación: re-chequea canApprove (server-side), snapshot+hash, PDF final inmutable,
  * ApprovalRecord, lock, audit, status APROBADO. La IA nunca llega aquí (CS1).
@@ -110,8 +100,8 @@ export async function approve(caseId: string, anesthesiologistId: string): Promi
 
   const a = kase.anesthesiologist;
   const branding: Branding = {
-    logoUrl: await toDataUri(a.clinicLogoUrl),
-    signatureUrl: await toDataUri(a.signatureUrl),
+    logoUrl: await brandingDataUri(a.clinicLogoUrl),
+    signatureUrl: await brandingDataUri(a.signatureUrl),
     doctorName: a.fullName,
     specialty: a.specialty,
     registry: a.medicalRegistry,

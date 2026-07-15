@@ -1,27 +1,9 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { prisma } from '../prisma';
 import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
 import { logAudit } from '../audit';
+import { brandingDataUri } from '../pdf/branding';
 import { buildDocumentHtml, type Branding, type DocumentJSON } from '@anestia/shared';
-
-/**
- * Convierte un asset de branding (ruta bajo /public) en data URI para que Playwright
- * lo incruste sin depender de la red. Devuelve null si no se puede leer.
- */
-async function toDataUri(publicPath: string | null | undefined): Promise<string | null> {
-  if (!publicPath) return null;
-  try {
-    const rel = publicPath.replace(/^\//, '');
-    const full = join(process.cwd(), 'public', rel);
-    const bytes = await readFile(full);
-    const mime = full.endsWith('.svg') ? 'image/svg+xml' : full.endsWith('.png') ? 'image/png' : 'application/octet-stream';
-    return `data:${mime};base64,${bytes.toString('base64')}`;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Renderiza el PDF de BORRADOR del caso desde el GeneratedAssessment.
@@ -39,8 +21,8 @@ export async function renderDraftForCase(caseId: string, fechaValoracion: string
   const a = kase?.anesthesiologist;
 
   const branding: Branding = {
-    logoUrl: await toDataUri(a?.clinicLogoUrl),
-    signatureUrl: await toDataUri(a?.signatureUrl),
+    logoUrl: await brandingDataUri(a?.clinicLogoUrl),
+    signatureUrl: await brandingDataUri(a?.signatureUrl),
     doctorName: a?.fullName ?? 'Anestesiólogo',
     specialty: a?.specialty ?? null,
     registry: a?.medicalRegistry ?? null,

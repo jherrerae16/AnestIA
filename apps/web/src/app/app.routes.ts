@@ -40,6 +40,10 @@ export const routes: Routes = [
         path: 'patients',
         loadComponent: () => import('./pages/patient-history.page').then((m) => m.PatientHistoryPage),
       },
+      {
+        path: 'profile',
+        loadComponent: () => import('./pages/profile.page').then((m) => m.ProfilePage),
+      },
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
     ],
   },
