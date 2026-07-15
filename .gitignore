@@ -1,0 +1,29 @@
+# deps
+node_modules/
+**/node_modules/
+
+# env / secrets
+.env
+.env.local
+*.env
+!.env.example
+
+# runtime files (patient attachments, PDFs, signatures)
+storage/
+
+# builds
+dist/
+.next/
+**/dist/
+**/.next/
+apps/web/.angular/
+apps/web/dist/
+
+# prisma
+prisma/*.db
+
+# os / editor
+.DS_Store
+*.log
+coverage/
+.vitest/
