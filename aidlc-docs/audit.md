@@ -350,3 +350,13 @@ Append-only. Complete raw user inputs captured verbatim. ISO 8601 timestamps.
 **Approval Prompt**: "U7 code complete + verified. Approve & Continue to Build & Test, or Request Changes."
 
 ---
+
+## Build and Test Stage
+**Timestamp**: 2026-07-15T07:45:00Z
+**Build Status**: Success (shared typecheck, apps/api next build 11 routes, apps/web ng build). Fixed 6 production-build-only type errors in ai/index.ts + clinical.service.ts (ClinicalInput/ExtractedLab/FlaggedLab/imc/glp1/DocField) that next dev did not catch.
+**Test Status**: Pass — 42 unit tests (35 shared + 7 api, PBT across all 8 units); 4 integration scenarios verified end-to-end (pipeline, HITL blocking gate, distribution, security).
+**Files Generated**: build-instructions.md, unit-test-instructions.md, integration-test-instructions.md, security-test-instructions.md, build-and-test-summary.md.
+**AI Response**: All 8 units + Build&Test complete. Compliance CS1-CS8 verified (compliance-report.md). Ready for supervised local pilot. Operations = future placeholder.
+**Approval Prompt**: "Build & Test complete. AnestIA pilot done. Approve to close, or Request Changes."
+
+---

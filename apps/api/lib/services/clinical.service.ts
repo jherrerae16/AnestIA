@@ -58,7 +58,7 @@ export async function generateForCase(caseId: string): Promise<void> {
   const parsed = documentSchema.parse(raw);
 
   // Guardarraíles (segunda línea) — CS2/CS3/CS4.
-  const doc = enforceGuardrails(parsed, input.imc);
+  const doc = enforceGuardrails(parsed, input.imc ?? null);
 
   const modelUsed = process.env.AI_PROVIDER === 'anthropic' ? 'claude-opus' : 'stub';
 
