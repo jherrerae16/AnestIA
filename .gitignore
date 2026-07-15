@@ -8,8 +8,9 @@ node_modules/
 *.env
 !.env.example
 
-# runtime files (patient attachments, PDFs, signatures)
+# runtime files (patient attachments, PDFs, signatures) — anywhere
 storage/
+**/storage/
 
 # builds
 dist/

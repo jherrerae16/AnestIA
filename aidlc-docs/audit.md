@@ -278,3 +278,21 @@ Append-only. Complete raw user inputs captured verbatim. ISO 8601 timestamps.
 **Approval Prompt**: "U3 code complete + verified. Approve & Continue to U4 Documento, or Request Changes."
 
 ---
+
+## U3 Approved (committed+pushed); U4 Documento begins
+**Timestamp**: 2026-07-15T04:45:00Z
+**User Input**: "continue"
+**AI Response**: U3 approved, committed+pushed. Entering U4 Documento (document.render → PDF via Playwright, Diseño Oficial, branding, draft-only while exam pending). Wrote U4 consolidated design + design plan. Note: Playwright is a new heavy dep (downloads Chromium). GATE.
+**Context**: CONSTRUCTION / U4 — consolidated design gate
+**Approval Prompt**: "U4 design posted. Answer questions + approve to proceed to U4 Code Generation."
+
+---
+
+## U4 Design Approved (all A); Code Gen
+**Timestamp**: 2026-07-15T05:00:00Z
+**User Input**: "listo" (Q1/Q2/Q3 = A).
+**AI Response**: U4 approved: Q1=A install Playwright+Chromium; Q2=A generate branding placeholders; Q3=A BORRADOR watermark while exam pending. Started Playwright install in background. Writing code-gen plan + generating U4 (HTML template Diseño Oficial, escapeHtml, PdfRenderer Playwright, document.render handler, branding assets).
+**Context**: CONSTRUCTION / U4 — Code Generation
+**Approval Prompt**: "U4 code complete + verified. Approve & Continue to U5 HITL, or Request Changes."
+
+---

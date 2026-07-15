@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="60" viewBox="0 0 180 60">
+  <rect width="180" height="60" rx="6" fill="#0b5c6b"/>
+  <circle cx="30" cy="30" r="16" fill="#ffffff" opacity="0.9"/>
+  <text x="30" y="35" font-family="Arial" font-size="16" font-weight="bold" fill="#0b5c6b" text-anchor="middle">C</text>
+  <text x="56" y="27" font-family="Arial" font-size="13" font-weight="bold" fill="#ffffff">Clínica Portoazul</text>
+  <text x="56" y="43" font-family="Arial" font-size="9" fill="#cfe6ea">Barranquilla · placeholder</text>
+</svg>

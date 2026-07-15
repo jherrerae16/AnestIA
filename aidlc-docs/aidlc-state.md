@@ -81,8 +81,8 @@
 - [x] U0 Fundaciones — DONE (approved 2026-07-15). US-0.1 + US-0.2. 8 tests green, auth verified, seed idempotent.
 - [x] U1 Captura — DONE (approved 2026-07-15, committed+pushed). US-1.1…1.7. 14 tests green, backend smoke full, Angular builds.
 - [x] U2 Lab Intelligence — DONE (approved, committed+pushed). 22 tests green, pipeline verified with real worker.
-- [~] U3 Motor clínico — Code GENERATED + verified end-to-end (real worker) → GATE. US-3.1/3.2/3.3. 29 tests green (PBT computeIMC oracle/monotonic, enforceGuardrails CS2/CS3/CS4). Pipeline: GeneratedAssessment persisted (prompt-maestro-v2/stub), IMC by code (27.3), exam pendiente_examen, ASA II, GLP-1 ozempic alerta, BORRADOR_GENERADO, document.render enqueued.
-- [ ] U4 Documento
+- [x] U3 Motor clínico — DONE (approved, committed+pushed). US-3.1/3.2/3.3. 29 tests green, pipeline verified with real worker.
+- [~] U4 Documento — Code GENERATED + verified end-to-end → GATE. US-4.1. 34 tests green (PBT buildDocumentHtml determinism/watermark/escape). Playwright renders real PDF (101KB, 1 page). FULL pipeline verified: form.submitted→…→document.rendered, status PENDIENTE_REVISION. Storage → apps/api/storage (gitignored **/storage/).
 - [ ] U5 HITL
 - [ ] U6 Distribución/historial
 - [ ] U7 Afinado
