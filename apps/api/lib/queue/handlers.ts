@@ -3,6 +3,7 @@ import { publish } from './index';
 import { logger } from '../logger';
 import { logAudit } from '../audit';
 import { extractForCase, flagForCase } from '../services/lab.service';
+import { generateForCase } from '../services/clinical.service';
 
 type Job = { data: { caseId: string } };
 
@@ -29,5 +30,19 @@ export async function onLabFlag(jobs: Job[]): Promise<void> {
     await logAudit({ action: 'lab.flagged', entity: 'Case', entityId: caseId });
     logger.info({ caseId }, 'lab_flag_done');
     await publish('clinical.generate', { caseId });
+  }
+}
+
+/**
+ * Handler clinical.generate → document.render. Genera el borrador estructurado
+ * (guardarraíles CS2/CS3/CS4/CS5), avanza estado, publica render.
+ */
+export async function onClinicalGenerate(jobs: Job[]): Promise<void> {
+  for (const job of jobs) {
+    const { caseId } = job.data;
+    await generateForCase(caseId);
+    await prisma.case.update({ where: { id: caseId }, data: { status: 'BORRADOR_GENERADO' } }).catch(() => {});
+    logger.info({ caseId }, 'clinical_generate_done');
+    await publish('document.render', { caseId });
   }
 }

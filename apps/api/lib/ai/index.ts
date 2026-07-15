@@ -52,17 +52,70 @@ class StubAIProvider implements AIProvider {
     ];
   }
 
-  async generateAssessment(_input: ClinicalInput): Promise<DocumentJSON> {
-    // Esqueleto: examen físico en pendiente_examen (CS3). Se completa en U3.
+  async generateAssessment(input: ClinicalInput): Promise<DocumentJSON> {
+    // Stub: construye el documento con los datos REALES del caso donde existan
+    // (identificación, antecedentes, paraclínicos); narrativos derivados de ejemplo;
+    // examen físico TODO pendiente (los guardarraíles lo re-fuerzan igualmente).
+    const a = input.answers ?? {};
+    const val = (order: string): string | null => {
+      const v = a[order]?.value;
+      if (v == null || v === '') return null;
+      return Array.isArray(v) ? v.join(', ') : String(v);
+    };
+    const ok = (valor: string | null, fuente: string): DocField =>
+      valor != null
+        ? { valor, estado: 'ok', fuente }
+        : { valor: null, estado: 'no_reportado', fuente: null };
+
+    const glp1 = input.glp1?.declared;
+    const recomendaciones = glp1
+      ? 'Ayuno de 8 horas; dieta líquida en las 24 horas previas; confirmar ausencia de náuseas, vómito o distensión. Ante uso de agonista GLP-1, considerar ecografía gástrica y manejar como estómago lleno o diferir si hay riesgo de contenido gástrico residual.'
+      : 'Ayuno según protocolo institucional; confirmar condiciones el día del procedimiento.';
+
     return {
-      identificacion: {},
-      antecedentes: {},
-      paraclinicos: {},
-      examen_fisico: {
-        signos_vitales: { valor: null, estado: 'pendiente_examen', fuente: null },
-        via_aerea: { valor: null, estado: 'pendiente_examen', fuente: null },
+      identificacion: {
+        paciente: ok(val('1'), 'formulario:P1'),
+        documento: ok(val('2'), 'formulario:P2'),
+        sexo: ok(val('4'), 'formulario:P4'),
+        procedimiento: ok(val('9'), 'formulario:P9'),
+        // imc lo fija el guardarraíl (código)
+        diagnostico_preoperatorio: val('9')
+          ? { valor: `Paciente programado para ${val('9')}`, estado: 'ok', fuente: 'derivado:IA' }
+          : { valor: null, estado: 'no_reportado', fuente: null },
+        asa: { valor: 'II', estado: 'ok', fuente: 'derivado:IA' },
       },
-      valoracion_plan: {},
+      antecedentes: {
+        patologicos: ok(val('13') ?? val('12'), 'formulario:P12-13'),
+        medicamentos: ok(val('14'), 'formulario:P14'),
+        glp1: glp1
+          ? { valor: `Agonista GLP-1 declarado (${input.glp1.drug})`, estado: 'ok', fuente: 'derivado:P14', alerta: true }
+          : { valor: null, estado: 'no_reportado', fuente: null },
+        alergias: ok(val('15'), 'formulario:P15'),
+        grupo_sanguineo: ok(val('11'), 'formulario:P11'),
+        transfusionales: ok(val('17'), 'formulario:P17'),
+        protesis_dental: ok(val('22'), 'formulario:P22'),
+      },
+      paraclinicos: Object.fromEntries(
+        (input.labs ?? []).map((l) => [
+          l.analyte.toLowerCase().replace(/\s+/g, '_'),
+          {
+            valor: `${l.value}${l.unit ? ' ' + l.unit : ''}`,
+            estado: 'ok' as const,
+            fuente: l.sourceRef ?? 'lab',
+            alerta: l.flag !== 'NORMAL',
+          },
+        ]),
+      ),
+      examen_fisico: {}, // el guardarraíl lo llena todo como pendiente_examen
+      valoracion_plan: {
+        concepto: {
+          valor: 'Paciente apto para el procedimiento electivo, condicionado a la verificación del examen físico presencial y a los hallazgos paraclínicos disponibles.',
+          estado: 'ok',
+          fuente: 'derivado:IA',
+        },
+        plan: { valor: 'Anestesia general (borrador, verificar).', estado: 'ok', fuente: 'derivado:IA' },
+        recomendaciones: { valor: recomendaciones, estado: 'ok', fuente: 'derivado:IA', alerta: glp1 },
+      },
     };
   }
 }
