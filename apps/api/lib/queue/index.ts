@@ -24,9 +24,9 @@ export async function getBoss(): Promise<PgBoss> {
   boss = new PgBoss({ connectionString });
   boss.on('error', (err) => logger.error({ err: err.message }, 'pgboss_error'));
   await boss.start();
-  // Crear las colas (idempotente) — requerido en pg-boss v10.
+  // Crear las colas (idempotente) con reintentos + backoff (US-7.2 / SECURITY-15).
   for (const q of QUEUES) {
-    await boss.createQueue(q);
+    await boss.createQueue(q, { retryLimit: 3, retryBackoff: true } as never);
   }
   logger.info('pgboss_started');
   return boss;

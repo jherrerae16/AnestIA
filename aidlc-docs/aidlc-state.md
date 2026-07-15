@@ -84,8 +84,9 @@
 - [x] U3 Motor clínico — DONE (approved, committed+pushed). US-3.1/3.2/3.3. 29 tests green, pipeline verified with real worker.
 - [x] U4 Documento — DONE (approved, committed+pushed). US-4.1. 34 tests green, real PDF, full pipeline verified.
 - [x] U5 HITL — DONE (approved, committed+pushed). US-5.1…5.5. 37 tests green, blocking gate verified (CS1/CS3/CS7).
-- [~] U6 Distribución/historial — Code GENERATED + verified (backend smoke) → GATE. US-6.1…6.5. 40 tests green. Distribution verified: contact→distribute link→ENTREGADO→open link 200 PDF→accessedAt; non-approved→422 (CS7). Patient search + dashboard work. SMTP gmail real behind env creds (deferred); Sheets noop. Angular builds.
-- [ ] U7 Afinado
+- [x] U6 Distribución/historial — DONE (approved, committed+pushed). US-6.1…6.5. 40 tests green, distribution verified (CS7).
+- [x] U7 Afinado — DONE. US-7.1/7.2/7.3. 42 tests green (PBT rateLimit). Audit endpoint (12-event timeline verified), rate-limit live (429), pg-boss retries, npm audit documented, compliance-report.md (CS1-CS8 all ✅). ALL 8 UNITS COMPLETE.
+- [ ] Build and Test (after all units)
 - [ ] Build and Test (after all units)
 - Infrastructure Design — SKIP (all units)
 ### 🟡 OPERATIONS

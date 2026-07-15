@@ -12,6 +12,23 @@ const SESSION_COOKIE = 'anestia_session';
 
 const PUBLIC_PANEL_PATHS = ['/api/panel/auth/login'];
 
+// Rate limit in-memory (SECURITY-11). Rutas públicas: form del paciente, descarga, login.
+const RL_HITS = new Map<string, number[]>();
+function rateLimited(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const arr = (RL_HITS.get(key) ?? []).filter((t) => now - t < windowMs);
+  arr.push(now);
+  RL_HITS.set(key, arr);
+  return arr.length > limit;
+}
+function isPublicLimited(pathname: string): boolean {
+  return (
+    pathname.startsWith('/api/form/') ||
+    pathname.startsWith('/api/download/') ||
+    pathname.startsWith('/api/panel/auth/login')
+  );
+}
+
 function securityHeaders(res: NextResponse): NextResponse {
   res.headers.set('Content-Security-Policy', "default-src 'self'");
   res.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
@@ -23,6 +40,16 @@ function securityHeaders(res: NextResponse): NextResponse {
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Rate limit para rutas públicas (SECURITY-11): 30 req / 10s por IP+ruta.
+  if (isPublicLimited(pathname)) {
+    const ip = req.headers.get('x-forwarded-for') ?? 'local';
+    if (rateLimited(`${ip}:${pathname}`, 30, 10_000)) {
+      return securityHeaders(
+        NextResponse.json({ error: 'Demasiadas solicitudes. Intenta en un momento.' }, { status: 429 }),
+      );
+    }
+  }
 
   const isPanel = pathname.startsWith('/api/panel/');
   const isPublicPanel = PUBLIC_PANEL_PATHS.some((p) => pathname.startsWith(p));
