@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { logger } from './logger';
 import { SessionError } from './auth/session-helper';
+import { ApprovedLockError } from './services/approval.service';
 
 /**
  * Manejador global fail-closed (SECURITY-15). Envuelve handlers de rutas:
@@ -23,6 +24,9 @@ export function apiHandler<T extends unknown[]>(
       }
       if (err instanceof SessionError) {
         return NextResponse.json({ error: 'No autorizado.' }, { status: 401 });
+      }
+      if (err instanceof ApprovedLockError) {
+        return NextResponse.json({ error: err.message }, { status: 409 });
       }
       logger.error({ err: err instanceof Error ? err.message : 'unknown' }, 'unhandled_api_error');
       return NextResponse.json(
