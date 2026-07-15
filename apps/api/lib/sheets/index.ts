@@ -27,10 +27,16 @@ class NoopSheetsExporter implements SheetsExporter {
 class GoogleSheetsExporter implements SheetsExporter {
   async export(rows: SheetRow[]): Promise<{ spreadsheetUrl: string | null }> {
     const { google } = await import('googleapis');
-    const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
     const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+    // Credenciales: por ruta de archivo (GOOGLE_SERVICE_ACCOUNT_FILE) o JSON inline (GOOGLE_SERVICE_ACCOUNT_JSON).
+    let raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    const file = process.env.GOOGLE_SERVICE_ACCOUNT_FILE;
+    if (!raw && file) {
+      const { readFile } = await import('node:fs/promises');
+      raw = await readFile(file, 'utf8');
+    }
     if (!raw || !spreadsheetId) {
-      throw new Error('Sheets "google" requiere GOOGLE_SERVICE_ACCOUNT_JSON y GOOGLE_SHEETS_SPREADSHEET_ID.');
+      throw new Error('Sheets "google" requiere GOOGLE_SERVICE_ACCOUNT_FILE (o _JSON) y GOOGLE_SHEETS_SPREADSHEET_ID.');
     }
     const credentials = JSON.parse(raw);
     const auth = new google.auth.GoogleAuth({

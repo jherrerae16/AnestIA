@@ -28,3 +28,6 @@ prisma/*.db
 *.log
 coverage/
 .vitest/
+
+# credenciales locales (JSON de service account, etc.)
+.secrets/
