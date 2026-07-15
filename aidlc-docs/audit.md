@@ -260,3 +260,21 @@ Append-only. Complete raw user inputs captured verbatim. ISO 8601 timestamps.
 **Approval Prompt**: "U2 code complete + verified. Approve & Continue to U3, or Request Changes."
 
 ---
+
+## U2 Approved (committed+pushed); U3 Motor clínico begins
+**Timestamp**: 2026-07-15T04:10:00Z
+**User Input**: "Continue"
+**AI Response**: U2 approved, committed+pushed to origin/main. Entering U3 Motor clínico (clinical.generate). Wrote U3 consolidated design (FD+NFR) + design plan with questions. Scope: prompt-maestro system prompt + generateObject(documentSchema), IMC by code, derive dx/ASA/plan, exam=pendiente_examen, GLP-1 recs, persist GeneratedAssessment w/ promptVersion+modelUsed. Stub returns valid structured JSON until key. GATE.
+**Context**: CONSTRUCTION / U3 — consolidated design gate
+**Approval Prompt**: "U3 design posted. Answer questions + approve to proceed to U3 Code Generation."
+
+---
+
+## U3 Design Approved (defaults); Code Gen
+**Timestamp**: 2026-07-15T04:25:00Z
+**User Input**: "listo" (3 [Answer]: blank → all A).
+**AI Response**: U3 design approved: Q1=A stub ASA example + deterministic comorbidity helper (marked verify); Q2=A full Anexo-C stub filled with REAL case data where present, narratives example, exam pending; Q3=A promptVersion=prompt-maestro-v2, modelUsed=stub/real. Writing code-gen plan + generating U3.
+**Context**: CONSTRUCTION / U3 — Code Generation
+**Approval Prompt**: "U3 code complete + verified. Approve & Continue to U4 Documento, or Request Changes."
+
+---
