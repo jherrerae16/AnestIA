@@ -332,3 +332,21 @@ Append-only. Complete raw user inputs captured verbatim. ISO 8601 timestamps.
 **Approval Prompt**: "U6 code complete + verified. Approve & Continue to U7 Afinado, or Request Changes."
 
 ---
+
+## U6 Approved (committed+pushed); U7 Afinado begins
+**Timestamp**: 2026-07-15T07:00:00Z
+**User Input**: "Continue"
+**AI Response**: U6 approved, committed+pushed. Entering U7 Afinado (final unit): job retries/idempotency, security hardening, error handling, full compliance review (Reviewer hat: Ley 1581, immutability, HITL, extensions). Wrote U7 consolidated design + design plan. GATE.
+**Context**: CONSTRUCTION / U7 — consolidated design gate
+**Approval Prompt**: "U7 design posted. Answer questions + approve to proceed to U7 Code Generation."
+
+---
+
+## U7 Design Approved (all A); Code Gen
+**Timestamp**: 2026-07-15T07:15:00Z
+**User Input**: "continue" (Q1/Q2/Q3 = A).
+**AI Response**: U7 approved: Q1=A document npm audit, no fix --force; Q2=A in-memory rate-limit; Q3=A compliance-report.md. Writing code-gen plan + generating U7 (rateLimit, middleware ext, audit endpoint, pg-boss retries, npm audit doc, compliance report).
+**Context**: CONSTRUCTION / U7 — Code Generation
+**Approval Prompt**: "U7 code complete + verified. Approve & Continue to Build & Test, or Request Changes."
+
+---
