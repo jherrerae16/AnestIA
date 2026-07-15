@@ -24,6 +24,7 @@ import { AuthService } from '../core/auth.service';
         <a routerLink="/patients">Pacientes</a>
         <a routerLink="/directory">Directorio</a>
         <a routerLink="/presets">Cuestionarios</a>
+        <a routerLink="/profile" data-testid="nav-profile">Perfil</a>
       </nav>
       <button (click)="logout()" data-testid="panel-logout-button">Salir</button>
     </header>

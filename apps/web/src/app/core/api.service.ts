@@ -86,4 +86,17 @@ export class ApiService {
   getPatient(id: string): Promise<any> {
     return firstValueFrom(this.http.get<any>(`/api/panel/patients/${id}`));
   }
+
+  // --- Perfil / branding ---
+  getProfile(): Promise<any> {
+    return firstValueFrom(this.http.get<any>('/api/panel/profile'));
+  }
+  updateProfile(data: { fullName?: string; specialty?: string; medicalRegistry?: string; footerText?: string }): Promise<any> {
+    return firstValueFrom(this.http.patch<any>('/api/panel/profile', data));
+  }
+  uploadBranding(kind: 'logo' | 'signature', file: File): Promise<{ ok: boolean; url?: string }> {
+    const fd = new FormData();
+    fd.append('file', file);
+    return firstValueFrom(this.http.post<{ ok: boolean; url?: string }>(`/api/panel/profile/branding?kind=${kind}`, fd));
+  }
 }
