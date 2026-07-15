@@ -83,8 +83,8 @@
 - [x] U2 Lab Intelligence — DONE (approved, committed+pushed). 22 tests green, pipeline verified with real worker.
 - [x] U3 Motor clínico — DONE (approved, committed+pushed). US-3.1/3.2/3.3. 29 tests green, pipeline verified with real worker.
 - [x] U4 Documento — DONE (approved, committed+pushed). US-4.1. 34 tests green, real PDF, full pipeline verified.
-- [~] U5 HITL — Code GENERATED + verified (backend smoke) → GATE. US-5.1…5.5. 37 tests green (PBT canApprove blocking invariant). Blocking gate verified: approve-with-exam-pending→422, load-normal→approvable, approve→APROBADO+immutable PDF+ApprovalRecord, edit-after→409 lock. CS1/CS3/CS7 enforced. Angular builds. (canApprove folded into review GET, no separate route.)
-- [ ] U6 Distribución/historial
+- [x] U5 HITL — DONE (approved, committed+pushed). US-5.1…5.5. 37 tests green, blocking gate verified (CS1/CS3/CS7).
+- [~] U6 Distribución/historial — Code GENERATED + verified (backend smoke) → GATE. US-6.1…6.5. 40 tests green. Distribution verified: contact→distribute link→ENTREGADO→open link 200 PDF→accessedAt; non-approved→422 (CS7). Patient search + dashboard work. SMTP gmail real behind env creds (deferred); Sheets noop. Angular builds.
 - [ ] U7 Afinado
 - [ ] Build and Test (after all units)
 - Infrastructure Design — SKIP (all units)

@@ -26,6 +26,18 @@ import { ApiService } from '../core/api.service';
     @if (loading()) { <p>Cargando…</p> }
     @else if (approved()) {
       <div class="ok-badge" data-testid="review-approved">✔ Caso APROBADO. El documento final está firmado e inmutable.</div>
+      <div class="card" style="margin-top:1rem">
+        <h3>Distribuir reporte</h3>
+        @for (c of contacts(); track c.id) {
+          <label style="display:block;padding:.2rem 0">
+            <input type="checkbox" [value]="c.id" (change)="toggle(c.id, $event)" data-testid="distribute-contact-checkbox" /> {{ c.label }} — {{ c.email }}
+          </label>
+        }
+        <button class="exam" (click)="doDistribute()" data-testid="distribute-send-button" style="margin-top:.5rem">Generar enlace / enviar</button>
+        @for (d of deliveries(); track d.token) {
+          <div style="margin-top:.5rem;font-size:.85rem"><input readonly [value]="d.url" style="width:70%" /> <button (click)="copy(d.url)">Copiar</button></div>
+        }
+      </div>
     }
     @else {
       <div class="cols">
@@ -86,6 +98,9 @@ export class ReviewApprovalPage implements OnInit {
   fields = signal<any>({});
   labs = signal<any[]>([]);
   check = signal<{ ok: boolean; blockers: string[] } | null>(null);
+  contacts = signal<any[]>([]);
+  deliveries = signal<any[]>([]);
+  private selectedContacts = new Set<string>();
 
   async ngOnInit() {
     this.caseId = this.route.snapshot.paramMap.get('id') ?? '';
@@ -98,8 +113,21 @@ export class ReviewApprovalPage implements OnInit {
     this.fields.set(r.fields ?? {});
     this.labs.set(r.labs ?? []);
     this.check.set(r.canApprove);
-    this.approved.set(r.approved || r.status === 'APROBADO');
+    const isApproved = r.approved || r.status === 'APROBADO' || r.status === 'ENTREGADO';
+    this.approved.set(isApproved);
+    if (isApproved) this.contacts.set((await this.api.listContacts()).contacts);
   }
+
+  toggle(id: string, ev: Event) {
+    const checked = (ev.target as HTMLInputElement).checked;
+    if (checked) this.selectedContacts.add(id); else this.selectedContacts.delete(id);
+  }
+  async doDistribute() {
+    if (this.selectedContacts.size === 0) return;
+    const res = await this.api.distribute(this.caseId, [...this.selectedContacts], 'link');
+    this.deliveries.set(res.deliveries ?? []);
+  }
+  async copy(url: string) { await navigator.clipboard.writeText(url); }
 
   entries(section: string): { k: string; v: any }[] {
     const sec = this.fields()[section] ?? {};

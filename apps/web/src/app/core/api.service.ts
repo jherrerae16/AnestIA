@@ -65,4 +65,25 @@ export class ApiService {
   reject(caseId: string, reason: string): Promise<unknown> {
     return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/reject`, { reason }));
   }
+
+  // --- U6 distribución / historial / dashboard ---
+  dashboard(status?: string): Promise<any> {
+    const q = status ? `?status=${status}` : '';
+    return firstValueFrom(this.http.get<any>(`/api/panel/dashboard${q}`));
+  }
+  listContacts(): Promise<any> {
+    return firstValueFrom(this.http.get<any>('/api/panel/directory'));
+  }
+  addContact(c: { label: string; email: string; type: string; notes?: string }): Promise<any> {
+    return firstValueFrom(this.http.post<any>('/api/panel/directory', c));
+  }
+  distribute(caseId: string, contactIds: string[], channel: 'email' | 'link'): Promise<any> {
+    return firstValueFrom(this.http.post<any>(`/api/panel/cases/${caseId}/distribute`, { contactIds, channel }));
+  }
+  searchPatients(q: string): Promise<any> {
+    return firstValueFrom(this.http.get<any>(`/api/panel/patients?q=${encodeURIComponent(q)}`));
+  }
+  getPatient(id: string): Promise<any> {
+    return firstValueFrom(this.http.get<any>(`/api/panel/patients/${id}`));
+  }
 }

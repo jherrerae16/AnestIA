@@ -32,6 +32,14 @@ export const routes: Routes = [
         path: 'cases/:id/review',
         loadComponent: () => import('./pages/review-approval.page').then((m) => m.ReviewApprovalPage),
       },
+      {
+        path: 'directory',
+        loadComponent: () => import('./pages/directory.page').then((m) => m.DirectoryPage),
+      },
+      {
+        path: 'patients',
+        loadComponent: () => import('./pages/patient-history.page').then((m) => m.PatientHistoryPage),
+      },
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
     ],
   },

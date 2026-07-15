@@ -314,3 +314,21 @@ Append-only. Complete raw user inputs captured verbatim. ISO 8601 timestamps.
 **Approval Prompt**: "U5 code complete + verified. Approve & Continue to U6, or Request Changes."
 
 ---
+
+## U5 Approved (committed+pushed); U6 Distribución begins
+**Timestamp**: 2026-07-15T06:15:00Z
+**User Input**: "continue"
+**AI Response**: U5 approved, committed+pushed. Entering U6 Distribución e historial. Wrote U6 consolidated design + design plan. Scope: directory contacts, distribute final PDF (Gmail SMTP real / tokenized link), DeliveryRecord, patient history + prefill, dashboard, optional Sheets export. SMTP + Sheets creds deferred — will ask at send time; tokenized-link fallback works without creds. GATE.
+**Context**: CONSTRUCTION / U6 — consolidated design gate
+**Approval Prompt**: "U6 design posted. Answer questions + approve to proceed to U6 Code Generation."
+
+---
+
+## U6 Design Approved (all A); Code Gen
+**Timestamp**: 2026-07-15T06:30:00Z
+**User Input**: "continua ya respondi" then "revisa denuevo" — re-read: Q1/Q2/Q3 = A/A/A.
+**AI Response**: U6 approved: Q1=A build with tokenized download link, SMTP real deferred to env creds; Q2=A tokenized download per DeliveryRecord w/ accessedAt; Q3=A Sheets noop deferred. Adding DeliveryRecord.token to schema (minor migration). Writing code-gen plan + generating U6 (directory, distribution, patient history, dashboard).
+**Context**: CONSTRUCTION / U6 — Code Generation
+**Approval Prompt**: "U6 code complete + verified. Approve & Continue to U7 Afinado, or Request Changes."
+
+---

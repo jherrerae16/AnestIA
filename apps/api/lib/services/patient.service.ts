@@ -50,3 +50,31 @@ function str(v: unknown): string {
   if (Array.isArray(v)) return v.join(', ');
   return String(v);
 }
+
+/** Búsqueda de pacientes por documento o nombre (aislado por anesthesiologist). [US-6.3] */
+export function searchPatients(anesthesiologistId: string, query: string) {
+  return prisma.patient.findMany({
+    where: {
+      anesthesiologistId,
+      OR: [
+        { documentId: { contains: query } },
+        { fullName: { contains: query, mode: 'insensitive' } },
+      ],
+    },
+    orderBy: { fullName: 'asc' },
+    take: 50,
+  });
+}
+
+/** Ficha del paciente con su historial de valoraciones. [US-6.3] */
+export function getPatientWithHistory(anesthesiologistId: string, patientId: string) {
+  return prisma.patient.findFirst({
+    where: { id: patientId, anesthesiologistId },
+    include: {
+      cases: {
+        orderBy: { createdAt: 'desc' },
+        include: { assessment: { select: { id: true } }, approval: { select: { approvedAt: true } } },
+      },
+    },
+  });
+}

@@ -199,6 +199,7 @@ model DeliveryRecord {
   contact    DirectoryContact? @relation(fields: [contactId], references: [id])
   contactId  String?
   channel    String   // "email", "link", ...
+  token      String?  @unique // enlace de descarga tokenizado del reporte final
   sentAt     DateTime @default(now())
   accessedAt DateTime?
 }
