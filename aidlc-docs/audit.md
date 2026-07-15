@@ -234,3 +234,29 @@ Append-only. Complete raw user inputs captured verbatim. ISO 8601 timestamps.
 **Approval Prompt**: "U1 code complete + verified. Approve & Continue to U2 Lab Intelligence, or Request Changes."
 
 ---
+
+## U1 Approved (implicit) + Git repo created; U2 begins
+**Timestamp**: 2026-07-15T03:30:00Z
+**User Input**: "haz un repositorio en git privado y vez montando el proyecto AnastIA y continua con el proyecto"
+**AI Response**: Created private GitHub repo https://github.com/jherrerae16/AnestIA (verified PRIVATE). Committed U0+U1 (235 files; node_modules/.env excluded; redacted seed password from audit.md before commit). Pushed to origin/main. U1 treated as approved → entering U2 Lab Intelligence. Will commit+push after each unit going forward.
+**Context**: Git setup + CONSTRUCTION / U1 approval → U2
+
+---
+
+## U2 Lab Intelligence — Consolidated Design
+**Timestamp**: 2026-07-15T03:35:00Z
+**User Input**: (none yet)
+**AI Response**: Wrote U2 consolidated design (FD+NFR-Req+NFR-Design) + design plan with questions. Scope: lab.extract handler (AIProvider stub vision, only-present values, sourceRef), lab.flag handler (deterministic ranges from lab-rules.md → NORMAL/ALERTA/CRITICO), GLP-1 detection. GATE: awaiting U2 design approval.
+**Context**: CONSTRUCTION / U2 — consolidated design gate
+**Approval Prompt**: "U2 design posted. Answer questions + approve to proceed to U2 Code Generation."
+
+---
+
+## U2 Design — Approved (defaults); Code Gen Plan + Generation
+**Timestamp**: 2026-07-15T03:50:00Z
+**User Input**: "Continue" (4 [Answer]: blank → all A defaults).
+**AI Response**: U2 design approved: Q1=A lab thresholds as configurable defaults marked "PENDIENTE validación Dr. Luquetta"; Q2=A GLP-1 list (semaglutida/liraglutida/tirzepatida/dulaglutida/exenatida/lixisenatida + brand names); Q3=A analyte synonym→canonical table; Q4=A register lab.extract/lab.flag handlers in worker. Writing U2 code-gen plan + generating code.
+**Context**: CONSTRUCTION / U2 — Code Generation
+**Approval Prompt**: "U2 code complete + verified. Approve & Continue to U3, or Request Changes."
+
+---

@@ -37,11 +37,18 @@ export interface AIProvider {
 
 /** Stub: valores de ejemplo del Anexo C. Sólo para desarrollo sin key. */
 class StubAIProvider implements AIProvider {
-  async extractLabs(_files: FileRef[]): Promise<ExtractedLab[]> {
-    // Ejemplo del caso Uribe (Anexo C). En U2 se enriquece; aquí es esqueleto.
+  async extractLabs(files: FileRef[]): Promise<ExtractedLab[]> {
+    // Sin adjuntos → no hay nada que extraer (CS2: nunca fabricar).
+    if (!files || files.length === 0) return [];
+    // Caso de referencia (Anexo C, Uribe): hemograma + coagulación en rango.
     return [
-      { analyte: 'Hemoglobina', value: '15.9', unit: 'g/dL', refRange: '13-17', sourceRef: 'stub:hemograma' },
-      { analyte: 'Plaquetas', value: '244000', unit: '/uL', refRange: '150000-450000', sourceRef: 'stub:hemograma' },
+      { analyte: 'Hemoglobina', value: '15.9', unit: 'g/dL', refRange: '13-17', sourceRef: 'stub:hemograma:hb' },
+      { analyte: 'Hematocrito', value: '48.2', unit: '%', refRange: '40-52', sourceRef: 'stub:hemograma:hto' },
+      { analyte: 'Plaquetas', value: '244000', unit: '/uL', refRange: '150000-450000', sourceRef: 'stub:hemograma:plt' },
+      { analyte: 'Leucocitos', value: '7200', unit: '/uL', refRange: '4000-11000', sourceRef: 'stub:hemograma:wbc' },
+      { analyte: 'TP', value: '10.4', unit: 's', refRange: '10-13', sourceRef: 'stub:coagulacion:tp' },
+      { analyte: 'INR', value: '0.97', unit: '', refRange: '0.9-1.2', sourceRef: 'stub:coagulacion:inr' },
+      { analyte: 'TPT', value: '29.5', unit: 's', refRange: '25-35', sourceRef: 'stub:coagulacion:tpt' },
     ];
   }
 
