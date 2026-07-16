@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { buildDocumentHtml, escapeHtml, type Branding } from './pdf-template';
+import { buildDocumentHtml, escapeHtml, toTitleCase, type Branding } from './pdf-template';
 import type { DocumentJSON } from './document';
 
 const branding: Branding = { doctorName: 'Dr. Jorge A. Luquetta', specialty: 'Anestesiología', registry: '123' };
@@ -34,6 +34,18 @@ describe('buildDocumentHtml', () => {
     expect(html).toContain('ANTECEDENTES Y MEDICACIÓN');
     expect(html).toContain('EXAMEN FÍSICO');
     expect(html).toContain('Dr. Jorge A. Luquetta');
+  });
+});
+
+describe('toTitleCase — nombres propios', () => {
+  it('capitaliza minúsculas', () => {
+    expect(toTitleCase('maria elena gomez')).toBe('Maria Elena Gomez');
+  });
+  it('corrige MAYÚSCULAS', () => {
+    expect(toTitleCase('ROBERTO MARIO URIBE')).toBe('Roberto Mario Uribe');
+  });
+  it('respeta partículas de/la/y salvo al inicio', () => {
+    expect(toTitleCase('juan de la cruz y gómez')).toBe('Juan de la Cruz y Gómez');
   });
 });
 

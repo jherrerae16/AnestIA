@@ -51,11 +51,22 @@ function okField(valor: string, fuente = 'anestesiologo'): DocField {
   return { valor, estado: 'ok', fuente };
 }
 
-/** Rellena el examen físico con valores normales (fuente=anestesiologo). No inventa: es confirmación. */
+/**
+ * Rellena el examen físico con valores normales COMO ATESTACIÓN EXPLÍCITA del anestesiólogo
+ * (CS3): NO son "normales por defecto" ni inferidos por la IA. La fuente y la nota dejan
+ * trazabilidad de que fue una confirmación activa de examen presencial normal; requiere que
+ * el llamador (servidor) exija la atestación del médico. Cada valor sigue siendo editable
+ * campo a campo antes de aprobar.
+ */
 export function applyExamNormal(fields: DocumentJSON): DocumentJSON {
   const examen_fisico: Record<string, DocField> = {};
   for (const key of EXAM_FIELDS) {
-    examen_fisico[key] = okField(NORMAL_EXAM[key] ?? 'Sin hallazgos');
+    examen_fisico[key] = {
+      valor: NORMAL_EXAM[key] ?? 'Sin hallazgos',
+      estado: 'ok',
+      fuente: 'anestesiologo:examen-normal-confirmado',
+      nota: 'Confirmado como normal por el anestesiólogo tras examen presencial',
+    };
   }
   return { ...fields, examen_fisico };
 }

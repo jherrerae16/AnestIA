@@ -9,3 +9,4 @@ export * from './clinical';
 export * from './pdf-template';
 export * from './approval';
 export * from './distribution';
+export * from './medical-terms';

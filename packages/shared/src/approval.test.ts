@@ -50,7 +50,8 @@ describe('applyExamNormal', () => {
     const withNormal = applyExamNormal(baseFields(true, true));
     for (const k of EXAM_FIELDS) {
       expect(withNormal.examen_fisico[k]?.estado).toBe('ok');
-      expect(withNormal.examen_fisico[k]?.fuente).toBe('anestesiologo');
+      // CS3: la fuente deja trazabilidad de que fue una atestación explícita, no "normal por defecto".
+      expect(withNormal.examen_fisico[k]?.fuente).toBe('anestesiologo:examen-normal-confirmado');
     }
     expect(canApprove(withNormal).ok).toBe(true);
   });
