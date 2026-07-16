@@ -146,3 +146,42 @@ export async function reject(caseId: string, anesthesiologistId: string, reason:
   await prisma.formResponse.updateMany({ where: { caseId }, data: { partial: true, submittedAt: null } });
   await logAudit({ action: 'assessment.rejected', entity: 'Case', entityId: caseId, meta: { reason } });
 }
+
+/**
+ * Reabre un caso APROBADO para corrección (CS7 con trazabilidad). Guarda en el audit log
+ * la versión aprobada previa (snapshot + hash + PDF) antes de eliminar el ApprovalRecord,
+ * y regresa el caso a PENDIENTE_REVISION. Al re-aprobar se genera una versión nueva.
+ * Devuelve false si el caso no existe/no pertenece o no estaba aprobado.
+ */
+export async function reopenApproved(
+  caseId: string, anesthesiologistId: string, reason: string,
+): Promise<boolean> {
+  const kase = await prisma.case.findFirst({
+    where: { id: caseId, anesthesiologistId },
+    include: { approval: true },
+  });
+  if (!kase || !kase.approval) return false;
+
+  const prev = kase.approval;
+  // Trazabilidad: registra la versión aprobada que se está reabriendo.
+  await logAudit({
+    action: 'assessment.reopened',
+    entity: 'Case',
+    entityId: caseId,
+    meta: {
+      reason,
+      previousApprovalId: prev.id,
+      previousLockedPdfUrl: prev.lockedPdfUrl,
+      previousEdits: prev.edits as never,
+      reopenedBy: anesthesiologistId,
+    },
+  });
+
+  await prisma.$transaction([
+    prisma.deliveryRecord.deleteMany({ where: { caseId } }),
+    prisma.approvalRecord.delete({ where: { id: prev.id } }),
+    prisma.case.update({ where: { id: caseId }, data: { status: 'PENDIENTE_REVISION' } }),
+  ]);
+
+  return true;
+}

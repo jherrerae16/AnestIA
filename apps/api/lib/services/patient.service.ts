@@ -35,7 +35,7 @@ export async function upsertFromForm(
     update: {
       fullName,
       phone: str(get(7)) || undefined,
-      email: normalizeEmail(str(get(24))) || undefined,
+      email: normalizeEmail(str(get(26))) || undefined,
       insurer: str(get(8)) || undefined,
       bloodType: str(get(11)) || undefined,
       ...(sex ? { sex } : {}),
@@ -46,7 +46,7 @@ export async function upsertFromForm(
       documentId,
       fullName,
       phone: str(get(7)) || null,
-      email: normalizeEmail(str(get(24))) || null,
+      email: normalizeEmail(str(get(26))) || null,
       insurer: str(get(8)) || null,
       bloodType: str(get(11)) || null,
       sex: (sex ?? undefined) as never,

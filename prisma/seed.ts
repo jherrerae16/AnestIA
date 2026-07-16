@@ -53,23 +53,31 @@ const QUESTIONS: QDef[] = [
     conditional: { showIf: { questionOrder: 12, equals: 'si' } },
   },
   { order: 14, label: '¿Está en tratamiento o utiliza algún medicamento actualmente?', type: 'SI_NO', required: true },
-  { order: 15, label: '¿Es alérgico a algún medicamento o sustancia?', type: 'SI_NO', required: true },
-  { order: 16, label: '¿Le han realizado alguna cirugía o procedimiento bajo anestesia previamente?', type: 'SI_NO', required: true },
   {
-    order: 17, label: '¿Cuáles cirugías o procedimientos? (especifique)', type: 'TEXTO_CORTO', required: true,
+    order: 15, label: '¿Cuáles medicamentos? (especifique)', type: 'TEXTO_CORTO', required: true,
+    conditional: { showIf: { questionOrder: 14, equals: 'si' } },
+  },
+  { order: 16, label: '¿Es alérgico a algún medicamento o sustancia?', type: 'SI_NO', required: true },
+  {
+    order: 17, label: '¿A qué es alérgico? (especifique)', type: 'TEXTO_CORTO', required: true,
     conditional: { showIf: { questionOrder: 16, equals: 'si' } },
   },
-  { order: 18, label: '¿Le han realizado alguna transfusión sanguínea?', type: 'SI_NO', required: true },
-  { order: 19, label: '¿Utiliza prótesis dental o tiene diseño de sonrisa?', type: 'SI_NO', required: true },
-  { order: 20, label: '¿Fuma o utiliza vapeadores actualmente?', type: 'SI_NO', required: true },
+  { order: 18, label: '¿Le han realizado alguna cirugía o procedimiento bajo anestesia previamente?', type: 'SI_NO', required: true },
   {
-    order: 21, label: '¿Cuántos cigarrillos fuma o cuántas veces usa el vapeador al día? (especifique)',
-    type: 'TEXTO_CORTO', required: true,
-    conditional: { showIf: { questionOrder: 20, equals: 'si' } },
+    order: 19, label: '¿Cuáles cirugías o procedimientos? (especifique)', type: 'TEXTO_CORTO', required: true,
+    conditional: { showIf: { questionOrder: 18, equals: 'si' } },
   },
-  { order: 22, label: '¿Consume alcohol?', type: 'SI_NO', required: true },
-  { order: 23, label: '¿Consume alguna sustancia psicoactiva?', type: 'SI_NO', required: true },
-  { order: 24, label: 'Correo electrónico', type: 'TEXTO_CORTO', required: true },
+  { order: 20, label: '¿Le han realizado alguna transfusión sanguínea?', type: 'SI_NO', required: true },
+  { order: 21, label: '¿Utiliza prótesis dental o tiene diseño de sonrisa?', type: 'SI_NO', required: true },
+  { order: 22, label: '¿Fuma o utiliza vapeadores actualmente?', type: 'SI_NO', required: true },
+  {
+    order: 23, label: '¿Cuántos cigarrillos fuma o cuántas veces usa el vapeador al día? (especifique)',
+    type: 'TEXTO_CORTO', required: true,
+    conditional: { showIf: { questionOrder: 22, equals: 'si' } },
+  },
+  { order: 24, label: '¿Consume alcohol?', type: 'SI_NO', required: true },
+  { order: 25, label: '¿Consume alguna sustancia psicoactiva?', type: 'SI_NO', required: true },
+  { order: 26, label: 'Correo electrónico', type: 'TEXTO_CORTO', required: true },
 ];
 
 async function main() {

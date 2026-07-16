@@ -30,10 +30,10 @@ interface Section {
  */
 const SECTIONS: Section[] = [
   { title: 'Información personal', icon: '👤', from: 1, to: 6 },
-  { title: 'Contacto y aseguradora', icon: '📇', from: 7, to: 8, extra: [24] },
+  { title: 'Contacto y aseguradora', icon: '📇', from: 7, to: 8, extra: [26] },
   { title: 'Cirugía programada', icon: '🏥', from: 9, to: 11 },
-  { title: 'Antecedentes médicos', icon: '🩺', from: 12, to: 19 },
-  { title: 'Hábitos', icon: '🚭', from: 20, to: 23 },
+  { title: 'Antecedentes médicos', icon: '🩺', from: 12, to: 21 },
+  { title: 'Hábitos', icon: '🚭', from: 22, to: 25 },
 ];
 
 /** Normaliza para comparar condicionales ('sí'→'si'). */

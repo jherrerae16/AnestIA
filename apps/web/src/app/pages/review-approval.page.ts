@@ -70,7 +70,12 @@ const SECTION_LABELS: Record<string, string> = {
     @if (loading()) { <div class="empty">Cargando…</div> }
 
     @else if (approved()) {
-      <div class="page-head"><div><h2>Caso aprobado</h2><p>El documento final está firmado e inmutable.</p></div></div>
+      <div class="page-head">
+        <div><h2>Caso aprobado</h2><p>El documento final está firmado. Puedes reabrirlo para corregir un error.</p></div>
+        <button class="btn btn-sm" (click)="reopen()" [disabled]="reopening()" data-testid="review-reopen-button">
+          {{ reopening() ? 'Reabriendo…' : '↺ Reabrir para corregir' }}
+        </button>
+      </div>
       <div class="ok-badge" data-testid="review-approved">✔ Caso APROBADO. Documento final firmado.</div>
 
       <div class="grid-3" style="margin-top:16px">
@@ -230,6 +235,7 @@ export class ReviewApprovalPage implements OnInit {
   editingKey = signal<string | null>(null);
   editValue = signal('');
   savingEdit = signal(false);
+  reopening = signal(false);
   contacts = signal<any[]>([]);
   deliveries = signal<any[]>([]);
   patient = signal<{ fullName: string; email?: string | null } | null>(null);
@@ -340,5 +346,18 @@ export class ReviewApprovalPage implements OnInit {
     const reason = prompt('Motivo del rechazo:') ?? '';
     await this.api.reject(this.caseId, reason);
     this.router.navigate(['/dashboard']);
+  }
+  async reopen() {
+    const reason = prompt('Motivo de la reapertura (queda registrado):') ?? '';
+    if (reason === null) return;
+    this.reopening.set(true);
+    try {
+      await this.api.reopen(this.caseId, reason);
+      this.approved.set(false);
+      this.editingKey.set(null);
+      await this.reload();
+    } finally {
+      this.reopening.set(false);
+    }
   }
 }
