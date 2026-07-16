@@ -88,12 +88,24 @@ function idGrid(section: Record<string, DocField>, cells: [string, string][]): s
     .join('')}</div>`;
 }
 
-function rows(section: Record<string, DocField>, labels: [string, string][]): string {
-  return labels
+/** ¿Campo derivado por IA (dato inferido, no reportado directamente por el paciente)? */
+function isDerived(f: DocField | undefined): boolean {
+  return !!f && f.estado === 'ok' && typeof f.fuente === 'string' && f.fuente.startsWith('derivado');
+}
+
+/**
+ * Filas etiqueta/valor. `skipAbsent`: omite filas cuyo campo no existe (p. ej. GLP-1
+ * si no se declaró). Etiquetas en negrita terminadas en ":". Los campos derivados por IA
+ * se marcan con ° (dato inferido — verificar).
+ */
+function rows(section: Record<string, DocField>, labels: [string, string][], skipAbsent = false): string {
+  const visible = labels.filter(([key]) => !skipAbsent || section[key] !== undefined);
+  return visible
     .map(([key, label], i) => {
       const f = section[key];
       const shade = i % 2 === 1 ? ' class="alt"' : '';
-      return `<tr${shade}><th>${escapeHtml(label)}</th><td${alertClass(f)}>${fieldVal(f)}</td></tr>`;
+      const mark = isDerived(f) ? '<span class="der-mark" title="Dato inferido — verificar">°</span>' : '';
+      return `<tr${shade}><th>${escapeHtml(label)}:</th><td${alertClass(f)}>${fieldVal(f)}${mark}</td></tr>`;
     })
     .join('');
 }
@@ -133,19 +145,22 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   header .title { text-align: center; }
   header .title h1 { margin: 0; font-size: 15px; color: #0b5c6b; letter-spacing: 1px; }
   header .title p { margin: 2px 0 0; font-size: 9px; color: #5b6b73; }
-  h2.band { background: #0b5c6b; color: #fff; font-size: 10px; padding: 3px 8px; margin: 10px 0 4px; letter-spacing: .5px; }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 2px 6px; vertical-align: top; }
-  th { width: 32%; color: #33474f; font-weight: 600; }
-  tr.alt { background: #f2f6f7; }
+  h2.band { background: #084651; color: #fff; font-size: 10.5px; font-weight: 700; padding: 5px 9px; margin: 13px 0 0; letter-spacing: .6px; text-transform: uppercase; border-radius: 3px 3px 0 0; }
+  table { width: 100%; border-collapse: collapse; background: #fbfdfd; border: 1px solid #d9e6e8; border-top: none; }
+  th, td { text-align: left; padding: 3px 9px; vertical-align: top; }
+  th { width: 34%; color: #0a3b44; font-weight: 700; }
+  tr.alt { background: #eef5f6; }
   td.alerta { color: #b3261e; font-weight: 700; }
+  .der-mark { color: #c8881a; font-weight: 700; margin-left: 2px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
-  .idgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #cdd7da; border: 1px solid #cdd7da; margin: 4px 0 2px; }
-  .idgrid .cell { background: #fff; padding: 4px 7px; min-width: 0; }
-  .idgrid .cell .k { display: block; font-size: 7.5px; text-transform: uppercase; letter-spacing: .4px; color: #5b6b73; font-weight: 700; margin-bottom: 1px; }
-  .idgrid .cell .v { display: block; font-size: 10px; color: #14212b; overflow-wrap: anywhere; }
+  .idgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #bcd0d3; border: 1px solid #bcd0d3; border-top: none; margin: 0 0 2px; }
+  .idgrid .cell { background: #fff; padding: 5px 8px; min-width: 0; }
+  .idgrid .cell .k { display: block; font-size: 7.5px; text-transform: uppercase; letter-spacing: .4px; color: #0a505d; font-weight: 700; margin-bottom: 1px; }
+  .idgrid .cell .v { display: block; font-size: 10px; color: #14212b; overflow-wrap: anywhere; font-weight: 500; }
   .idgrid .cell .v.alerta { color: #b3261e; font-weight: 700; }
   .nota { font-size: 8px; color: #5b6b73; font-style: italic; margin-top: 3px; }
+  .legend { font-size: 7.5px; color: #7a6a3a; background: #fdf6e8; border: 1px solid #ecdcb8; border-radius: 4px; padding: 4px 8px; margin-top: 8px; }
+  .legend b { color: #c8881a; }
   .narrativo td { white-space: pre-line; }
   footer { position: fixed; bottom: 10px; left: 22px; right: 22px; font-size: 8px; color: #5b6b73; border-top: 1px solid #cdd7da; padding-top: 4px; display: flex; justify-content: space-between; }
   .firma { margin-top: 22px; page-break-inside: avoid; }
@@ -175,7 +190,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ['glp1','Uso de agonistas GLP-1'],['alergias','Alergias'],['transfusionales','Transfusionales'],
     ['protesis_dental','Prótesis dental / diseño de sonrisa'],['habitos','Hábitos'],
     ['grupo_sanguineo','Grupo sanguíneo'],
-  ])}</table>
+  ], true)}</table>
 
   <h2 class="band">PARACLÍNICOS DISPONIBLES</h2>
   <table>${paraclinicos}</table>
@@ -191,6 +206,8 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
 
   <h2 class="band">VALORACIÓN Y PLAN</h2>
   <table class="narrativo">${rows(vp, [['concepto','Concepto anestésico'],['plan','Plan anestésico'],['recomendaciones','Recomendaciones']])}</table>
+
+  ${draft ? '<div class="legend">Los datos marcados con <b>°</b> son inferidos por el sistema a partir de las respuestas del paciente y <b>deben ser verificados</b> por el anestesiólogo antes de aprobar el documento.</div>' : ''}
 
   <div class="firma">
     <div class="sig-space">${branding.signatureUrl ? `<img src="${escapeHtml(branding.signatureUrl)}" alt="firma">` : ''}</div>

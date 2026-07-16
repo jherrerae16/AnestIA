@@ -143,45 +143,49 @@ class StubAIProvider implements AIProvider {
       patologicos = derived('Niega antecedentes patológicos conocidos.', 'formulario:P12');
     }
 
+    // Medicamentos: P14 ¿toma? → P15 ¿cuáles? si Sí.
+    const medsDetalle = val('15');
     const medicamentos = isYes('14')
-      ? ok('Refiere consumo actual de medicamentos.', 'formulario:P14')
+      ? ok(medsDetalle ? `Refiere ${medsDetalle.toLocaleLowerCase('es')}.` : 'Refiere consumo actual de medicamentos (sin especificar).', 'formulario:P14-15')
       : derived('Niega consumo de medicamentos.', 'formulario:P14');
 
-    const alergias = isYes('15')
-      ? ok('Refiere alergias medicamentosas o a otras sustancias.', 'formulario:P15')
-      : derived('Niega alergias medicamentosas o a otras sustancias.', 'formulario:P15');
+    // Alergias: P16 ¿alérgico? → P17 ¿a qué? si Sí.
+    const alergiaDetalle = val('17');
+    const alergias = isYes('16')
+      ? ok(alergiaDetalle ? `Refiere alergia a ${alergiaDetalle.toLocaleLowerCase('es')}.` : 'Refiere alergias medicamentosas o a otras sustancias (sin especificar).', 'formulario:P16-17')
+      : derived('Niega alergias medicamentosas o a otras sustancias.', 'formulario:P16');
 
-    // Cirugías previas (P16): si Sí y hay detalle (P17), traduce a término médico.
-    const quirurgicos = isYes('16')
+    // Cirugías previas (P18): si Sí y hay detalle (P19), traduce a término médico.
+    const quirurgicos = isYes('18')
       ? (() => {
-          const detalle = medicalTerm(val('17'));
+          const detalle = medicalTerm(val('19'));
           return detalle
-            ? ok(`Refiere ${detalle.toLocaleLowerCase('es')}.`, 'formulario:P16-17')
-            : ok('Refiere procedimientos quirúrgicos o anestésicos previos.', 'formulario:P16');
+            ? ok(`Refiere ${detalle.toLocaleLowerCase('es')}.`, 'formulario:P18-19')
+            : ok('Refiere procedimientos quirúrgicos o anestésicos previos.', 'formulario:P18');
         })()
-      : derived('Niega procedimientos quirúrgicos o anestésicos previos.', 'formulario:P16');
+      : derived('Niega procedimientos quirúrgicos o anestésicos previos.', 'formulario:P18');
 
-    const transfusionales = isYes('18')
-      ? ok('Refiere transfusión sanguínea previa.', 'formulario:P18')
-      : derived('Niega transfusiones previas.', 'formulario:P18');
+    const transfusionales = isYes('20')
+      ? ok('Refiere transfusión sanguínea previa.', 'formulario:P20')
+      : derived('Niega transfusiones previas.', 'formulario:P20');
 
-    const protesis = isYes('19')
-      ? ok('Refiere prótesis dental o diseño de sonrisa (relevante para el manejo de la vía aérea).', 'formulario:P19')
-      : derived('Niega prótesis dental o diseño de sonrisa.', 'formulario:P19');
+    const protesis = isYes('21')
+      ? ok('Refiere prótesis dental o diseño de sonrisa (relevante para el manejo de la vía aérea).', 'formulario:P21')
+      : derived('Niega prótesis dental o diseño de sonrisa.', 'formulario:P21');
 
-    // Hábitos: P20 tabaco/vapeo (+P21 cantidad), P22 alcohol, P23 psicoactivas.
+    // Hábitos: P22 tabaco/vapeo (+P23 cantidad), P24 alcohol, P25 psicoactivas.
     const habitos = ((): DocField => {
       const positivos: string[] = [];
-      if (isYes('20')) {
-        const cant = val('21');
+      if (isYes('22')) {
+        const cant = val('23');
         positivos.push(cant ? `tabaquismo/vapeo (${cant})` : 'tabaquismo/vapeo');
       }
-      if (isYes('22')) positivos.push('consumo de alcohol');
-      if (isYes('23')) positivos.push('consumo de sustancias psicoactivas');
+      if (isYes('24')) positivos.push('consumo de alcohol');
+      if (isYes('25')) positivos.push('consumo de sustancias psicoactivas');
       if (positivos.length === 0) {
-        return derived('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P20-23');
+        return derived('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P22-25');
       }
-      return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P20-23');
+      return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P22-25');
     })();
 
     // Condición actual: derivada del reporte de enfermedad (P12). El médico confirma.
@@ -220,9 +224,10 @@ class StubAIProvider implements AIProvider {
       antecedentes: {
         patologicos,
         medicamentos,
-        glp1: glp1
-          ? { valor: `Uso declarado de agonista GLP-1 (${input.glp1?.drug ?? 'no especificado'}).`, estado: 'ok', fuente: 'derivado:IA', alerta: true }
-          : noRep(),
+        // GLP-1 solo se incluye si se declaró su uso (si no, la fila no aparece).
+        ...(glp1
+          ? { glp1: { valor: `Uso declarado de agonista GLP-1 (${input.glp1?.drug ?? 'no especificado'}).`, estado: 'ok' as const, fuente: 'derivado:IA', alerta: true } }
+          : {}),
         alergias,
         quirurgicos,
         grupo_sanguineo: ok(val('11'), 'formulario:P11'),

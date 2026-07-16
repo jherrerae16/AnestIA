@@ -70,6 +70,10 @@ export class ApiService {
   reject(caseId: string, reason: string): Promise<unknown> {
     return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/reject`, { reason }));
   }
+  /** Reabre un caso aprobado para corregirlo (trazable). */
+  reopen(caseId: string, reason: string): Promise<{ ok: boolean }> {
+    return firstValueFrom(this.http.post<{ ok: boolean }>(`/api/panel/cases/${caseId}/reopen`, { reason }));
+  }
 
   // --- U6 distribución / historial / dashboard ---
   dashboard(status?: string): Promise<any> {

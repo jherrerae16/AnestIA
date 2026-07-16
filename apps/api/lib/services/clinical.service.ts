@@ -27,8 +27,9 @@ export async function assembleInput(caseId: string): Promise<ClinicalInput> {
   const labs = await prisma.extractedLabResult.findMany({ where: { caseId } });
   const answers = (fr?.answers as FormAnswers) ?? {};
 
-  const p14 = answers['14']?.value;
-  const glp1 = detectGLP1(typeof p14 === 'string' ? p14 : Array.isArray(p14) ? p14.join(' ') : '');
+  // GLP-1 se detecta del detalle de medicamentos (P15 ¿cuáles?).
+  const p15 = answers['15']?.value;
+  const glp1 = detectGLP1(typeof p15 === 'string' ? p15 : Array.isArray(p15) ? p15.join(' ') : '');
 
   const peso = Number(answers['5']?.value);
   const talla = Number(answers['6']?.value);
