@@ -167,6 +167,9 @@ model GeneratedAssessment {
   fields    Json
   modelUsed String?  // trazabilidad: modelo/versión de prompt que lo generó
   promptVersion String?
+  // Reporte del auditor independiente (hallazgos + bloqueado + versión de reglas)
+  auditReport Json?
+  auditedAt   DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

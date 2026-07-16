@@ -65,6 +65,19 @@ const SECTION_LABELS: Record<string, string> = {
     .dist-row { display:flex; align-items:center; gap:10px; margin-top:8px; font-size:13px; }
     .dist-row input[readonly] { flex:1; padding:8px 11px; border:1px solid var(--border2); border-radius:8px; font-family:var(--font-mono); font-size:12px; }
     label.contact { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; }
+
+    /* Panel del auditor independiente */
+    .audit-card { margin-bottom:16px; border-left:3px solid var(--gold); }
+    .audit-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .audit-count { font-family:var(--font-mono); font-size:11px; color:var(--muted); }
+    .audit-intro { font-size:12.5px; color:var(--muted); margin:6px 0 14px; max-width:70ch; }
+    .finding { display:flex; gap:10px; align-items:flex-start; padding:9px 0; border-top:1px solid var(--border); font-size:13px; }
+    .f-level { font-family:var(--font-mono); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+      padding:2px 7px; border-radius:20px; flex-shrink:0; margin-top:1px; }
+    .finding.bloqueante .f-level { background:rgba(179,38,30,.1); color:var(--red); border:1px solid rgba(179,38,30,.25); }
+    .finding.advertencia .f-level { background:rgba(224,138,30,.12); color:var(--amber); border:1px solid rgba(224,138,30,.28); }
+    .finding.informativo .f-level { background:var(--it-50); color:var(--muted); border:1px solid var(--border); }
+    .f-msg { color:var(--text); line-height:1.5; }
     .composer { margin-top:14px; border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg3); display:flex; flex-direction:column; gap:12px; animation:fadeIn .2s ease; }
     .comp-field { display:flex; flex-direction:column; gap:5px; }
     .comp-body { resize:vertical; min-height:120px; font-family:var(--font-body); line-height:1.5; }
@@ -177,6 +190,22 @@ const SECTION_LABELS: Record<string, string> = {
         </div>
       }
 
+      @if (auditFindings().length) {
+        <div class="card audit-card" data-testid="audit-panel">
+          <div class="audit-head">
+            <span class="card-title">Revisión automática del borrador</span>
+            <span class="audit-count">{{ auditFindings().length }} hallazgo{{ auditFindings().length === 1 ? '' : 's' }}</span>
+          </div>
+          <p class="audit-intro">Un auditor independiente revisó este borrador contra las respuestas del paciente. Estos puntos requieren tu criterio — el sistema no los corrige por su cuenta.</p>
+          @for (f of auditFindings(); track $index) {
+            <div class="finding" [class]="'finding ' + f.level" [attr.data-testid]="'finding-' + f.level">
+              <span class="f-level">{{ levelLabel(f.level) }}</span>
+              <span class="f-msg">{{ f.message }}</span>
+            </div>
+          }
+        </div>
+      }
+
       <div class="cols">
         <div class="card">
           <div class="card-title" style="margin-bottom:14px">Borrador de valoración</div>
@@ -269,6 +298,8 @@ export class ReviewApprovalPage implements OnInit {
   editValue = signal('');
   savingEdit = signal(false);
   reopening = signal(false);
+  /** Hallazgos del auditor independiente, ordenados por severidad. */
+  auditFindings = signal<{ level: string; category: string; message: string; field?: string }[]>([]);
   contacts = signal<any[]>([]);
   deliveries = signal<any[]>([]);
   patient = signal<{ fullName: string; email?: string | null } | null>(null);
@@ -299,6 +330,10 @@ export class ReviewApprovalPage implements OnInit {
     this.labs.set(r.labs ?? []);
     this.check.set(r.canApprove);
     this.patient.set(r.patient ?? null);
+    // Hallazgos del auditor: primero lo más severo.
+    const order: Record<string, number> = { bloqueante: 0, advertencia: 1, informativo: 2 };
+    const findings = (r.audit?.findings ?? []) as { level: string; category: string; message: string }[];
+    this.auditFindings.set([...findings].sort((x, y) => (order[x.level] ?? 9) - (order[y.level] ?? 9)));
     const isApproved = r.approved || r.status === 'APROBADO' || r.status === 'ENTREGADO';
     this.approved.set(isApproved);
     if (isApproved) {
@@ -386,6 +421,9 @@ export class ReviewApprovalPage implements OnInit {
   }
   labelFor(k: string) { return SECTION_LABELS[k] ?? k; }
   isDerived(v: any) { return v?.fuente?.startsWith?.('derivado'); }
+  levelLabel(level: string) {
+    return level === 'bloqueante' ? 'Bloqueante' : level === 'advertencia' ? 'Advertencia' : 'Informativo';
+  }
 
   // ── Edición en línea del borrador ──
   startEdit(section: string, key: string, v: any) {

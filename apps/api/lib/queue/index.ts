@@ -14,6 +14,7 @@ export const QUEUES = [
   'lab.extract',
   'lab.flag',
   'clinical.generate',
+  'clinical.audit',
   'document.render',
 ] as const;
 
