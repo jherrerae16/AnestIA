@@ -33,44 +33,46 @@ const ANTECEDENTES_FIELDS = [
 
 const PLAN_FIELDS = ['concepto', 'plan', 'recomendaciones'] as const;
 
-/** Un campo del documento en JSON Schema (espejo de docFieldSchema). */
-const docFieldJson = {
-  type: 'object',
-  properties: {
-    valor: { type: ['string', 'null'] },
-    estado: { type: 'string', enum: ['ok', 'pendiente_examen', 'no_reportado', 'no_disponible'] },
-    fuente: { type: ['string', 'null'] },
-    alerta: { type: 'boolean' },
-    nota: { type: 'string' },
-  },
-  required: ['valor', 'estado', 'fuente'],
-  additionalProperties: false,
-} as const;
-
-function sectionJson(fields: readonly string[]) {
-  return {
-    type: 'object',
-    properties: Object.fromEntries(fields.map((f) => [f, docFieldJson])),
-    required: [...fields],
-    additionalProperties: false,
-  };
-}
+/**
+ * Mapa de preguntas del formulario. El modelo NO puede adivinar la numeración: sin esto
+ * cita fuentes equivocadas (`formulario:P18` para alergias, que en realidad es P16) y la
+ * trazabilidad —que es el punto de CS2— queda inservible.
+ */
+const PREGUNTAS = `P1 nombre · P2 documento · P3 fecha de nacimiento · P4 sexo · P5 peso (kg) ·
+P6 estatura (cm) · P7 teléfono · P8 aseguradora · P9 cirugía o procedimiento · P10 fecha de cirugía ·
+P11 grupo sanguíneo · P12 ¿sufre alguna enfermedad? · P13 patologías (checklist) ·
+P14 ¿toma medicamentos? · P15 ¿cuáles medicamentos? · P16 ¿es alérgico? · P17 ¿a qué es alérgico? ·
+P18 ¿cirugía o anestesia previa? · P19 ¿cuáles cirugías? · P20 ¿transfusión previa? ·
+P21 ¿prótesis dental o diseño de sonrisa? · P22 ¿fuma o vapea? · P23 cigarrillos por día ·
+P24 ¿consume alcohol? · P25 ¿sustancias psicoactivas? · P26 correo`;
 
 /**
- * Esquema del documento clínico. `examen_fisico` se omite a propósito: lo registra el
- * anestesiólogo (CS3) y el guardarraíl lo re-fuerza a pendiente_examen aguas abajo.
- * `paraclinicos` también se omite: lo arma el código desde los labs extraídos, no la IA.
+ * Contrato de salida del motor clínico, descrito en el prompt.
+ *
+ * No se usa `output_config.format` aquí: el documento tiene 24 campos anidados y la
+ * gramática de structured outputs no admite un esquema de ese tamaño (la API lo rechaza).
+ * El borde real es Zod — `clinicalOutputSchema` es `.strict()`, así que un campo fuera del
+ * contrato hace fallar el parse y el documento se rechaza (CS5).
  */
-const clinicalJsonSchema = {
-  type: 'object',
-  properties: {
-    identificacion: sectionJson(ID_FIELDS),
-    antecedentes: sectionJson(ANTECEDENTES_FIELDS),
-    valoracion_plan: sectionJson(PLAN_FIELDS),
-  },
-  required: ['identificacion', 'antecedentes', 'valoracion_plan'],
-  additionalProperties: false,
-} as const;
+function contractSpec(): string {
+  const sec = (name: string, fields: readonly string[]) =>
+    `  "${name}": { ${fields.map((f) => `"${f}": Campo`).join(', ')} }`;
+  return [
+    'Devuelve ÚNICAMENTE un objeto JSON con esta forma exacta, sin texto alrededor y sin ```:',
+    '',
+    'Campo = { "valor": string, "estado": "ok"|"no_reportado", "fuente": string }',
+    '  - Con sustento     → estado "ok", valor con el dato, fuente citada (formulario:Pn | lab:... | derivado:IA).',
+    '  - Sin sustento     → estado "no_reportado", valor "", fuente "".',
+    '',
+    '{',
+    sec('identificacion', ID_FIELDS) + ',',
+    sec('antecedentes', ANTECEDENTES_FIELDS) + ',',
+    sec('valoracion_plan', PLAN_FIELDS),
+    '}',
+    '',
+    'No añadas ninguna clave que no esté en esta lista: se rechazará el documento completo.',
+  ].join('\n');
+}
 
 const extractionJsonSchema = {
   type: 'object',
@@ -82,8 +84,9 @@ const extractionJsonSchema = {
         properties: {
           analyte: { type: 'string' },
           value: { type: 'string' },
-          unit: { type: ['string', 'null'] },
-          refRange: { type: ['string', 'null'] },
+          // Cadena vacía cuando el documento no reporta unidad/rango (evita uniones nullable).
+          unit: { type: 'string' },
+          refRange: { type: 'string' },
           sourceRef: { type: 'string' },
         },
         required: ['analyte', 'value', 'unit', 'refRange', 'sourceRef'],
@@ -108,11 +111,43 @@ const extractionSchema = z.object({
   ),
 });
 
-/** Borde Zod del motor clínico (secciones que genera la IA). */
-const clinicalOutputSchema = documentSchema.partial({
-  paraclinicos: true,
-  examen_fisico: true,
-} as never);
+/**
+ * Borde Zod del motor clínico — ESTE es el control real (CS5/CS6).
+ * Claves explícitas + `.strict()`: si el modelo inventa un campo fuera del contrato,
+ * el parse falla y el documento se rechaza entero, en vez de colarse.
+ */
+const aiFieldSchema = z
+  .object({
+    valor: z.string(),
+    estado: z.enum(['ok', 'pendiente_examen', 'no_reportado', 'no_disponible']),
+    fuente: z.string(),
+  })
+  .strict();
+
+const sectionSchema = (fields: readonly string[]) =>
+  z.object(Object.fromEntries(fields.map((f) => [f, aiFieldSchema])) as Record<string, typeof aiFieldSchema>).strict();
+
+const clinicalOutputSchema = z
+  .object({
+    identificacion: sectionSchema(ID_FIELDS),
+    antecedentes: sectionSchema(ANTECEDENTES_FIELDS),
+    valoracion_plan: sectionSchema(PLAN_FIELDS),
+  })
+  .strict();
+
+/** Normaliza al contrato interno: '' → null cuando el campo no tiene sustento (CS2). */
+function toDocFields(section: Record<string, { valor: string; estado: string; fuente: string }>) {
+  const out: Record<string, { valor: string | null; estado: string; fuente: string | null }> = {};
+  for (const [k, f] of Object.entries(section)) {
+    const ok = f.estado === 'ok' && f.valor.trim() !== '';
+    out[k] = {
+      valor: ok ? f.valor : null,
+      estado: ok ? 'ok' : f.estado === 'ok' ? 'no_reportado' : f.estado,
+      fuente: ok && f.fuente.trim() !== '' ? f.fuente : null,
+    };
+  }
+  return out;
+}
 
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
@@ -200,7 +235,7 @@ export class AnthropicAIProvider implements AIProvider {
       throw new Error('El extractor de laboratorios rechazó el documento.');
     }
 
-    const parsed = extractionSchema.parse(JSON.parse(firstText(response)));
+    const parsed = extractionSchema.parse(parseJson(firstText(response)));
     logger.info({ files: files.length, labs: parsed.labs.length, model: MODEL }, 'anthropic_extract_done');
     return parsed.labs;
   }
@@ -212,28 +247,44 @@ export class AnthropicAIProvider implements AIProvider {
   async generateAssessment(input: ClinicalInput): Promise<DocumentJSON> {
     const system = await loadPromptMaestro();
 
-    const payload = {
+    const datos = {
       respuestas_del_paciente: input.answers,
       paraclinicos_extraidos: input.labs,
       glp1_detectado: input.glp1 ?? { declared: false },
       imc_calculado_por_el_sistema: input.imc,
-      instrucciones:
-        'Genera la valoración preanestésica. No generes el examen físico, los signos vitales ' +
-        'ni los paraclínicos: los aporta el anestesiólogo y el sistema. Cada campo lleva ' +
-        '{ valor, estado, fuente }. Si un dato no tiene sustento, usa estado "no_reportado" ' +
-        'con valor null — nunca lo inventes. Cita la fuente de cada dato (formulario:Pn, lab:..., derivado:IA).',
     };
+
+    const prompt = [
+      'Genera la valoración preanestésica a partir de estos datos verificados.',
+      '',
+      'No generes el examen físico, los signos vitales ni los paraclínicos: los aporta el',
+      'anestesiólogo y el sistema.',
+      '',
+      'PREGUNTAS DEL FORMULARIO (cita la fuente con este número exacto):',
+      PREGUNTAS,
+      '',
+      'FORMATO DE ALGUNOS CAMPOS:',
+      '- edad_sexo: "N años / Masculino" (o Femenino).',
+      '- peso_talla_imc: "95 kg / 1.70 m / 32.9 kg/m²" (talla en metros).',
+      '- fecha_procedimiento: dd-mm-aaaa.',
+      '- fecha_valoracion: déjalo en no_reportado; lo pone el sistema al renderizar.',
+      '- capacidad_funcional: derívala si los datos la sustentan; si no, no_reportado.',
+      '- condicion_actual: "Asintomático" sólo si el paciente niega enfermedad y síntomas;',
+      '  si refiere patologías, descríbela brevemente; si no hay sustento, no_reportado.',
+      '',
+      contractSpec(),
+      '',
+      'DATOS:',
+      JSON.stringify(datos, null, 2),
+    ].join('\n');
 
     const response = await this.client.messages.create({
       model: MODEL,
       max_tokens: 16000,
       thinking: { type: 'adaptive' },
-      output_config: {
-        effort: 'high',
-        format: { type: 'json_schema', schema: clinicalJsonSchema as never },
-      },
+      output_config: { effort: 'high' },
       system,
-      messages: [{ role: 'user', content: JSON.stringify(payload, null, 2) }],
+      messages: [{ role: 'user', content: prompt }],
     });
 
     if (response.stop_reason === 'refusal') {
@@ -241,8 +292,9 @@ export class AnthropicAIProvider implements AIProvider {
       throw new Error('El motor clínico rechazó la solicitud.');
     }
 
-    // CS5/CS6: validación de contrato. Los guardarraíles (CS2/CS3/CS4) corren después.
-    const generated = clinicalOutputSchema.parse(JSON.parse(firstText(response)));
+    // CS5/CS6: el contrato se valida aquí. Un campo fuera del esquema hace fallar el parse
+    // (.strict()) y el documento se rechaza. Los guardarraíles (CS2/CS3/CS4) corren después.
+    const generated = clinicalOutputSchema.parse(parseJson(firstText(response)));
     logger.info(
       { caseId: input.caseId, model: MODEL, outputTokens: response.usage.output_tokens },
       'anthropic_clinical_done',
@@ -251,7 +303,9 @@ export class AnthropicAIProvider implements AIProvider {
     // Secciones que NO vienen de la IA: el examen lo registra el médico; los paraclínicos,
     // el código desde los labs realmente extraídos.
     return {
-      ...generated,
+      identificacion: toDocFields(generated.identificacion),
+      antecedentes: toDocFields(generated.antecedentes),
+      valoracion_plan: toDocFields(generated.valoracion_plan),
       paraclinicos: {},
       examen_fisico: {},
     } as DocumentJSON;
@@ -263,4 +317,15 @@ function firstText(response: Anthropic.Message): string {
   const block = response.content.find((b) => b.type === 'text');
   if (!block || block.type !== 'text') throw new Error('Respuesta del modelo sin contenido de texto.');
   return block.text;
+}
+
+/** Parsea el JSON de la respuesta, tolerando que venga envuelto en un fence ```json. */
+function parseJson(text: string): unknown {
+  const t = text.trim();
+  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fenced?.[1] ?? t;
+  const start = body.indexOf('{');
+  const end = body.lastIndexOf('}');
+  if (start < 0 || end < 0) throw new Error('La respuesta del modelo no contiene un objeto JSON.');
+  return JSON.parse(body.slice(start, end + 1));
 }
