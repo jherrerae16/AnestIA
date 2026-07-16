@@ -7,24 +7,74 @@ import { ApiService } from '../core/api.service';
   standalone: true,
   imports: [FormsModule],
   styles: [`
-    .card { background:#fff; padding:1.2rem; border-radius:10px; max-width:720px; box-shadow:0 1px 6px rgba(0,0,0,.05); }
-    input { padding:.55rem; border:1px solid #cdd7da; border-radius:8px; width:280px; }
-    .p { padding:.5rem 0; border-bottom:1px solid #eef2f3; cursor:pointer; }
-    .case { font-size:.85rem; color:#5b6b73; padding:.2rem 0 .2rem 1rem; }
+    .wrap { max-width: 760px; }
+    .page-heading { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--text); margin-bottom: 4px; }
+    .page-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
+    .search-box { margin-bottom: 20px; }
+    .search-box .ki-input { max-width: 340px; }
+    .results-table { width: 100%; border-collapse: collapse; }
+    .results-table thead th { background: var(--bg3); font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--muted); text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+    .results-table tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); }
+    .results-table tbody tr { cursor: pointer; transition: background 140ms ease; }
+    .results-table tbody tr:hover { background: var(--it-50); }
+    .results-table tbody tr:last-child td { border-bottom: none; }
+    .patient-name { font-weight: 600; }
+    .doc { font-family: var(--font-mono); font-size: 12px; color: var(--muted2); }
+    .detail-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+    .case-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .case-row:last-child { border-bottom: none; }
+    .case-proc { font-size: 13px; color: var(--text); flex: 1; }
+    .case-status { font-size: 12px; color: var(--muted); }
   `],
   template: `
-    <div class="card">
-      <h2>Historial de pacientes</h2>
-      <input placeholder="Buscar por documento o nombre" [(ngModel)]="q" (ngModelChange)="search()" data-testid="patient-search-input" />
-      @for (p of results(); track p.id) {
-        <div class="p" (click)="open(p.id)"><strong>{{ p.fullName }}</strong> — {{ p.documentId }}</div>
-      }
-      @if (selected()) {
-        <h3>{{ selected().fullName }} — valoraciones</h3>
-        @for (c of selected().cases ?? []; track c.id) {
-          <div class="case">{{ c.procedure ?? 'Sin procedimiento' }} · {{ c.status }} @if (c.approval) { · aprobado }</div>
+    <div class="wrap">
+      <div class="page-heading">Historial de pacientes</div>
+      <div class="page-sub">Busca por documento o nombre para ver las valoraciones asociadas.</div>
+
+      <div class="card">
+        <div class="search-box">
+          <input
+            class="ki-input"
+            placeholder="Buscar por documento o nombre"
+            [(ngModel)]="q"
+            (ngModelChange)="search()"
+            data-testid="patient-search-input" />
+        </div>
+
+        @if (results().length) {
+          <table class="results-table">
+            <thead>
+              <tr>
+                <th>Paciente</th>
+                <th>Documento</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (p of results(); track p.id) {
+                <tr (click)="open(p.id)">
+                  <td class="patient-name">{{ p.fullName }}</td>
+                  <td class="doc">{{ p.documentId }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
         }
-      }
+
+        @if (selected()) {
+          <div class="section-label">Valoraciones</div>
+          <div class="detail-title">{{ selected().fullName }}</div>
+          @for (c of selected().cases ?? []; track c.id) {
+            <div class="case-row">
+              <span class="case-proc">{{ c.procedure ?? 'Sin procedimiento' }}</span>
+              <span class="case-status">{{ c.status }}</span>
+              @if (c.approval) {
+                <span class="card-badge badge-green">Aprobado</span>
+              }
+            </div>
+          }
+        }
+      </div>
     </div>
   `,
 })

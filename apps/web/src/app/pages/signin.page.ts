@@ -8,29 +8,31 @@ import { AuthService } from '../core/auth.service';
   standalone: true,
   imports: [FormsModule],
   styles: [`
-    .wrap { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
-    .card { background: #fff; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.08); width: 100%; max-width: 360px; }
-    h1 { margin: 0 0 .25rem; color: var(--brand); font-size: 1.4rem; }
-    p.sub { margin: 0 0 1.5rem; color: #5b6b73; font-size: .9rem; }
-    label { display: block; font-size: .85rem; margin-bottom: .25rem; }
-    input { width: 100%; padding: .6rem; border: 1px solid #cdd7da; border-radius: 8px; margin-bottom: 1rem; font-size: 1rem; }
-    button { width: 100%; padding: .7rem; background: var(--brand); color: #fff; border: 0; border-radius: 8px; font-size: 1rem; cursor: pointer; }
-    button:disabled { opacity: .6; }
-    .error { color: var(--error); font-size: .85rem; margin-bottom: 1rem; }
+    .wrap { min-height: 100vh; display: grid; place-items: center; padding: 1.5rem; position: relative; z-index: 1; }
+    .signin-card { width: 100%; max-width: 380px; padding: 32px 30px; }
+    .brand { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--primary); margin: 0 0 4px; }
+    .brand-sub { font-size: 13px; color: var(--muted); margin: 0 0 24px; }
+    .field { margin-bottom: 16px; }
+    .error { color: var(--red); font-size: 12px; margin-bottom: 16px; }
+    .signin-submit { width: 100%; justify-content: center; }
   `],
   template: `
     <div class="wrap">
-      <form class="card" (ngSubmit)="submit()">
-        <h1>AnestIA</h1>
-        <p class="sub">Valoración preanestésica</p>
-        <label for="email">Correo</label>
-        <input id="email" name="email" type="email" [(ngModel)]="email" data-testid="signin-email-input" autocomplete="username" />
-        <label for="password">Contraseña</label>
-        <input id="password" name="password" type="password" [(ngModel)]="password" data-testid="signin-password-input" autocomplete="current-password" />
+      <form class="card signin-card" (ngSubmit)="submit()">
+        <h1 class="brand">AnestIA</h1>
+        <p class="brand-sub">Valoración preanestésica</p>
+        <div class="field">
+          <label class="ki-label" for="email">Correo</label>
+          <input class="ki-input" id="email" name="email" type="email" [(ngModel)]="email" data-testid="signin-email-input" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label class="ki-label" for="password">Contraseña</label>
+          <input class="ki-input" id="password" name="password" type="password" [(ngModel)]="password" data-testid="signin-password-input" autocomplete="current-password" />
+        </div>
         @if (error()) {
           <div class="error" data-testid="signin-error">{{ error() }}</div>
         }
-        <button type="submit" [disabled]="loading()" data-testid="signin-submit-button">
+        <button type="submit" class="btn btn-primary signin-submit" [disabled]="loading()" data-testid="signin-submit-button">
           {{ loading() ? 'Entrando…' : 'Iniciar sesión' }}
         </button>
       </form>

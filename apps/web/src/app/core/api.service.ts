@@ -53,11 +53,16 @@ export class ApiService {
   getReview(caseId: string): Promise<any> {
     return firstValueFrom(this.http.get<any>(`/api/panel/cases/${caseId}/review`));
   }
+  /** URL del PDF de previsualización (borrador vigente) para embeber en un visor. */
+  previewUrl(caseId: string): string {
+    return `/api/panel/cases/${caseId}/preview`;
+  }
   editField(caseId: string, section: string, key: string, value: string): Promise<unknown> {
     return firstValueFrom(this.http.patch(`/api/panel/cases/${caseId}/assessment`, { section, key, value }));
   }
   loadExamNormal(caseId: string): Promise<unknown> {
-    return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/exam`, { mode: 'normal' }));
+    // attested=true: atestación explícita del médico (CS3). El botón sólo se habilita tras confirmar.
+    return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/exam`, { mode: 'normal', attested: true }));
   }
   approve(caseId: string): Promise<{ ok: boolean; blockers?: string[] }> {
     return firstValueFrom(this.http.post<{ ok: boolean; blockers?: string[] }>(`/api/panel/cases/${caseId}/approve`, {}));
@@ -77,8 +82,8 @@ export class ApiService {
   addContact(c: { label: string; email: string; type: string; notes?: string }): Promise<any> {
     return firstValueFrom(this.http.post<any>('/api/panel/directory', c));
   }
-  distribute(caseId: string, contactIds: string[], channel: 'email' | 'link'): Promise<any> {
-    return firstValueFrom(this.http.post<any>(`/api/panel/cases/${caseId}/distribute`, { contactIds, channel }));
+  distribute(caseId: string, contactIds: string[], channel: 'email' | 'link', sendToPatient = false): Promise<any> {
+    return firstValueFrom(this.http.post<any>(`/api/panel/cases/${caseId}/distribute`, { contactIds, channel, sendToPatient }));
   }
   searchPatients(q: string): Promise<any> {
     return firstValueFrom(this.http.get<any>(`/api/panel/patients?q=${encodeURIComponent(q)}`));

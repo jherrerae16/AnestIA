@@ -31,3 +31,4 @@ coverage/
 
 # credenciales locales (JSON de service account, etc.)
 .secrets/
+*.tsbuildinfo

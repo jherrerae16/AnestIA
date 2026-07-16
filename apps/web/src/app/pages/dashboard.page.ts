@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 
@@ -9,48 +9,105 @@ const STATUS_LABEL: Record<string, string> = {
   APROBADO: 'Aprobado', ENTREGADO: 'Entregado',
 };
 
+/** Clase de badge por estado — reutiliza el design system. */
+function badgeClass(status: string): string {
+  switch (status) {
+    case 'PENDIENTE_REVISION': return 'badge-amber';
+    case 'APROBADO': return 'badge-green';
+    case 'ENTREGADO': return 'badge-blue';
+    case 'BORRADOR': case 'ENVIADO_AL_PACIENTE': case 'RESPONDIENDO': return 'badge-muted';
+    default: return 'badge-blue';
+  }
+}
+
 @Component({
   selector: 'app-dashboard',
   standalone: true,
   imports: [RouterLink],
   styles: [`
-    .kpis { display:flex; gap:1rem; margin-bottom:1rem; }
-    .kpi { background:#fff; padding:.8rem 1.2rem; border-radius:10px; box-shadow:0 1px 6px rgba(0,0,0,.05); }
-    .kpi b { display:block; font-size:1.5rem; color:var(--brand); }
-    table { width:100%; border-collapse:collapse; background:#fff; border-radius:10px; overflow:hidden; }
-    th, td { text-align:left; padding:.6rem .8rem; border-bottom:1px solid #eef2f3; font-size:.9rem; }
-    th { background:#f2f6f7; color:#33474f; }
-    .badge { padding:.15rem .5rem; border-radius:20px; font-size:.75rem; background:#e3eaec; }
-    .rev { background:#fff3cd; } .apr { background:#d4edda; } .ent { background:#cfe2ff; }
-    .alert { color:var(--error); font-weight:600; }
-    a { color:var(--brand); }
+    .head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:6px; gap:16px; flex-wrap:wrap; }
+    .head h2 { font-size:22px; }
+    .head p { font-size:13px; color:var(--muted); margin-top:2px; }
+    .export-msg { font-size:12px; color:var(--muted); margin:0 0 8px; }
+
+    .kpi-row { grid-template-columns: repeat(3, 1fr); }
+
+    table { width:100%; border-collapse:collapse; }
+    .table-card { padding:0; overflow:hidden; }
+    thead th {
+      text-align:left; padding:12px 18px; font-size:10px; font-weight:600;
+      text-transform:uppercase; letter-spacing:0.07em; color:var(--muted);
+      background:var(--bg3); border-bottom:1px solid var(--border);
+    }
+    tbody td { padding:13px 18px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
+    tbody tr:last-child td { border-bottom:none; }
+    tbody tr { transition: background .12s; }
+    tbody tr:hover { background:var(--it-50); }
+    .pt-name { font-weight:600; color:var(--text); }
+    .pt-doc { color:var(--muted); font-size:11px; font-family:var(--font-mono); margin-left:6px; }
+    .alerts { color:var(--red); font-weight:600; font-size:12px; }
+    .rev-link { font-weight:600; }
+    .muted { color:var(--muted2); }
   `],
   template: `
     <div data-testid="dashboard-root">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2>Casos</h2>
-        <button style="background:#0f9d58;color:#fff;border:0;border-radius:8px;padding:.5rem 1rem;cursor:pointer" (click)="exportSheets()" data-testid="export-sheets-button">Exportar a Sheets</button>
+      <div class="head">
+        <div>
+          <h2>Casos</h2>
+          <p>Valoraciones preanestésicas de tus pacientes</p>
+        </div>
+        <button class="btn btn-primary btn-sm" (click)="exportSheets()" data-testid="export-sheets-button">
+          Exportar a Sheets
+        </button>
       </div>
-      @if (exportMsg()) { <p style="font-size:.85rem;color:#5b6b73">{{ exportMsg() }}</p> }
-      <div class="kpis">
-        <div class="kpi"><b>{{ data()?.indicadores?.total ?? 0 }}</b>Total</div>
-        <div class="kpi"><b>{{ data()?.indicadores?.pendienteRevision ?? 0 }}</b>Pendiente revisión</div>
-        <div class="kpi"><b>{{ data()?.indicadores?.conAlertas ?? 0 }}</b>Con alertas</div>
+      @if (exportMsg()) { <p class="export-msg">{{ exportMsg() }}</p> }
+
+      <div class="kpi-row" style="margin-top:16px">
+        <div class="kpi-card k-blue">
+          <div class="kpi-label">Total</div>
+          <div class="kpi-value">{{ data()?.indicadores?.total ?? 0 }}</div>
+          <div class="kpi-sub">casos en el sistema</div>
+        </div>
+        <div class="kpi-card k-amber">
+          <div class="kpi-label">Pendiente revisión</div>
+          <div class="kpi-value">{{ data()?.indicadores?.pendienteRevision ?? 0 }}</div>
+          <div class="kpi-sub">requieren tu aprobación</div>
+        </div>
+        <div class="kpi-card k-red">
+          <div class="kpi-label">Con alertas</div>
+          <div class="kpi-value">{{ data()?.indicadores?.conAlertas ?? 0 }}</div>
+          <div class="kpi-sub">hallazgos que revisar</div>
+        </div>
       </div>
-      <table>
-        <thead><tr><th>Paciente</th><th>Procedimiento</th><th>Estado</th><th>Alertas</th><th></th></tr></thead>
-        <tbody>
-          @for (c of data()?.cases ?? []; track c.id) {
-            <tr data-testid="dashboard-case-row">
-              <td>{{ c.patient?.fullName ?? '—' }} <small>{{ c.patient?.documentId }}</small></td>
-              <td>{{ c.procedure ?? '—' }}</td>
-              <td><span class="badge" [class.rev]="c.status==='PENDIENTE_REVISION'" [class.apr]="c.status==='APROBADO'" [class.ent]="c.status==='ENTREGADO'">{{ label(c.status) }}</span></td>
-              <td>@if (c.alertas) { <span class="alert">{{ c.alertas }}</span> } @else { — }</td>
-              <td>@if (c.status==='PENDIENTE_REVISION' || c.status==='APROBADO' || c.status==='ENTREGADO') { <a [routerLink]="['/cases', c.id, 'review']">Revisar</a> }</td>
-            </tr>
-          }
-        </tbody>
-      </table>
+
+      <div class="card table-card">
+        <table>
+          <thead>
+            <tr><th>Paciente</th><th>Procedimiento</th><th>Estado</th><th>Alertas</th><th></th></tr>
+          </thead>
+          <tbody>
+            @for (c of data()?.cases ?? []; track c.id) {
+              <tr data-testid="dashboard-case-row">
+                <td>
+                  <span class="pt-name">{{ c.patient?.fullName ?? '—' }}</span>
+                  @if (c.patient?.documentId) { <span class="pt-doc">{{ c.patient.documentId }}</span> }
+                </td>
+                <td>{{ c.procedure ?? '—' }}</td>
+                <td><span class="card-badge" [class]="'card-badge ' + badge(c.status)">{{ label(c.status) }}</span></td>
+                <td>@if (c.alertas) { <span class="alerts">{{ c.alertas }}</span> } @else { <span class="muted">—</span> }</td>
+                <td>
+                  @if (c.status==='PENDIENTE_REVISION' || c.status==='APROBADO' || c.status==='ENTREGADO') {
+                    <a class="rev-link" [routerLink]="['/cases', c.id, 'review']">Revisar →</a>
+                  }
+                </td>
+              </tr>
+            }
+            @if (!(data()?.cases ?? []).length) {
+              <tr><td colspan="5"><div class="empty">Aún no hay casos. Crea uno desde “Nuevo caso”.</div></td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
     </div>
   `,
 })
@@ -60,6 +117,7 @@ export class DashboardPage implements OnInit {
   exportMsg = signal('');
   async ngOnInit() { this.data.set(await this.api.dashboard()); }
   label(s: string) { return STATUS_LABEL[s] ?? s; }
+  badge(s: string) { return badgeClass(s); }
   async exportSheets() {
     this.exportMsg.set('Exportando…');
     const res = await this.api.exportSheets();
