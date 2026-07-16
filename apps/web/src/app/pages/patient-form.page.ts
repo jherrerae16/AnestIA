@@ -4,6 +4,18 @@ import { ActivatedRoute } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { COUNTRIES } from '../core/countries';
 
+/**
+ * Formato del documento: cédula (solo dígitos) → puntos de miles (1.042.246.578);
+ * pasaporte u otro con letras (PE19028) → tal cual en mayúsculas, sin puntos.
+ */
+function formatDocumentId(raw: string): string {
+  const v = (raw ?? '').trim();
+  if (!v) return '';
+  const digits = v.replace(/[.\s]/g, '');
+  if (/^\d+$/.test(digits)) return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return v.toUpperCase();
+}
+
 interface Q {
   order: number;
   label: string;
@@ -315,6 +327,8 @@ function norm(v: unknown): string {
                           [ngModel]="phoneNumOf(q.order)" (ngModelChange)="setPhoneNum(q, $event)"
                           [attr.data-testid]="'q-' + q.order" placeholder="Número" />
                       </div>
+                    } @else if (isDocument(q)) {
+                      <input class="finp" type="text" [ngModel]="valueOf(q.order)" (ngModelChange)="setDocument(q, $event)" [attr.data-testid]="'q-' + q.order" placeholder="Cédula o pasaporte" />
                     } @else {
                       <input class="finp" [type]="inputType(q)" [attr.inputmode]="inputType(q)==='email' ? 'email' : null" [ngModel]="valueOf(q.order)" (ngModelChange)="setAnswer(q, $event)" [attr.data-testid]="'q-' + q.order" [placeholder]="inputType(q)==='email' ? 'nombre@correo.com' : 'Escribe aquí…'" />
                     }
@@ -432,6 +446,15 @@ export class PatientFormPage implements OnInit {
   /** Tipo de input HTML: 'email' si la etiqueta pide correo, si no 'text'. */
   inputType(q: Q): string {
     return /correo|e-?mail/i.test(q.label) ? 'email' : 'text';
+  }
+
+  /** ¿Es el campo de documento de identificación? */
+  isDocument(q: Q): boolean {
+    return /documento|identificaci[oó]n|c[eé]dula/i.test(q.label);
+  }
+  /** Formatea el documento al escribir (cédula con puntos; pasaporte tal cual). */
+  setDocument(q: Q, value: string) {
+    this.setAnswer(q, formatDocumentId(value));
   }
 
   // ── Teléfono con código de país ──

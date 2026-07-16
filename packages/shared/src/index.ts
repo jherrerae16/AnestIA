@@ -10,3 +10,4 @@ export * from './pdf-template';
 export * from './approval';
 export * from './distribution';
 export * from './medical-terms';
+export * from './format';

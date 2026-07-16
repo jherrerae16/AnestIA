@@ -1,4 +1,4 @@
-import { medicalTerm, suggestASA, type DocumentJSON, type DocField } from '@anestia/shared';
+import { medicalTerm, suggestASA, formatDocumentId, type DocumentJSON, type DocField } from '@anestia/shared';
 
 /**
  * AIProvider — ÚNICO punto de dependencia de la key. Dos métodos:
@@ -207,7 +207,7 @@ class StubAIProvider implements AIProvider {
     return {
       identificacion: {
         paciente: ok(val('1'), 'formulario:P1'),
-        documento: ok(val('2'), 'formulario:P2'),
+        documento: ok(val('2') ? formatDocumentId(val('2')) : null, 'formulario:P2'),
         edad_sexo: edadSexo,
         peso_talla_imc: pesoTallaImc,
         procedimiento: ok(procedimiento, 'formulario:P9'),

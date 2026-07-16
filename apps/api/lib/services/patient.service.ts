@@ -16,7 +16,8 @@ export async function upsertFromForm(
   db: Db = prisma,
 ): Promise<string | null> {
   const get = (order: number) => answers[String(order)]?.value;
-  const documentId = str(get(2));
+  // Clave del documento sin puntos de miles (cédula "1.042" ≡ "1042"); pasaporte se conserva.
+  const documentId = str(get(2)).replace(/\.(?=\d)/g, '').trim();
   const fullName = str(get(1));
   if (!documentId || !fullName) return null; // sin identificación no se crea paciente
 
