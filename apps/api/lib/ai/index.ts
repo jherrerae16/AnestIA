@@ -83,15 +83,15 @@ class StubAIProvider implements AIProvider {
     const sentence = (s: string | null): string | null =>
       s ? s.charAt(0).toLocaleUpperCase('es') + s.slice(1) : s;
 
-    // Procedimiento: traduce lenguaje coloquial → término médico ('lipo' → 'Liposucción').
-    const procedimiento = medicalTerm(val('7'));
+    // Procedimiento (P9): traduce lenguaje coloquial → término médico ('lipo' → 'Liposucción').
+    const procedimiento = medicalTerm(val('9'));
 
-    // --- Edad (derivada de P3 nacimiento vs P8 fecha de cirugía; sin Date.now) ---
+    // --- Edad (derivada de P3 nacimiento vs P10 fecha de cirugía; sin Date.now) ---
     let edadStr: string | null = null;
     const birth = val('3');
     if (birth) {
       const d = new Date(birth);
-      const refRaw = val('8');
+      const refRaw = val('10');
       const ref = refRaw ? new Date(refRaw) : null;
       if (!isNaN(d.getTime()) && ref && !isNaN(ref.getTime())) {
         let age = ref.getFullYear() - d.getFullYear();
@@ -111,66 +111,77 @@ class StubAIProvider implements AIProvider {
     else if (sexo) edadSexo = ok(sexo, 'formulario:P4');
     else edadSexo = noRep();
 
-    // --- Fecha del procedimiento (P8) → formato dd-mm-aaaa ---
-    const fechaProc = ((): DocField => {
-      const raw = val('8');
-      if (!raw) return noRep();
-      const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      return ok(m ? `${m[3]}-${m[2]}-${m[1]}` : raw, 'formulario:P8');
-    })();
-
-    // ── ANTECEDENTES: redacción clínica desde Sí/No (P10-P20) ──
-    // Patológicos: P10 ¿enfermedad? → P11 patologías (multi) si Sí.
-    let patologicos: DocField;
-    if (isYes('10')) {
-      const lista = val('11');
-      patologicos = lista
-        ? ok(`Refiere ${lista.toLocaleLowerCase('es')}.`, 'formulario:P10-11')
-        : ok('Refiere antecedentes patológicos (sin especificar).', 'formulario:P10');
-    } else {
-      patologicos = derived('Niega antecedentes patológicos conocidos.', 'formulario:P10');
+    // --- Peso / Talla / IMC (P5 kg, P6 cm) → combinado + IMC calculado ---
+    const pesoRaw = val('5');
+    const tallaRaw = val('6');
+    let pesoTallaImc: DocField = noRep();
+    if (pesoRaw && tallaRaw) {
+      const cm = parseFloat(tallaRaw.replace(',', '.'));
+      const metros = !isNaN(cm) ? (cm > 3 ? cm / 100 : cm) : NaN;
+      const tallaStr = !isNaN(metros) ? `${metros.toFixed(2)} m` : tallaRaw;
+      const imcStr = input.imc != null ? ` / ${input.imc.toFixed(1)} kg/m²` : '';
+      pesoTallaImc = derived(`${pesoRaw} kg / ${tallaStr}${imcStr}`, input.imc != null ? 'derivado:IA' : 'formulario:P5-6');
     }
 
-    const medicamentos = isYes('12')
-      ? ok('Refiere consumo actual de medicamentos.', 'formulario:P12')
-      : derived('Niega consumo de medicamentos.', 'formulario:P12');
+    // --- Fecha del procedimiento (P10) → formato dd-mm-aaaa ---
+    const fechaProc = ((): DocField => {
+      const raw = val('10');
+      if (!raw) return noRep();
+      const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return ok(m ? `${m[3]}-${m[2]}-${m[1]}` : raw, 'formulario:P10');
+    })();
 
-    const alergias = isYes('13')
-      ? ok('Refiere alergias medicamentosas o a otras sustancias.', 'formulario:P13')
-      : derived('Niega alergias medicamentosas o a otras sustancias.', 'formulario:P13');
+    // ── ANTECEDENTES: redacción clínica desde Sí/No ──
+    // Patológicos: P12 ¿enfermedad? → P13 patologías (multi) si Sí.
+    let patologicos: DocField;
+    if (isYes('12')) {
+      const lista = val('13');
+      patologicos = lista
+        ? ok(`Refiere ${lista.toLocaleLowerCase('es')}.`, 'formulario:P12-13')
+        : ok('Refiere antecedentes patológicos (sin especificar).', 'formulario:P12');
+    } else {
+      patologicos = derived('Niega antecedentes patológicos conocidos.', 'formulario:P12');
+    }
 
-    // Cirugías previas: si Sí y hay detalle (P22), traduce a término médico.
-    const quirurgicos = isYes('14')
+    const medicamentos = isYes('14')
+      ? ok('Refiere consumo actual de medicamentos.', 'formulario:P14')
+      : derived('Niega consumo de medicamentos.', 'formulario:P14');
+
+    const alergias = isYes('15')
+      ? ok('Refiere alergias medicamentosas o a otras sustancias.', 'formulario:P15')
+      : derived('Niega alergias medicamentosas o a otras sustancias.', 'formulario:P15');
+
+    // Cirugías previas (P16): si Sí y hay detalle (P17), traduce a término médico.
+    const quirurgicos = isYes('16')
       ? (() => {
-          const detalle = medicalTerm(val('22'));
+          const detalle = medicalTerm(val('17'));
           return detalle
-            ? ok(`Refiere ${detalle.toLocaleLowerCase('es')}.`, 'formulario:P14-22')
-            : ok('Refiere procedimientos quirúrgicos o anestésicos previos.', 'formulario:P14');
+            ? ok(`Refiere ${detalle.toLocaleLowerCase('es')}.`, 'formulario:P16-17')
+            : ok('Refiere procedimientos quirúrgicos o anestésicos previos.', 'formulario:P16');
         })()
-      : derived('Niega procedimientos quirúrgicos o anestésicos previos.', 'formulario:P14');
+      : derived('Niega procedimientos quirúrgicos o anestésicos previos.', 'formulario:P16');
 
-    const transfusionales = isYes('15')
-      ? ok('Refiere transfusión sanguínea previa.', 'formulario:P15')
-      : derived('Niega transfusiones previas.', 'formulario:P15');
+    const transfusionales = isYes('18')
+      ? ok('Refiere transfusión sanguínea previa.', 'formulario:P18')
+      : derived('Niega transfusiones previas.', 'formulario:P18');
 
-    const protesis = isYes('16')
-      ? ok('Refiere prótesis dental o diseño de sonrisa (relevante para el manejo de la vía aérea).', 'formulario:P16')
-      : derived('Niega prótesis dental o diseño de sonrisa.', 'formulario:P16');
+    const protesis = isYes('19')
+      ? ok('Refiere prótesis dental o diseño de sonrisa (relevante para el manejo de la vía aérea).', 'formulario:P19')
+      : derived('Niega prótesis dental o diseño de sonrisa.', 'formulario:P19');
 
-    // Hábitos: combina P17 tabaco/vapeo (+P18 cantidad), P19 alcohol, P20 psicoactivas.
+    // Hábitos: P20 tabaco/vapeo (+P21 cantidad), P22 alcohol, P23 psicoactivas.
     const habitos = ((): DocField => {
       const positivos: string[] = [];
-      const negativos: string[] = [];
-      if (isYes('17')) {
-        const cant = val('18');
+      if (isYes('20')) {
+        const cant = val('21');
         positivos.push(cant ? `tabaquismo/vapeo (${cant})` : 'tabaquismo/vapeo');
-      } else negativos.push('tabaquismo');
-      if (isYes('19')) positivos.push('consumo de alcohol'); else negativos.push('vapeo');
-      if (isYes('20')) positivos.push('consumo de sustancias psicoactivas'); else negativos.push('consumo de alcohol y sustancias psicoactivas');
-      if (positivos.length === 0) {
-        return derived('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P17-20');
       }
-      return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P17-20');
+      if (isYes('22')) positivos.push('consumo de alcohol');
+      if (isYes('23')) positivos.push('consumo de sustancias psicoactivas');
+      if (positivos.length === 0) {
+        return derived('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P20-23');
+      }
+      return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P20-23');
     })();
 
     // Condición actual: no hay pregunta de síntomas en el form → no se afirma (CS2).
@@ -186,9 +197,8 @@ class StubAIProvider implements AIProvider {
         paciente: ok(val('1'), 'formulario:P1'),
         documento: ok(val('2'), 'formulario:P2'),
         edad_sexo: edadSexo,
-        // Sin peso/talla en el formulario: se mide en el examen físico presencial (queda pendiente).
-        peso_talla_imc: noRep(),
-        procedimiento: ok(procedimiento, 'formulario:P7'),
+        peso_talla_imc: pesoTallaImc,
+        procedimiento: ok(procedimiento, 'formulario:P9'),
         fecha_procedimiento: fechaProc,
         fecha_valoracion: noRep(), // la inyecta el renderer (opts.fechaValoracion)
         capacidad_funcional: derived('≥4 METs'),
@@ -207,7 +217,7 @@ class StubAIProvider implements AIProvider {
           : noRep(),
         alergias,
         quirurgicos,
-        grupo_sanguineo: ok(val('9'), 'formulario:P9'),
+        grupo_sanguineo: ok(val('11'), 'formulario:P11'),
         transfusionales,
         protesis_dental: protesis,
         habitos,

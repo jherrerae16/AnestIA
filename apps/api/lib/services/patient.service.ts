@@ -21,7 +21,7 @@ export async function upsertFromForm(
   if (!documentId || !fullName) return null; // sin identificación no se crea paciente
 
   // Mapeo por order del Google Form real: P1 nombre, P2 doc, P3 nacimiento, P4 sexo (Hombre/Mujer),
-  // P5 teléfono, P6 aseguradora, P9 grupo sanguíneo, P21 correo.
+  // P7 teléfono, P8 aseguradora, P11 grupo sanguíneo, P24 correo.
   const sexRaw = str(get(4)).toLowerCase();
   const sex =
     /^(masc|hombre|m$)/.test(sexRaw) ? 'MASCULINO'
@@ -34,10 +34,10 @@ export async function upsertFromForm(
     where: { anesthesiologistId_documentId: { anesthesiologistId, documentId } },
     update: {
       fullName,
-      phone: str(get(5)) || undefined,
-      email: normalizeEmail(str(get(21))) || undefined,
-      insurer: str(get(6)) || undefined,
-      bloodType: str(get(9)) || undefined,
+      phone: str(get(7)) || undefined,
+      email: normalizeEmail(str(get(24))) || undefined,
+      insurer: str(get(8)) || undefined,
+      bloodType: str(get(11)) || undefined,
       ...(sex ? { sex } : {}),
       ...(birthDate && !isNaN(birthDate.getTime()) ? { birthDate } : {}),
     },
@@ -45,10 +45,10 @@ export async function upsertFromForm(
       anesthesiologistId,
       documentId,
       fullName,
-      phone: str(get(5)) || null,
-      email: normalizeEmail(str(get(21))) || null,
-      insurer: str(get(6)) || null,
-      bloodType: str(get(9)) || null,
+      phone: str(get(7)) || null,
+      email: normalizeEmail(str(get(24))) || null,
+      insurer: str(get(8)) || null,
+      bloodType: str(get(11)) || null,
       sex: (sex ?? undefined) as never,
       birthDate: birthDate && !isNaN(birthDate.getTime()) ? birthDate : null,
     },

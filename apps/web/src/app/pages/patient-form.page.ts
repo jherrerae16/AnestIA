@@ -29,11 +29,11 @@ interface Section {
  * rango caen en "Otros datos".
  */
 const SECTIONS: Section[] = [
-  { title: 'Información personal', icon: '👤', from: 1, to: 4 },
-  { title: 'Contacto y aseguradora', icon: '📇', from: 5, to: 6, extra: [21] },
-  { title: 'Cirugía programada', icon: '🏥', from: 7, to: 9 },
-  { title: 'Antecedentes médicos', icon: '🩺', from: 10, to: 16, extra: [22] },
-  { title: 'Hábitos', icon: '🚭', from: 17, to: 20 },
+  { title: 'Información personal', icon: '👤', from: 1, to: 6 },
+  { title: 'Contacto y aseguradora', icon: '📇', from: 7, to: 8, extra: [24] },
+  { title: 'Cirugía programada', icon: '🏥', from: 9, to: 11 },
+  { title: 'Antecedentes médicos', icon: '🩺', from: 12, to: 19 },
+  { title: 'Hábitos', icon: '🚭', from: 20, to: 23 },
 ];
 
 /** Normaliza para comparar condicionales ('sí'→'si'). */
@@ -116,9 +116,9 @@ function norm(v: unknown): string {
     .finp:focus { border-color:var(--primary); box-shadow:0 0 0 4px rgba(11,92,107,.1); }
     textarea.finp { resize:vertical; min-height:80px; }
     .finp::placeholder { color:var(--border2); }
-    .phone-wrap { display:flex; gap:8px; }
-    .phone-cc { flex:0 0 auto; width:132px; padding-left:10px; padding-right:6px; }
-    .phone-num { flex:1; }
+    .phone-wrap { display:flex; gap:8px; align-items:stretch; }
+    .phone-cc { flex:0 0 118px; width:118px; padding:12px 4px 12px 10px; font-size:14px; }
+    .phone-num { flex:1; min-width:0; }
     .date-err { color:var(--red); font-size:12px; margin-top:6px; }
 
     /* OPTIONS */
@@ -276,6 +276,9 @@ function norm(v: unknown): string {
                         </div>
                       }
                     </div>
+                    @if (isChecked(q.order, 'Otra')) {
+                      <input class="finp" style="margin-top:8px" [ngModel]="multiOtherText(q.order)" (ngModelChange)="setMultiOther(q, $event)" [attr.data-testid]="'q-' + q.order + '-other'" placeholder="¿Cuál otra patología?" />
+                    }
                   }
                   @case ('TEXTO_LARGO') {
                     <textarea class="finp" rows="3" [ngModel]="valueOf(q.order)" (ngModelChange)="setAnswer(q, $event)" [attr.data-testid]="'q-' + q.order" placeholder="Escribe aquí…"></textarea>
@@ -549,6 +552,13 @@ export class PatientFormPage implements OnInit {
     });
   }
 
+  /** Texto libre de la opción "Otra" en multiselección (se fusiona al enviar). */
+  private multiOthers = signal<Record<number, string>>({});
+  multiOtherText(order: number): string { return this.multiOthers()[order] ?? ''; }
+  setMultiOther(q: Q, text: string) {
+    this.multiOthers.update((m) => ({ ...m, [q.order]: text }));
+  }
+
   async acceptConsent() {
     await this.api.acceptConsent(this.token);
     this.consentAccepted.set(true);
@@ -556,7 +566,16 @@ export class PatientFormPage implements OnInit {
 
   private answersForApi() {
     const out: Record<string, { value: unknown; type: string }> = {};
-    for (const [k, v] of Object.entries(this.answers())) out[k] = v;
+    for (const [k, v] of Object.entries(this.answers())) {
+      // Fusiona el texto de "Otra" en multiselección: 'Otra' → 'Otra: <detalle>'.
+      const other = this.multiOthers()[Number(k)];
+      if (other && Array.isArray(v.value)) {
+        const arr = (v.value as string[]).map((o) => (o === 'Otra' ? `Otra: ${other}` : o));
+        out[k] = { value: arr, type: v.type };
+      } else {
+        out[k] = v;
+      }
+    }
     return out;
   }
 
