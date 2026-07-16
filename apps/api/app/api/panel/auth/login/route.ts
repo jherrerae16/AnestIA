@@ -46,7 +46,13 @@ export const POST = apiHandler(async (req: NextRequest) => {
 
   const res = NextResponse.json({
     ok: true,
-    profile: { id: anesthesiologist.id, fullName: anesthesiologist.fullName },
+    profile: {
+      id: anesthesiologist.id,
+      fullName: anesthesiologist.fullName,
+      specialty: anesthesiologist.specialty,
+      clinicLogoUrl: anesthesiologist.clinicLogoUrl,
+      footerText: anesthesiologist.footerText,
+    },
   });
   res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
   return res;

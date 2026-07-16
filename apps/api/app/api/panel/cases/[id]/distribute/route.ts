@@ -4,18 +4,23 @@ import { apiHandler } from '../../../../../../lib/errors';
 import { requireSession } from '../../../../../../lib/auth/session-helper';
 import { distribute } from '../../../../../../lib/services/distribution.service';
 
-const schema = z.object({
-  contactIds: z.array(z.string()).min(1),
-  channel: z.enum(['email', 'link']).default('link'),
-});
+const schema = z
+  .object({
+    contactIds: z.array(z.string()).default([]),
+    sendToPatient: z.boolean().default(false),
+    channel: z.enum(['email', 'link']).default('link'),
+  })
+  .refine((v) => v.contactIds.length > 0 || v.sendToPatient, {
+    message: 'Selecciona al menos un destinatario.',
+  });
 
 /** POST /api/panel/cases/:id/distribute — distribuye el reporte final (sólo aprobado). */
 export const POST = apiHandler(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const session = await requireSession(req);
   const { id } = await ctx.params;
-  const { contactIds, channel } = schema.parse(await req.json());
+  const { contactIds, sendToPatient, channel } = schema.parse(await req.json());
   const origin = req.nextUrl.origin;
-  const result = await distribute(id, session.anesthesiologistId, contactIds, channel, origin);
+  const result = await distribute(id, session.anesthesiologistId, contactIds, channel, origin, sendToPatient);
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 422 });
   return NextResponse.json({ ok: true, deliveries: result.deliveries });
 });

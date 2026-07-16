@@ -15,7 +15,7 @@ export const GET = apiHandler(async (req: NextRequest) => {
   }
   const profile = await prisma.anesthesiologist.findUnique({
     where: { id: session.anesthesiologistId },
-    select: { id: true, fullName: true, specialty: true, email: true, clinicLogoUrl: true },
+    select: { id: true, fullName: true, specialty: true, email: true, clinicLogoUrl: true, footerText: true },
   });
   return NextResponse.json({ profile });
 });

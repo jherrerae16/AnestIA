@@ -8,10 +8,14 @@ import { serveDelivery } from '../../../../../lib/services/distribution.service'
  */
 export const GET = apiHandler(async (_req: NextRequest, ctx: { params: Promise<{ token: string }> }) => {
   const { token } = await ctx.params;
-  const pdf = await serveDelivery(token);
-  if (!pdf) return NextResponse.json({ error: 'Enlace inválido.' }, { status: 404 });
-  return new NextResponse(pdf, {
+  const result = await serveDelivery(token);
+  if (!result) return NextResponse.json({ error: 'Enlace inválido.' }, { status: 404 });
+  const encoded = encodeURIComponent(result.filename);
+  return new NextResponse(result.pdf, {
     status: 200,
-    headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="valoracion.pdf"' },
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename*=UTF-8''${encoded}`,
+    },
   });
 });
