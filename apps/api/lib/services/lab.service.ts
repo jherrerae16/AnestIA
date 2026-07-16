@@ -1,7 +1,21 @@
+import { z } from 'zod';
 import { prisma } from '../prisma';
 import { getAIProvider, type FileRef } from '../ai';
 import { logAudit } from '../audit';
+import { logger } from '../logger';
 import { flagLab, detectGLP1, type FormAnswers } from '@anestia/shared';
+
+/**
+ * Borde de validación de la extracción (CS2/CS6). Un lab sin `sourceRef` no es
+ * trazable y por tanto no se persiste: la ausencia de sustento se descarta, no se rellena.
+ */
+const extractedLabSchema = z.object({
+  analyte: z.string().min(1),
+  value: z.string().min(1),
+  unit: z.string().nullish(),
+  refRange: z.string().nullish(),
+  sourceRef: z.string().min(1),
+});
 
 /**
  * lab.extract: extrae valores de los adjuntos del caso (AIProvider) y persiste
@@ -15,8 +29,19 @@ export async function extractForCase(caseId: string): Promise<void> {
   const attachments = await prisma.attachment.findMany({ where: { caseId } });
   const files: FileRef[] = attachments.map((a) => ({ key: a.url, type: a.type, filename: a.url }));
 
-  const labs = await getAIProvider().extractLabs(files);
-  for (const lab of labs) {
+  const raw = await getAIProvider().extractLabs(files);
+
+  // CS2/CS6: sólo se persiste lo trazable. Un lab sin sourceRef se descarta y se registra.
+  for (const candidate of raw) {
+    const parsed = extractedLabSchema.safeParse(candidate);
+    if (!parsed.success) {
+      logger.warn(
+        { caseId, analyte: (candidate as { analyte?: string })?.analyte },
+        'lab_extract_discarded_untraceable',
+      );
+      continue;
+    }
+    const lab = parsed.data;
     await prisma.extractedLabResult.create({
       data: {
         caseId,
@@ -24,7 +49,7 @@ export async function extractForCase(caseId: string): Promise<void> {
         value: lab.value,
         unit: lab.unit ?? null,
         refRange: lab.refRange ?? null,
-        sourceRef: lab.sourceRef ?? null,
+        sourceRef: lab.sourceRef,
         flag: 'NORMAL',
       },
     });

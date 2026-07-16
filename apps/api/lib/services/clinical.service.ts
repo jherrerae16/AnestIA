@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../prisma';
-import { getAIProvider, type ClinicalInput } from '../ai';
+import { activeModelLabel, getAIProvider, type ClinicalInput } from '../ai';
 import { logAudit } from '../audit';
 import {
   computeIMC,
@@ -9,6 +9,7 @@ import {
   documentSchema,
   detectGLP1,
   PROMPT_MAESTRO_VERSION,
+  type DocField,
   type FormAnswers,
 } from '@anestia/shared';
 
@@ -48,6 +49,43 @@ export async function assembleInput(caseId: string): Promise<ClinicalInput> {
  * Genera el borrador estructurado: IMC por código → provider → valida documentSchema →
  * enforceGuardrails (CS2/CS3/CS4) → persiste GeneratedAssessment. Idempotente.
  */
+/**
+ * Arma la sección de paraclínicos desde los labs realmente extraídos (código, no IA).
+ * Incluye una observación resumen: alteraciones detectadas o normalidad global.
+ * Si el proveedor ya devolvió paraclínicos (stub), se respetan.
+ */
+function buildParaclinicos(
+  labs: ClinicalInput['labs'],
+  provided?: Record<string, DocField>,
+): Record<string, DocField> {
+  if (provided && Object.keys(provided).length > 0) return provided;
+  const out: Record<string, DocField> = {};
+  for (const l of labs ?? []) {
+    out[l.analyte.toLowerCase().replace(/\s+/g, '_')] = {
+      valor: `${l.value}${l.unit ? ' ' + l.unit : ''}`,
+      estado: 'ok',
+      fuente: l.sourceRef ?? 'lab',
+      alerta: l.flag !== 'NORMAL',
+    };
+  }
+  if ((labs ?? []).length > 0) {
+    const alterados = labs.filter((l) => l.flag !== 'NORMAL');
+    out['observacion'] = alterados.length
+      ? {
+          valor: `Se observa alteración en: ${alterados.map((l) => `${l.analyte} (${l.flag.toLowerCase()})`).join(', ')}. Correlacionar clínicamente.`,
+          estado: 'ok',
+          fuente: 'derivado:IA',
+          alerta: true,
+        }
+      : {
+          valor: 'Sin alteraciones hematológicas ni de coagulación relevantes.',
+          estado: 'ok',
+          fuente: 'derivado:IA',
+        };
+  }
+  return out;
+}
+
 export async function generateForCase(caseId: string): Promise<void> {
   const existing = await prisma.generatedAssessment.findUnique({ where: { caseId } });
   if (existing) return;
@@ -55,13 +93,21 @@ export async function generateForCase(caseId: string): Promise<void> {
   const input = await assembleInput(caseId);
   const raw = await getAIProvider().generateAssessment(input);
 
+  // Paraclínicos: los arma el CÓDIGO desde los labs realmente extraídos, nunca el modelo.
+  // Así los valores del documento son los del laboratorio, no los que el modelo recuerde (CS2).
+  const withParaclinicos = {
+    ...raw,
+    paraclinicos: buildParaclinicos(input.labs, raw.paraclinicos),
+  };
+
   // Validación de contrato (rechaza malformado / campos prohibidos) — CS5.
-  const parsed = documentSchema.parse(raw);
+  const parsed = documentSchema.parse(withParaclinicos);
 
   // Guardarraíles (segunda línea) — CS2/CS3/CS4.
   const doc = enforceGuardrails(parsed, input.imc ?? null);
 
-  const modelUsed = process.env.AI_PROVIDER === 'anthropic' ? 'claude-opus' : 'stub';
+  // Trazabilidad: la etiqueta la da el propio adaptador (un solo punto de verdad).
+  const modelUsed = activeModelLabel();
 
   await prisma.generatedAssessment.create({
     data: {
