@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anestia/shared": "*",
+    "@anthropic-ai/sdk": "^0.111.0",
     "@prisma/client": "^6.2.1",
     "argon2": "^0.41.1",
     "googleapis": "^173.0.0",

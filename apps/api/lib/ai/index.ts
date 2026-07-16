@@ -280,14 +280,31 @@ class StubAIProvider implements AIProvider {
   }
 }
 
+/** Modelo del motor clínico cuando corre con la key (Opus para lo clínico). */
+export const CLINICAL_MODEL = 'claude-opus-4-8';
+
+/**
+ * Punto ÚNICO de cambio entre el stub y Claude. `AI_PROVIDER=anthropic` + ANTHROPIC_API_KEY
+ * activa la lectura real de exámenes y el motor clínico; todo lo demás del sistema no cambia.
+ */
 export function getAIProvider(): AIProvider {
   const provider = process.env.AI_PROVIDER ?? 'stub';
   switch (provider) {
-    case 'anthropic':
-      // Se implementa en U2/U3 cuando exista ANTHROPIC_API_KEY. Punto único de cambio.
-      throw new Error('AIProvider "anthropic" aún no implementado (llega en U2/U3 con la key).');
+    case 'anthropic': {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        throw new Error('AI_PROVIDER=anthropic requiere ANTHROPIC_API_KEY en el entorno.');
+      }
+      // Carga diferida: el SDK sólo se importa cuando de verdad se usa.
+      const { AnthropicAIProvider } = require('./anthropic') as typeof import('./anthropic');
+      return new AnthropicAIProvider();
+    }
     case 'stub':
     default:
       return new StubAIProvider();
   }
+}
+
+/** Modelo/etiqueta del proveedor activo, para trazabilidad en el assessment. */
+export function activeModelLabel(): string {
+  return (process.env.AI_PROVIDER ?? 'stub') === 'anthropic' ? CLINICAL_MODEL : 'stub';
 }
