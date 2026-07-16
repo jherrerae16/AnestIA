@@ -7,42 +7,55 @@ import { ApiService } from '../core/api.service';
   standalone: true,
   imports: [FormsModule],
   styles: [`
-    .card { background:#fff; padding:1.5rem; border-radius:12px; max-width:560px; box-shadow:0 2px 12px rgba(0,0,0,.06); }
-    label { display:block; font-size:.85rem; margin:.5rem 0 .25rem; }
-    select, input { width:100%; padding:.55rem; border:1px solid #cdd7da; border-radius:8px; }
-    button { margin-top:1rem; padding:.6rem 1rem; background:var(--brand); color:#fff; border:0; border-radius:8px; cursor:pointer; }
-    .link-box { margin-top:1.2rem; padding:1rem; background:#eef5f6; border-radius:8px; }
-    .link-row { display:flex; gap:.5rem; margin-top:.5rem; }
-    .link-row input { font-family:monospace; font-size:.8rem; }
-    .copy { background:var(--brand-dark); }
-    .hint { font-size:.8rem; color:#5b6b73; }
+    .creator-wrap { max-width: 560px; margin: 0 auto; padding: 1.5rem; position: relative; z-index: 1; }
+    .creator-card { padding: 24px 26px; }
+    .creator-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--text); margin: 0 0 4px; }
+    .creator-sub { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
+    .field { margin-bottom: 16px; }
+    .create-action { margin-top: 8px; }
+    .link-box { margin-top: 24px; padding: 16px 18px; background: var(--it-50); border: 1px solid var(--it-100); border-radius: 10px; }
+    .link-box-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+    .hint { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+    .link-row { display: flex; gap: 8px; margin-top: 12px; }
+    .link-row .ki-input { font-family: var(--font-mono); font-size: 12px; }
+    .copied { display: inline-block; margin-top: 10px; font-size: 12px; color: var(--green); font-weight: 500; }
   `],
   template: `
-    <div class="card">
-      <h2>Nuevo caso</h2>
-      <label for="preset">Cuestionario</label>
-      <select id="preset" [(ngModel)]="presetId" data-testid="case-preset-select">
-        @for (p of presets(); track p.id) {
-          <option [value]="p.id">{{ p.name }} (v{{ p.version }})</option>
-        }
-      </select>
-      <label for="proc">Procedimiento (opcional)</label>
-      <input id="proc" [(ngModel)]="procedure" data-testid="case-procedure-input" />
-      <button (click)="create()" [disabled]="!presetId() || loading()" data-testid="case-create-button">
-        {{ loading() ? 'Creando…' : 'Crear y generar enlace' }}
-      </button>
+    <div class="creator-wrap">
+      <div class="card creator-card">
+        <h2 class="creator-title">Nuevo caso</h2>
+        <p class="creator-sub">Genera un enlace tokenizado para enviar al paciente.</p>
 
-      @if (link()) {
-        <div class="link-box">
-          <strong>Enlace para el paciente</strong>
-          <p class="hint">Cópialo y envíalo por tu WhatsApp. Expira: {{ expires() }}.</p>
-          <div class="link-row">
-            <input #linkInput [value]="link()" readonly data-testid="case-link-input" />
-            <button class="copy" (click)="copy(linkInput)" data-testid="case-link-copy-button">Copiar</button>
-          </div>
-          @if (copied()) { <span class="hint">✔ Copiado</span> }
+        <div class="field">
+          <label class="ki-label" for="preset">Cuestionario</label>
+          <select class="ki-select" id="preset" [(ngModel)]="presetId" data-testid="case-preset-select">
+            @for (p of presets(); track p.id) {
+              <option [value]="p.id">{{ p.name }} (v{{ p.version }})</option>
+            }
+          </select>
         </div>
-      }
+
+        <div class="field">
+          <label class="ki-label" for="proc">Procedimiento (opcional)</label>
+          <input class="ki-input" id="proc" [(ngModel)]="procedure" data-testid="case-procedure-input" />
+        </div>
+
+        <button class="btn btn-primary create-action" (click)="create()" [disabled]="!presetId() || loading()" data-testid="case-create-button">
+          {{ loading() ? 'Creando…' : 'Crear y generar enlace' }}
+        </button>
+
+        @if (link()) {
+          <div class="link-box">
+            <div class="link-box-title">Enlace para el paciente</div>
+            <p class="hint">Cópialo y envíalo por tu WhatsApp. Expira: {{ expires() }}.</p>
+            <div class="link-row">
+              <input class="ki-input" #linkInput [value]="link()" readonly data-testid="case-link-input" />
+              <button class="btn btn-sm" (click)="copy(linkInput)" data-testid="case-link-copy-button">Copiar</button>
+            </div>
+            @if (copied()) { <span class="copied">✔ Copiado</span> }
+          </div>
+        }
+      </div>
     </div>
   `,
 })

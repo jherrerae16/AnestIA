@@ -7,24 +7,53 @@ import { ApiService } from '../core/api.service';
   standalone: true,
   imports: [FormsModule],
   styles: [`
-    .card { background:#fff; padding:1.2rem; border-radius:10px; max-width:640px; box-shadow:0 1px 6px rgba(0,0,0,.05); }
-    .row { display:flex; gap:.5rem; margin-bottom:.5rem; }
-    input, select { padding:.5rem; border:1px solid #cdd7da; border-radius:8px; }
-    button { padding:.5rem 1rem; background:var(--brand); color:#fff; border:0; border-radius:8px; cursor:pointer; }
-    .contact { padding:.5rem 0; border-bottom:1px solid #eef2f3; font-size:.9rem; }
-    .type { color:#5b6b73; font-size:.8rem; }
+    :host { display:block; max-width:660px; }
+    .page-head { margin-bottom:20px; }
+    .page-title { font-family:var(--font-display); font-size:22px; font-weight:600; letter-spacing:-0.5px; color:var(--text); }
+    .add-row { display:grid; grid-template-columns:1.2fr 1.4fr auto auto; gap:10px; align-items:end; }
+    .add-row .field { min-width:0; }
+    @media (max-width:560px) { .add-row { grid-template-columns:1fr 1fr; } }
+    .contact { display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--border); }
+    .contact:last-child { border-bottom:none; }
+    .contact-body { min-width:0; }
+    .contact-name { font-size:13px; font-weight:600; color:var(--text); }
+    .contact-email { font-size:12px; color:var(--muted); margin-top:2px; }
+    .contact .card-badge { margin-left:auto; flex-shrink:0; }
   `],
   template: `
+    <div class="page-head">
+      <div class="page-title">Directorio de contactos</div>
+    </div>
+
     <div class="card">
-      <h2>Directorio de contactos</h2>
-      <div class="row">
-        <input placeholder="Nombre/etiqueta" [(ngModel)]="label" data-testid="contact-label-input" />
-        <input placeholder="Correo" [(ngModel)]="email" data-testid="contact-email-input" />
-        <select [(ngModel)]="type"><option>MEDICO</option><option>CLINICA</option><option>ASEGURADORA</option><option>OTRO</option></select>
-        <button (click)="add()" data-testid="contact-add-button">Agregar</button>
+      <div class="section-label">Agregar contacto</div>
+      <div class="add-row">
+        <div class="field">
+          <label class="ki-label">Nombre / etiqueta</label>
+          <input class="ki-input" placeholder="Nombre/etiqueta" [(ngModel)]="label" data-testid="contact-label-input" />
+        </div>
+        <div class="field">
+          <label class="ki-label">Correo</label>
+          <input class="ki-input" placeholder="Correo" [(ngModel)]="email" data-testid="contact-email-input" />
+        </div>
+        <div class="field">
+          <label class="ki-label">Tipo</label>
+          <select class="ki-select" [(ngModel)]="type"><option>MEDICO</option><option>CLINICA</option><option>ASEGURADORA</option><option>OTRO</option></select>
+        </div>
+        <button class="btn btn-primary" (click)="add()" data-testid="contact-add-button">Agregar</button>
       </div>
+
+      <div class="section-label">Contactos</div>
       @for (c of contacts(); track c.id) {
-        <div class="contact"><strong>{{ c.label }}</strong> — {{ c.email }} <span class="type">({{ c.type }})</span></div>
+        <div class="contact">
+          <div class="contact-body">
+            <div class="contact-name">{{ c.label }}</div>
+            <div class="contact-email">{{ c.email }}</div>
+          </div>
+          <span class="card-badge badge-blue">{{ c.type }}</span>
+        </div>
+      } @empty {
+        <div class="empty">Sin contactos todavía.</div>
       }
     </div>
   `,

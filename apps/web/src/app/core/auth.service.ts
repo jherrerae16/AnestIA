@@ -8,6 +8,7 @@ export interface Profile {
   specialty?: string;
   email?: string;
   clinicLogoUrl?: string;
+  footerText?: string;
 }
 
 @Injectable({ providedIn: 'root' })

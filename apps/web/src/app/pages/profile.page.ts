@@ -7,45 +7,70 @@ import { ApiService } from '../core/api.service';
   standalone: true,
   imports: [FormsModule],
   styles: [`
-    .card { background:#fff; padding:1.5rem; border-radius:12px; max-width:620px; box-shadow:0 1px 6px rgba(0,0,0,.05); }
-    label { display:block; font-size:.85rem; margin:.6rem 0 .25rem; color:#33474f; }
-    input { width:100%; padding:.55rem; border:1px solid #cdd7da; border-radius:8px; }
-    button { padding:.55rem 1rem; background:var(--brand); color:#fff; border:0; border-radius:8px; cursor:pointer; margin-top:.8rem; }
-    .assets { display:flex; gap:1.5rem; margin-top:1rem; }
-    .asset { flex:1; }
-    .preview { border:1px dashed #cdd7da; border-radius:8px; padding:.5rem; min-height:70px; display:flex; align-items:center; justify-content:center; background:#f6f8f9; }
+    :host { display:block; max-width:640px; }
+    .page-head { margin-bottom:20px; }
+    .page-title { font-family:var(--font-display); font-size:22px; font-weight:600; letter-spacing:-0.5px; color:var(--text); }
+    .page-sub { font-size:13px; color:var(--muted); margin-top:6px; line-height:1.5; }
+    .field { margin-bottom:14px; }
+    .save-row { display:flex; align-items:center; gap:12px; margin-top:20px; }
+    .saved { color:var(--green); font-size:12px; font-weight:600; }
+    .assets { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:8px; }
+    .preview { border:1px dashed var(--border2); border-radius:10px; padding:12px; min-height:76px;
+      display:flex; align-items:center; justify-content:center; background:var(--bg3); margin-bottom:10px; }
     .preview img { max-height:60px; max-width:100%; }
-    .hint { font-size:.8rem; color:#5b6b73; }
-    .saved { color:#1e7e34; font-size:.85rem; margin-left:.5rem; }
+    .preview .placeholder { font-size:12px; color:var(--muted2); }
+    input[type=file] { font-size:12px; color:var(--muted); }
+    input[type=file]::file-selector-button { font-family:var(--font-body); font-size:12px; font-weight:500;
+      padding:6px 12px; margin-right:10px; border-radius:7px; border:1px solid var(--border2);
+      background:#fff; color:var(--text); cursor:pointer; transition:all 160ms; }
+    input[type=file]::file-selector-button:hover { border-color:var(--primary); background:var(--it-50); }
   `],
   template: `
+    <div class="page-head">
+      <div class="page-title">Mi perfil</div>
+      <p class="page-sub">Tú subes tu logo de clínica y tu firma; se insertan en el PDF. Los archivos no se guardan en el proyecto, sino en tu perfil.</p>
+    </div>
+
     <div class="card">
-      <h2>Mi perfil</h2>
-      <p class="hint">Tú subes tu logo de clínica y tu firma; se insertan en el PDF. Los archivos no se guardan en el proyecto, sino en tu perfil.</p>
+      <div class="section-label">Datos del profesional</div>
 
-      <label>Nombre completo</label>
-      <input [(ngModel)]="p.fullName" data-testid="profile-name-input" />
-      <label>Especialidad</label>
-      <input [(ngModel)]="p.specialty" />
-      <label>Registro médico</label>
-      <input [(ngModel)]="p.medicalRegistry" data-testid="profile-registry-input" />
-      <label>Texto de pie de página</label>
-      <input [(ngModel)]="p.footerText" />
-      <button (click)="save()" data-testid="profile-save-button">Guardar datos</button>
-      @if (savedMsg()) { <span class="saved">{{ savedMsg() }}</span> }
+      <div class="field">
+        <label class="ki-label">Nombre completo</label>
+        <input class="ki-input" [(ngModel)]="p.fullName" data-testid="profile-name-input" />
+      </div>
+      <div class="field">
+        <label class="ki-label">Especialidad</label>
+        <input class="ki-input" [(ngModel)]="p.specialty" />
+      </div>
+      <div class="field">
+        <label class="ki-label">Registro médico</label>
+        <input class="ki-input" [(ngModel)]="p.medicalRegistry" data-testid="profile-registry-input" />
+      </div>
+      <div class="field">
+        <label class="ki-label">Texto de pie de página</label>
+        <input class="ki-input" [(ngModel)]="p.footerText" />
+      </div>
 
+      <div class="save-row">
+        <button class="btn btn-primary" (click)="save()" data-testid="profile-save-button">Guardar datos</button>
+        @if (savedMsg()) { <span class="saved">{{ savedMsg() }}</span> }
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="section-label">Branding</div>
       <div class="assets">
         <div class="asset">
-          <label>Logo de la clínica</label>
+          <label class="ki-label">Logo de la clínica</label>
           <div class="preview">
-            @if (logoUrl()) { <img [src]="logoUrl()" alt="logo" /> } @else { <span class="hint">Sin logo</span> }
+            @if (logoUrl()) { <img [src]="logoUrl()" alt="logo" /> } @else { <span class="placeholder">Sin logo</span> }
           </div>
           <input type="file" accept="image/*" (change)="upload('logo', $event)" data-testid="profile-logo-input" />
         </div>
         <div class="asset">
-          <label>Firma</label>
+          <label class="ki-label">Firma</label>
           <div class="preview">
-            @if (signatureUrl()) { <img [src]="signatureUrl()" alt="firma" /> } @else { <span class="hint">Sin firma</span> }
+            @if (signatureUrl()) { <img [src]="signatureUrl()" alt="firma" /> } @else { <span class="placeholder">Sin firma</span> }
           </div>
           <input type="file" accept="image/*" (change)="upload('signature', $event)" data-testid="profile-signature-input" />
         </div>
