@@ -92,23 +92,36 @@ export async function submitForm(caseId: string, rawAnswers: unknown): Promise<{
 
   const anesthesiologistId = kase.anesthesiologistId;
 
+  // Atómico: respuesta + upsert de paciente + vínculo + avance de estado en UNA transacción.
+  // Evita el caso huérfano (estado avanzado sin paciente vinculado) — C1.
   await prisma.$transaction(async (tx) => {
     await tx.formResponse.upsert({
       where: { caseId },
       update: { answers: answers as never, partial: false, submittedAt: new Date() },
       create: { caseId, answers: answers as never, partial: false, submittedAt: new Date() },
     });
-    await tx.case.update({ where: { id: caseId }, data: { status: 'RESPUESTAS_RECIBIDAS' } });
+    const patientId = await upsertFromForm(anesthesiologistId, answers, tx);
+    await tx.case.update({
+      where: { id: caseId },
+      data: { status: 'RESPUESTAS_RECIBIDAS', ...(patientId ? { patientId } : {}) },
+    });
   });
 
-  // Upsert paciente + vincular al caso (fuera de la tx para no bloquear; idempotente).
-  const patientId = await upsertFromForm(anesthesiologistId, answers);
-  if (patientId) {
-    await prisma.case.update({ where: { id: caseId }, data: { patientId } });
-  }
-
   await logAudit({ action: 'form.submitted', entity: 'Case', entityId: caseId });
-  await publish('form.submitted', { caseId });
+
+  // Emitir el evento del pipeline DESPUÉS del commit. Si falla el publish, el caso quedó
+  // en RESPUESTAS_RECIBIDAS con datos completos: reconcilePendingSubmissions() lo re-emite.
+  try {
+    await publish('form.submitted', { caseId });
+  } catch (err) {
+    // No perdemos el envío: el reconciliador (worker) reintentará. Log fuerte, no silencioso.
+    await logAudit({
+      action: 'form.submitted.publish_failed',
+      entity: 'Case',
+      entityId: caseId,
+      meta: { error: err instanceof Error ? err.message : 'unknown' },
+    });
+  }
 
   return {};
 }

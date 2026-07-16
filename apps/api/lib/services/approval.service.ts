@@ -17,7 +17,13 @@ import {
 export async function getReview(caseId: string, anesthesiologistId: string) {
   const kase = await prisma.case.findFirst({
     where: { id: caseId, anesthesiologistId },
-    include: { assessment: true, formResponse: true, labResults: true, approval: true },
+    include: {
+      assessment: true,
+      formResponse: true,
+      labResults: true,
+      approval: true,
+      patient: { select: { fullName: true, email: true } },
+    },
   });
   if (!kase) return null;
   const fields = (kase.assessment?.fields as DocumentJSON) ?? null;
@@ -28,6 +34,7 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
     answers: kase.formResponse?.answers ?? {},
     labs: kase.labResults.map((l) => ({ analyte: l.analyte, value: l.value, unit: l.unit, flag: l.flag, sourceRef: l.sourceRef })),
     approved: Boolean(kase.approval),
+    patient: kase.patient ? { fullName: kase.patient.fullName, email: kase.patient.email } : null,
     canApprove: fields ? canApprove(fields) : { ok: false, blockers: ['No hay borrador generado.'] },
   };
 }
@@ -64,7 +71,12 @@ export async function loadExamNormal(caseId: string, anesthesiologistId: string)
   if (!loaded) return;
   const next = applyExamNormal(loaded.fields);
   await prisma.generatedAssessment.update({ where: { id: loaded.assessmentId }, data: { fields: next as never } });
-  await logAudit({ action: 'assessment.exam_confirmed', entity: 'Case', entityId: caseId, meta: { mode: 'normal' } });
+  await logAudit({
+    action: 'assessment.exam_confirmed',
+    entity: 'Case',
+    entityId: caseId,
+    meta: { mode: 'normal', attested: true, note: 'examen normal confirmado por atestación del anestesiólogo' },
+  });
 }
 
 /** Ingreso de valores reales del examen (fuente=anestesiologo). */
