@@ -117,7 +117,13 @@ function norm(v: unknown): string {
     textarea.finp { resize:vertical; min-height:80px; }
     .finp::placeholder { color:var(--border2); }
     .phone-wrap { display:flex; gap:8px; align-items:stretch; }
-    .phone-cc { flex:0 0 118px; width:118px; padding:12px 4px 12px 10px; font-size:14px; }
+    /* Selector país: muestra compacto (bandera + código); el nombre completo aparece al desplegar. */
+    .phone-cc-box { position:relative; flex:0 0 92px; width:92px; display:inline-flex; align-items:center;
+      border:1.5px solid var(--border2); border-radius:var(--r-md); background:#fff; padding:0 8px; cursor:pointer; }
+    .phone-cc-box:focus-within { border-color:var(--primary); box-shadow:0 0 0 4px rgba(11,92,107,.1); }
+    .phone-cc-display { font-size:14.5px; color:var(--text); white-space:nowrap; }
+    .phone-cc-caret { margin-left:auto; font-size:10px; color:var(--muted); pointer-events:none; }
+    .phone-cc-select { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; border:none; font-size:16px; }
     .phone-num { flex:1; min-width:0; }
     .date-err { color:var(--red); font-size:12px; margin-top:6px; }
 
@@ -295,12 +301,16 @@ function norm(v: unknown): string {
                   @default {
                     @if (isPhone(q)) {
                       <div class="phone-wrap">
-                        <select class="finp phone-cc" [ngModel]="dialOf(q.order)" (ngModelChange)="setDial(q, $event)" [attr.data-testid]="'q-' + q.order + '-cc'">
-                          @for (c of countries; track c.iso) {
-                            <option [value]="c.dial">{{ c.flag }} +{{ c.dial }} {{ c.name }}</option>
-                          }
-                        </select>
-                        <input class="finp phone-num" type="tel" inputmode="tel"
+                        <span class="phone-cc-box">
+                          <span class="phone-cc-display">{{ dialFlag(q.order) }} +{{ dialOf(q.order) }}</span>
+                          <span class="phone-cc-caret">▾</span>
+                          <select class="phone-cc-select" [ngModel]="dialOf(q.order)" (ngModelChange)="setDial(q, $event)" [attr.data-testid]="'q-' + q.order + '-cc'">
+                            @for (c of countries; track c.iso) {
+                              <option [value]="c.dial">{{ c.flag }} +{{ c.dial }} · {{ c.name }}</option>
+                            }
+                          </select>
+                        </span>
+                        <input class="finp phone-num" type="tel" inputmode="tel" autocomplete="tel"
                           [ngModel]="phoneNumOf(q.order)" (ngModelChange)="setPhoneNum(q, $event)"
                           [attr.data-testid]="'q-' + q.order" placeholder="Número" />
                       </div>
@@ -321,7 +331,7 @@ function norm(v: unknown): string {
             <span class="section-title">Exámenes (opcional)</span>
           </div>
           <div class="section-line"></div>
-          <div class="q-label" style="font-weight:500;color:var(--muted)">Adjunta labs, ECG, ecocardiograma u otros. Ayudan a tu valoración.</div>
+          <div class="q-label" style="font-weight:500;color:var(--muted)">Si cuenta con exámenes recientes (laboratorios, electrocardiograma, ecocardiograma u otros estudios), adjúntelos para complementar su valoración preanestésica.</div>
           <div class="drop">
             <input type="file" id="fileup" multiple (change)="onFiles($event)" data-testid="form-attachment-input" />
             <label for="fileup" class="drop-label">Seleccionar archivos</label>
@@ -443,6 +453,11 @@ export class PatientFormPage implements OnInit {
   phoneNumOf(order: number): string {
     const v = String(this.answers()[order]?.value ?? '');
     return v.replace(/^\+\d{1,4}\s?/, '').trim();
+  }
+  /** Bandera del país actualmente seleccionado (para la vista compacta). */
+  dialFlag(order: number): string {
+    const dial = this.dialOf(order);
+    return this.countries.find((c) => c.dial === dial)?.flag ?? '🌐';
   }
   private commitPhone(q: Q, dial: string, num: string) {
     const clean = num.replace(/[^\d\s-]/g, '').trim();

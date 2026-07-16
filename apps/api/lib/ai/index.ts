@@ -1,4 +1,4 @@
-import { medicalTerm, type DocumentJSON, type DocField } from '@anestia/shared';
+import { medicalTerm, suggestASA, type DocumentJSON, type DocField } from '@anestia/shared';
 
 /**
  * AIProvider — ÚNICO punto de dependencia de la key. Dos métodos:
@@ -184,8 +184,16 @@ class StubAIProvider implements AIProvider {
       return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P20-23');
     })();
 
-    // Condición actual: no hay pregunta de síntomas en el form → no se afirma (CS2).
-    const condicionActual: DocField = noRep();
+    // Condición actual: derivada del reporte de enfermedad (P12). El médico confirma.
+    const condicionActual: DocField = isYes('12')
+      ? derived('Sintomático / en estudio')
+      : derived('Asintomático');
+
+    // ASA: sugerido desde comorbilidades declaradas (P13 patologías). Marcado como derivado
+    // para que el anestesiólogo lo confirme (CS4).
+    const comorbilidades = isYes('12') && val('13') ? val('13')!.split(',').map((s) => s.trim()) : [];
+    const asaSug = suggestASA(comorbilidades);
+    const asaField: DocField = { valor: `ASA ${asaSug.grado}`, estado: 'ok', fuente: 'derivado:IA', nota: asaSug.justificacion };
 
     const glp1 = input.glp1?.declared;
     const recomendaciones = glp1
@@ -204,10 +212,10 @@ class StubAIProvider implements AIProvider {
         capacidad_funcional: derived('≥4 METs'),
         tipo_cirugia: derived('Electiva'),
         condicion_actual: condicionActual,
-        diagnostico_preoperatorio: procedimiento
-          ? derived(`Paciente programado para ${procedimiento.toLocaleLowerCase('es')}.`)
-          : noRep(),
-        asa: derived('ASA II'),
+        // Diagnóstico preoperatorio: nombre de la cirugía (término médico). El médico lo
+        // reemplaza por el diagnóstico clínico real si aplica.
+        diagnostico_preoperatorio: procedimiento ? derived(procedimiento) : noRep(),
+        asa: asaField,
       },
       antecedentes: {
         patologicos,
@@ -222,17 +230,26 @@ class StubAIProvider implements AIProvider {
         protesis_dental: protesis,
         habitos,
       },
-      paraclinicos: Object.fromEntries(
-        (input.labs ?? []).map((l) => [
-          l.analyte.toLowerCase().replace(/\s+/g, '_'),
-          {
+      paraclinicos: ((): Record<string, DocField> => {
+        const labs = input.labs ?? [];
+        const out: Record<string, DocField> = {};
+        for (const l of labs) {
+          out[l.analyte.toLowerCase().replace(/\s+/g, '_')] = {
             valor: `${l.value}${l.unit ? ' ' + l.unit : ''}`,
-            estado: 'ok' as const,
+            estado: 'ok',
             fuente: l.sourceRef ?? 'lab',
             alerta: l.flag !== 'NORMAL',
-          },
-        ]),
-      ),
+          };
+        }
+        // Observación resumen: menciona hallazgos alterados o normalidad global.
+        if (labs.length > 0) {
+          const alterados = labs.filter((l) => l.flag !== 'NORMAL');
+          out['observacion'] = alterados.length > 0
+            ? { valor: `Se observa alteración en: ${alterados.map((l) => `${l.analyte} (${l.flag.toLowerCase()})`).join(', ')}. Correlacionar clínicamente.`, estado: 'ok', fuente: 'derivado:IA', alerta: true }
+            : { valor: 'Sin alteraciones hematológicas ni de coagulación relevantes.', estado: 'ok', fuente: 'derivado:IA' };
+        }
+        return out;
+      })(),
       examen_fisico: {}, // el guardarraíl lo llena todo como pendiente_examen
       valoracion_plan: {
         concepto: {
@@ -240,10 +257,12 @@ class StubAIProvider implements AIProvider {
             const partes: string[] = [];
             const edadTxt = edadStr ? `Paciente de ${edadStr}` : 'Paciente';
             partes.push(`${edadTxt} con capacidad funcional estimada ≥4 METs.`);
-            if (!isYes('10')) partes.push('Sin comorbilidades sistémicas documentadas.');
-            else if (val('11')) partes.push(`Antecedentes de ${val('11')!.toLocaleLowerCase('es')} a considerar en el manejo perioperatorio.`);
+            if (!isYes('12')) partes.push('Sin comorbilidades sistémicas documentadas.');
+            else if (val('13')) partes.push(`Antecedentes de ${val('13')!.toLocaleLowerCase('es')} a considerar en el manejo perioperatorio.`);
+            if ((input.labs ?? []).some((l) => l.flag !== 'NORMAL')) partes.push('Hallazgos paraclínicos alterados a correlacionar (ver paraclínicos).');
+            else if ((input.labs ?? []).length > 0) partes.push('Hemograma y pruebas de coagulación dentro de rango.');
             if (glp1) partes.push('Uso declarado de agonista GLP-1: manejar el riesgo de contenido gástrico residual (ver recomendaciones).');
-            partes.push('Riesgo anestésico ASA II. Apto para cirugía electiva, condicionado a la verificación del examen físico presencial y a los hallazgos paraclínicos disponibles.');
+            partes.push(`Riesgo anestésico ${asaField.valor}. Apto para cirugía electiva, condicionado a la verificación del examen físico presencial y a los hallazgos paraclínicos disponibles.`);
             return partes.join(' ');
           })(),
           estado: 'ok',
