@@ -51,6 +51,7 @@ model Patient {
   birthDate   DateTime?
   sex         Sex?
   phone       String?
+  email       String?   // correo del paciente (P23) — para envío opcional del documento
   insurer     String?   // entidad aseguradora (P8)
   bloodType   String?   // grupo sanguíneo (P11)
 
@@ -198,6 +199,7 @@ model DeliveryRecord {
   caseId     String
   contact    DirectoryContact? @relation(fields: [contactId], references: [id])
   contactId  String?
+  recipientEmail String? // correo destino cuando no es un contacto del directorio (p. ej. paciente)
   channel    String   // "email", "link", ...
   token      String?  @unique // enlace de descarga tokenizado del reporte final
   sentAt     DateTime @default(now())

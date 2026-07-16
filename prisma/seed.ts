@@ -10,14 +10,15 @@ const SEED_EMAIL = 'jherrerae16@gmail.com';
  * Las 22 preguntas del preset base "Preanestésica general" (docs/form-mapping.md / Anexo A).
  * order = número de pregunta. conditional/options en JSON.
  */
+// Patologías del Google Form real del doctor (SELECCION_MULTIPLE).
 const PATOLOGIAS = [
-  'HTA', 'Diabetes mellitus', 'Hipotiroidismo', 'Hipertiroidismo', 'Arritmia',
-  'Infarto de miocardio', 'EPOC', 'Asma', 'Hipertensión pulmonar', 'Apnea del sueño',
-  'Litiasis renal', 'Infección renal a repetición', 'Insuficiencia renal', 'Gastritis',
-  'Migraña', 'Enfermedades articulares', 'Otra',
+  'Hipertensión arterial', 'Diabetes mellitus', 'Hipotiroidismo', 'Hipertiroidismo',
+  'Arritmia cardiaca', 'Infarto de miocardio', 'EPOC', 'Asma', 'Hipertensión pulmonar',
+  'Apnea del sueño', 'Litiasis renal', 'Infección renal a repetición', 'Insuficiencia renal',
+  'Gastritis', 'Migraña', 'Enfermedades articulares',
 ];
 
-const GRUPOS_SANGUINEOS = ['O+', 'O-', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'No sé'];
+const GRUPOS_SANGUINEOS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 type QDef = {
   order: number;
@@ -28,35 +29,45 @@ type QDef = {
   conditional?: unknown;
 };
 
+/**
+ * Preguntas EXACTAS del Google Form del Dr. Luquetta. Todas requeridas.
+ * Dos condicionales: patologías (si enfermedad=Sí), cigarrillos (si fuma=Sí).
+ * El correo (P21) lo agrega la plataforma para registrar/contactar al paciente.
+ */
 const QUESTIONS: QDef[] = [
   { order: 1, label: 'Nombre completo', type: 'TEXTO_CORTO', required: true },
-  { order: 2, label: 'Número de documento', type: 'TEXTO_CORTO', required: true },
+  { order: 2, label: 'Número de documento de identificación', type: 'TEXTO_CORTO', required: true },
   { order: 3, label: 'Fecha de nacimiento', type: 'FECHA', required: true },
-  { order: 4, label: 'Sexo', type: 'SELECCION_UNICA', required: true, options: ['Masculino', 'Femenino', 'Otro'] },
-  { order: 5, label: 'Peso (kg)', type: 'NUMERO', required: true },
-  { order: 6, label: 'Estatura (cm)', type: 'NUMERO', required: true },
-  { order: 7, label: 'Teléfono de contacto', type: 'TEXTO_CORTO' },
-  { order: 8, label: 'Entidad aseguradora', type: 'TEXTO_CORTO' },
-  { order: 9, label: 'Cirugía o procedimiento', type: 'TEXTO_CORTO', required: true },
-  { order: 10, label: 'Fecha de cirugía', type: 'FECHA' },
-  { order: 11, label: 'Grupo sanguíneo', type: 'SELECCION_UNICA', options: GRUPOS_SANGUINEOS },
-  { order: 12, label: '¿Sufre alguna enfermedad?', type: 'SI_NO' },
+  { order: 4, label: 'Sexo', type: 'SELECCION_UNICA', required: true, options: ['Hombre', 'Mujer', 'Prefiero no decirlo'] },
+  { order: 5, label: 'Teléfono de contacto', type: 'TEXTO_CORTO', required: true },
+  { order: 6, label: 'Entidad aseguradora', type: 'SELECCION_UNICA', required: true, options: ['Particular', 'Otra'] },
+  { order: 7, label: 'Cirugía o procedimiento que le van a realizar', type: 'TEXTO_CORTO', required: true },
+  { order: 8, label: 'Fecha de cirugía o procedimiento', type: 'FECHA', required: true },
+  { order: 9, label: 'Grupo sanguíneo', type: 'SELECCION_UNICA', required: true, options: GRUPOS_SANGUINEOS },
+  { order: 10, label: '¿Sufre de alguna enfermedad?', type: 'SI_NO', required: true },
   {
-    order: 13, label: 'Patologías', type: 'SELECCION_MULTIPLE', options: PATOLOGIAS,
-    conditional: { showIf: { questionOrder: 12, equals: 'si' } },
+    order: 11, label: 'Seleccione una o varias de las siguientes patologías según su caso',
+    type: 'SELECCION_MULTIPLE', required: true, options: PATOLOGIAS,
+    conditional: { showIf: { questionOrder: 10, equals: 'si' } },
   },
-  { order: 14, label: '¿Toma medicamentos? ¿Cuáles?', type: 'TEXTO_LARGO' },
-  { order: 15, label: '¿Tiene alergias? ¿A qué?', type: 'TEXTO_LARGO' },
-  { order: 16, label: '¿Cirugías o anestesias previas?', type: 'TEXTO_LARGO' },
-  { order: 17, label: '¿Transfusiones previas? (detalle)', type: 'TEXTO_LARGO' },
-  { order: 18, label: '¿Consume sustancias psicoactivas?', type: 'SI_NO' },
-  { order: 19, label: '¿Consume alcohol?', type: 'SI_NO' },
-  { order: 20, label: '¿Fuma o vapea?', type: 'SI_NO' },
+  { order: 12, label: '¿Está en tratamiento o utiliza algún medicamento actualmente?', type: 'SI_NO', required: true },
+  { order: 13, label: '¿Es alérgico a algún medicamento o sustancia?', type: 'SI_NO', required: true },
+  { order: 14, label: '¿Le han realizado alguna cirugía o procedimiento bajo anestesia previamente?', type: 'SI_NO', required: true },
   {
-    order: 21, label: 'Cantidad de cigarrillos/vapeo por día', type: 'NUMERO',
-    conditional: { showIf: { questionOrder: 20, equals: 'si' } },
+    order: 22, label: '¿Cuáles cirugías o procedimientos? (especifique)', type: 'TEXTO_CORTO', required: true,
+    conditional: { showIf: { questionOrder: 14, equals: 'si' } },
   },
-  { order: 22, label: '¿Usa prótesis dental o tiene diseño de sonrisa? (detalle)', type: 'TEXTO_LARGO' },
+  { order: 15, label: '¿Le han realizado alguna transfusión sanguínea?', type: 'SI_NO', required: true },
+  { order: 16, label: '¿Utiliza prótesis dental o tiene diseño de sonrisa?', type: 'SI_NO', required: true },
+  { order: 17, label: '¿Fuma o utiliza vapeadores actualmente?', type: 'SI_NO', required: true },
+  {
+    order: 18, label: '¿Cuántos cigarrillos fuma o cuántas veces usa el vapeador al día? (especifique)',
+    type: 'TEXTO_CORTO', required: true,
+    conditional: { showIf: { questionOrder: 17, equals: 'si' } },
+  },
+  { order: 19, label: '¿Consume alcohol?', type: 'SI_NO', required: true },
+  { order: 20, label: '¿Consume alguna sustancia psicoactiva?', type: 'SI_NO', required: true },
+  { order: 21, label: 'Correo electrónico', type: 'TEXTO_CORTO', required: true },
 ];
 
 async function main() {
