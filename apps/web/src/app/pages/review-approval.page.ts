@@ -1,4 +1,5 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../core/api.service';
@@ -20,6 +21,7 @@ const SECTION_LABELS: Record<string, string> = {
 @Component({
   selector: 'app-review-approval',
   standalone: true,
+  imports: [FormsModule],
   styles: [`
     .page-head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; gap:16px; flex-wrap:wrap; }
     .page-head h2 { font-size:22px; }
@@ -32,6 +34,14 @@ const SECTION_LABELS: Record<string, string> = {
     .field:last-child { border-bottom:none; }
     .field .k { color:var(--muted); flex:0 0 42%; font-weight:500; }
     .field .v { color:var(--text); flex:1; }
+    .edit-hint { font-size:11.5px; color:var(--muted2); margin:0 0 12px; }
+    .v.editable { cursor:pointer; border-radius:5px; padding:1px 4px; margin:-1px -4px; transition:background .12s; position:relative; }
+    .v.editable:hover { background:var(--it-50); }
+    .edit-pencil { opacity:0; font-size:11px; color:var(--primary); margin-left:6px; transition:opacity .12s; }
+    .v.editable:hover .edit-pencil { opacity:1; }
+    .v-edit { flex:1; display:flex; flex-direction:column; gap:7px; }
+    .edit-input { width:100%; padding:8px 10px; border:1.5px solid var(--primary); border-radius:8px; font-family:var(--font-body); font-size:13px; color:var(--text); resize:vertical; outline:none; box-shadow:0 0 0 3px rgba(11,92,107,.12); }
+    .edit-actions { display:flex; gap:8px; }
     .field.derivado { border-left:3px solid var(--gold); padding-left:9px; margin-left:-9px; }
     .v.alerta { color:var(--red); font-weight:700; }
     .v.pending { color:var(--amber); font-weight:600; }
@@ -132,15 +142,28 @@ const SECTION_LABELS: Record<string, string> = {
       <div class="cols">
         <div class="card">
           <div class="card-title" style="margin-bottom:14px">Borrador de valoración</div>
+          <p class="edit-hint">Haz clic en cualquier valor para editarlo. Los cambios se guardan al confirmar.</p>
           @for (sec of sections; track sec.key) {
             <div class="sec-block">
               <div class="section-label">{{ sec.label }}</div>
               @for (f of entries(sec.key); track f.k) {
                 <div class="field" [class.derivado]="isDerived(f.v)">
                   <span class="k">{{ labelFor(f.k) }}</span>
-                  <span class="v" [class.alerta]="f.v?.alerta" [class.pending]="f.v?.estado==='pendiente_examen'">
-                    {{ f.v?.estado==='pendiente_examen' ? 'PENDIENTE DE EXAMEN' : (f.v?.valor ?? '—') }}
-                  </span>
+                  @if (editingKey() === sec.key + '.' + f.k) {
+                    <span class="v-edit">
+                      <textarea class="edit-input" [ngModel]="editValue()" (ngModelChange)="editValue.set($event)" (keydown.enter)="$event.preventDefault(); saveEdit(sec.key, f.k)" rows="2" [attr.data-testid]="'edit-' + f.k"></textarea>
+                      <span class="edit-actions">
+                        <button class="btn btn-sm btn-primary" (click)="saveEdit(sec.key, f.k)" [disabled]="savingEdit()">Guardar</button>
+                        <button class="btn btn-sm" (click)="cancelEdit()">Cancelar</button>
+                      </span>
+                    </span>
+                  } @else {
+                    <span class="v editable" [class.alerta]="f.v?.alerta" [class.pending]="f.v?.estado==='pendiente_examen'"
+                      (click)="startEdit(sec.key, f.k, f.v)" [attr.data-testid]="'field-' + f.k" title="Clic para editar">
+                      {{ f.v?.estado==='pendiente_examen' ? 'PENDIENTE DE EXAMEN' : (f.v?.valor ?? '—') }}
+                      <span class="edit-pencil">✎</span>
+                    </span>
+                  }
                 </div>
               }
             </div>
@@ -204,6 +227,9 @@ export class ReviewApprovalPage implements OnInit {
   fields = signal<any>({});
   labs = signal<any[]>([]);
   check = signal<{ ok: boolean; blockers: string[] } | null>(null);
+  editingKey = signal<string | null>(null);
+  editValue = signal('');
+  savingEdit = signal(false);
   contacts = signal<any[]>([]);
   deliveries = signal<any[]>([]);
   patient = signal<{ fullName: string; email?: string | null } | null>(null);
@@ -278,6 +304,25 @@ export class ReviewApprovalPage implements OnInit {
   }
   labelFor(k: string) { return SECTION_LABELS[k] ?? k; }
   isDerived(v: any) { return v?.fuente?.startsWith?.('derivado'); }
+
+  // ── Edición en línea del borrador ──
+  startEdit(section: string, key: string, v: any) {
+    const cur = v?.estado === 'pendiente_examen' ? '' : (v?.valor ?? '');
+    this.editValue.set(String(cur));
+    this.editingKey.set(`${section}.${key}`);
+  }
+  cancelEdit() { this.editingKey.set(null); }
+  async saveEdit(section: string, key: string) {
+    this.savingEdit.set(true);
+    try {
+      await this.api.editField(this.caseId, section, key, this.editValue().trim());
+      this.editingKey.set(null);
+      await this.reload();
+      if (this.showPreview()) this.loadPreview();
+    } finally {
+      this.savingEdit.set(false);
+    }
+  }
 
   setExamAttested(ev: Event) { this.examAttested.set((ev.target as HTMLInputElement).checked); }
   async loadNormal() {

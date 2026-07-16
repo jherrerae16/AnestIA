@@ -101,6 +101,10 @@ function norm(v: unknown): string {
 
     /* QUESTION */
     .q { margin-bottom: 22px; scroll-margin-top: 80px; }
+    /* Pregunta condicional (aparece al responder "Sí"): sangrada + conector visual. */
+    .q-conditional { margin-left: 16px; padding-left: 16px; border-left: 2px solid var(--it-200); animation: revealDown .25s ease; }
+    .q-conditional .q-label::before { content: '↳ '; color: var(--primary); font-weight: 700; }
+    @keyframes revealDown { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:translateY(0); } }
     .q-label { font-size:14.5px; font-weight:600; color:var(--text); margin-bottom:9px; line-height:1.4; }
     .q-label .req { color:var(--red); }
 
@@ -239,7 +243,7 @@ function norm(v: unknown): string {
             <div class="section-line"></div>
 
             @for (q of sec.questions; track q.order) {
-              <div class="q" [id]="'q-' + q.order">
+              <div class="q" [class.q-conditional]="!!q.conditional" [id]="'q-' + q.order">
                 <div class="q-label">{{ q.label }} @if (q.required) { <span class="req">*</span> }</div>
 
                 @switch (q.type) {
@@ -255,11 +259,14 @@ function norm(v: unknown): string {
                   @case ('SELECCION_UNICA') {
                     <div class="opts">
                       @for (o of q.options ?? []; track o) {
-                        <div class="opt" [class.sel]="valueOf(q.order)===o" (click)="setAnswer(q, o)" [attr.data-testid]="'q-' + q.order">
+                        <div class="opt" [class.sel]="isSelectedOption(q.order, o)" (click)="setChoice(q, o)" [attr.data-testid]="'q-' + q.order">
                           <span class="chk"></span>{{ o }}
                         </div>
                       }
                     </div>
+                    @if (isOtherChosen(q.order)) {
+                      <input class="finp" style="margin-top:8px" [ngModel]="otherText(q.order)" (ngModelChange)="setOther(q, $event)" [attr.data-testid]="'q-' + q.order + '-other'" placeholder="Especifique…" />
+                    }
                   }
                   @case ('SELECCION_MULTIPLE') {
                     <div class="opts">
@@ -488,6 +495,36 @@ export class PatientFormPage implements OnInit {
 
   valueOf(order: number) {
     return this.answers()[order]?.value ?? '';
+  }
+
+  // ── SELECCION_UNICA con opción "Otra" (texto libre) ──
+  /** Modo "Otra" activo por pregunta (el valor guardado es el texto escrito). */
+  private otherMode = signal<Record<number, boolean>>({});
+  private isOtherOption(o: string): boolean {
+    return /^otra?$|^other$|^otro$/i.test(o.trim());
+  }
+  /** Marca visualmente la opción seleccionada (incluye "Otra" en modo texto). */
+  isSelectedOption(order: number, o: string): boolean {
+    if (this.otherMode()[order]) return this.isOtherOption(o);
+    return this.valueOf(order) === o;
+  }
+  setChoice(q: Q, o: string) {
+    if (this.isOtherOption(o)) {
+      this.otherMode.update((m) => ({ ...m, [q.order]: true }));
+      this.setAnswer(q, ''); // se llenará con el texto escrito
+    } else {
+      this.otherMode.update((m) => ({ ...m, [q.order]: false }));
+      this.setAnswer(q, o);
+    }
+  }
+  isOtherChosen(order: number): boolean {
+    return this.otherMode()[order] ?? false;
+  }
+  otherText(order: number): string {
+    return String(this.valueOf(order) ?? '');
+  }
+  setOther(q: Q, text: string) {
+    this.setAnswer(q, text);
   }
   hasValue(order: number): boolean {
     const v = this.answers()[order]?.value;
