@@ -328,7 +328,7 @@ function norm(v: unknown): string {
                           [attr.data-testid]="'q-' + q.order" placeholder="Número" />
                       </div>
                     } @else if (isDocument(q)) {
-                      <input class="finp" type="text" [ngModel]="valueOf(q.order)" (ngModelChange)="setDocument(q, $event)" [attr.data-testid]="'q-' + q.order" placeholder="Cédula o pasaporte" />
+                      <input class="finp" type="text" [ngModel]="valueOf(q.order)" (ngModelChange)="setDocument(q, $event)" [attr.data-testid]="'q-' + q.order" placeholder="Cédula" />
                     } @else {
                       <input class="finp" [type]="inputType(q)" [attr.inputmode]="inputType(q)==='email' ? 'email' : null" [ngModel]="valueOf(q.order)" (ngModelChange)="setAnswer(q, $event)" [attr.data-testid]="'q-' + q.order" [placeholder]="inputType(q)==='email' ? 'nombre@correo.com' : 'Escribe aquí…'" />
                     }

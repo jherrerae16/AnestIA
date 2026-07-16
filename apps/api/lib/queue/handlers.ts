@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { logAudit } from '../audit';
 import { extractForCase, flagForCase } from '../services/lab.service';
 import { generateForCase } from '../services/clinical.service';
+import { auditForCase } from '../services/audit-clinical.service';
 import { renderDraftForCase } from '../services/document.service';
 
 type Job = { data: { caseId: string } };
@@ -44,6 +45,21 @@ export async function onClinicalGenerate(jobs: Job[]): Promise<void> {
     await generateForCase(caseId);
     await prisma.case.update({ where: { id: caseId }, data: { status: 'BORRADOR_GENERADO' } }).catch(() => {});
     logger.info({ caseId }, 'clinical_generate_done');
+    // Eslabón nuevo: auditor independiente antes de renderizar (generador + crítico).
+    await publish('clinical.audit', { caseId });
+  }
+}
+
+/**
+ * Handler clinical.audit → document.render. El auditor revisa el borrador y deja su
+ * reporte pegado al caso. NO interrumpe el flujo: aunque encuentre hallazgos bloqueantes,
+ * el documento se renderiza como borrador y los hallazgos se le muestran al anestesiólogo
+ * en la revisión (el bloqueo real ocurre en la aprobación, que es donde decide el humano).
+ */
+export async function onClinicalAudit(jobs: Job[]): Promise<void> {
+  for (const job of jobs) {
+    const { caseId } = job.data;
+    await auditForCase(caseId);
     await publish('document.render', { caseId });
   }
 }

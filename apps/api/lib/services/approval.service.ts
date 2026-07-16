@@ -4,6 +4,7 @@ import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
 import { logAudit } from '../audit';
 import { brandingDataUri } from '../pdf/branding';
+import { auditForCase } from './audit-clinical.service';
 import {
   canApprove,
   applyExamNormal,
@@ -11,6 +12,7 @@ import {
   buildDocumentHtml,
   type Branding,
   type DocumentJSON,
+  type AuditReport,
 } from '@anestia/shared';
 
 /** Carga los datos de revisión: assessment + respuestas fuente + labs (con sourceRef). */
@@ -35,6 +37,8 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
     labs: kase.labResults.map((l) => ({ analyte: l.analyte, value: l.value, unit: l.unit, flag: l.flag, sourceRef: l.sourceRef })),
     approved: Boolean(kase.approval),
     patient: kase.patient ? { fullName: kase.patient.fullName, email: kase.patient.email } : null,
+    // Reporte del auditor independiente (hallazgos para el anestesiólogo).
+    audit: kase.assessment?.auditReport ?? null,
     canApprove: fields ? canApprove(fields) : { ok: false, blockers: ['No hay borrador generado.'] },
   };
 }
@@ -63,6 +67,8 @@ export async function editAssessment(
   const next = applyEdit(loaded.fields, section, key, value);
   await prisma.generatedAssessment.update({ where: { id: loaded.assessmentId }, data: { fields: next as never } });
   await logAudit({ action: 'assessment.edited', entity: 'Case', entityId: caseId, meta: { section, key } });
+  // El médico corrigió → el auditor vuelve a revisar sobre el contenido nuevo.
+  await auditForCase(caseId);
 }
 
 /** "Cargar examen normal": confirma valores normales (fuente=anestesiologo). */
@@ -77,6 +83,7 @@ export async function loadExamNormal(caseId: string, anesthesiologistId: string)
     entityId: caseId,
     meta: { mode: 'normal', attested: true, note: 'examen normal confirmado por atestación del anestesiólogo' },
   });
+  await auditForCase(caseId);
 }
 
 /** Ingreso de valores reales del examen (fuente=anestesiologo). */
@@ -92,6 +99,7 @@ export async function setExam(
   const next = { ...loaded.fields, examen_fisico };
   await prisma.generatedAssessment.update({ where: { id: loaded.assessmentId }, data: { fields: next as never } });
   await logAudit({ action: 'assessment.exam_confirmed', entity: 'Case', entityId: caseId, meta: { mode: 'manual' } });
+  await auditForCase(caseId);
 }
 
 /**
@@ -109,6 +117,15 @@ export async function approve(caseId: string, anesthesiologistId: string): Promi
   const fields = kase.assessment.fields as DocumentJSON;
   const check = canApprove(fields);
   if (!check.ok) return { ok: false, blockers: check.blockers };
+
+  // Auditor: los hallazgos BLOQUEANTES (seguridad dura: campo sin fuente, valor inventado
+  // en el examen físico) no pueden llegar a un documento firmado. El resto son advertencias
+  // y las decide el anestesiólogo.
+  const report = kase.assessment.auditReport as AuditReport | null;
+  if (report?.blocked) {
+    const criticos = report.findings.filter((f) => f.level === 'bloqueante').map((f) => f.message);
+    return { ok: false, blockers: criticos };
+  }
 
   const a = kase.anesthesiologist;
   const branding: Branding = {
