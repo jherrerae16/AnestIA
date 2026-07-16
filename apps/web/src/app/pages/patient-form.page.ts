@@ -69,11 +69,12 @@ function norm(v: unknown): string {
       padding: 0 24px; height: 62px; display: flex; align-items: center; gap: 11px;
     }
     .nav-icon {
-      width: 32px; height: 32px; border-radius: 8px; overflow: hidden; flex-shrink: 0;
+      width: 40px; height: 40px; border-radius: 9px; overflow: hidden; flex-shrink: 0;
       background: linear-gradient(135deg, var(--primary), var(--blue2));
       display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700;
     }
-    .nav-icon img { width: 100%; height: 100%; object-fit: cover; }
+    .nav-icon.has-logo { background: #fff; border: 1px solid var(--border); padding: 3px; }
+    .nav-icon img { width: 100%; height: 100%; object-fit: contain; }
     .nav-title { font-family: var(--font-display); font-weight: 700; font-size: 14px; color: var(--text); letter-spacing: -0.3px; }
     .nav-sub { font-size: 11px; color: var(--muted); }
 
@@ -194,7 +195,7 @@ function norm(v: unknown): string {
   `],
   template: `
     <div class="nav">
-      <span class="nav-icon">
+      <span class="nav-icon" [class.has-logo]="!!branding()?.logo">
         @if (branding()?.logo) { <img [src]="branding()!.logo" alt="" /> } @else { A }
       </span>
       <div>

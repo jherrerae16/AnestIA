@@ -16,13 +16,15 @@ import { AuthService } from '../core/auth.service';
     }
     .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
     .brand-icon {
-      width: 36px; height: 36px; border-radius: 9px; flex-shrink: 0;
+      width: 42px; height: 42px; border-radius: 10px; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
       background: linear-gradient(135deg, var(--primary), var(--blue));
-      color: #fff; font-weight: 700; font-size: 15px; overflow: hidden;
+      color: #fff; font-weight: 700; font-size: 16px; overflow: hidden;
       font-family: var(--font-display);
     }
-    .brand-icon img { width: 100%; height: 100%; object-fit: cover; }
+    /* Con logo: fondo blanco + contain para no recortar la marca. */
+    .brand-icon.has-logo { background: #fff; border: 1px solid var(--border); padding: 3px; }
+    .brand-icon img { width: 100%; height: 100%; object-fit: contain; }
     .brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
     .brand-name { font-family: var(--font-display); font-weight: 700; font-size: 15px; color: var(--text); letter-spacing: -0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .brand-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -50,7 +52,7 @@ import { AuthService } from '../core/auth.service';
   template: `
     <header class="nav">
       <a class="brand" routerLink="/dashboard" style="text-decoration:none">
-        <span class="brand-icon">
+        <span class="brand-icon" [class.has-logo]="!!auth.profile()?.clinicLogoUrl">
           @if (auth.profile()?.clinicLogoUrl) {
             <img [src]="auth.profile()!.clinicLogoUrl" alt="" />
           } @else { A }
