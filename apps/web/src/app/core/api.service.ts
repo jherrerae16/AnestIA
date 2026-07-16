@@ -86,8 +86,11 @@ export class ApiService {
   addContact(c: { label: string; email: string; type: string; notes?: string }): Promise<any> {
     return firstValueFrom(this.http.post<any>('/api/panel/directory', c));
   }
-  distribute(caseId: string, contactIds: string[], channel: 'email' | 'link', sendToPatient = false): Promise<any> {
-    return firstValueFrom(this.http.post<any>(`/api/panel/cases/${caseId}/distribute`, { contactIds, channel, sendToPatient }));
+  distribute(caseId: string, payload: { contactIds: string[]; channel: 'email' | 'link'; sendToPatient?: boolean; subject?: string; body?: string }): Promise<any> {
+    return firstValueFrom(this.http.post<any>(`/api/panel/cases/${caseId}/distribute`, payload));
+  }
+  emailDraft(caseId: string): Promise<{ subject: string; body: string; pdfFilename: string }> {
+    return firstValueFrom(this.http.get<{ subject: string; body: string; pdfFilename: string }>(`/api/panel/cases/${caseId}/email-draft`));
   }
   searchPatients(q: string): Promise<any> {
     return firstValueFrom(this.http.get<any>(`/api/panel/patients?q=${encodeURIComponent(q)}`));
