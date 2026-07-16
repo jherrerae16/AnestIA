@@ -65,6 +65,14 @@ const SECTION_LABELS: Record<string, string> = {
     .dist-row { display:flex; align-items:center; gap:10px; margin-top:8px; font-size:13px; }
     .dist-row input[readonly] { flex:1; padding:8px 11px; border:1px solid var(--border2); border-radius:8px; font-family:var(--font-mono); font-size:12px; }
     label.contact { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; }
+    .composer { margin-top:14px; border:1px solid var(--border); border-radius:12px; padding:14px; background:var(--bg3); display:flex; flex-direction:column; gap:12px; animation:fadeIn .2s ease; }
+    .comp-field { display:flex; flex-direction:column; gap:5px; }
+    .comp-body { resize:vertical; min-height:120px; font-family:var(--font-body); line-height:1.5; }
+    .comp-attach { display:flex; align-items:center; gap:10px; background:#fff; border:1px solid var(--border2); border-radius:9px; padding:9px 12px; }
+    .pdf-ic { font-family:var(--font-mono); font-size:10px; font-weight:700; color:#fff; background:var(--red); padding:3px 6px; border-radius:4px; letter-spacing:.04em; }
+    .pdf-name { font-size:13px; color:var(--text); font-weight:500; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pdf-tag { font-size:11px; color:var(--muted); font-family:var(--font-mono); }
+    .comp-hint { font-size:11.5px; color:var(--muted2); margin:0; }
   `],
   template: `
     @if (loading()) { <div class="empty">Cargando…</div> }
@@ -90,15 +98,16 @@ const SECTION_LABELS: Record<string, string> = {
         <div class="card">
           <div class="card-title" style="margin-bottom:12px">Distribuir reporte</div>
 
+          <!-- Destinatarios -->
+          <div class="section-label" style="margin:0 0 8px">Destinatarios</div>
           @if (patient()?.email) {
-            <label class="contact" style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:6px">
+            <label class="contact">
               <input type="checkbox" [checked]="sendToPatient()" (change)="setSendToPatient($event)" data-testid="distribute-patient-checkbox" />
               <span>👤 Paciente — {{ patient()!.email }}</span>
             </label>
           } @else {
-            <p class="muted" style="font-size:12px;margin-bottom:8px">El paciente no registró correo.</p>
+            <p class="muted" style="font-size:12px;margin-bottom:6px">El paciente no registró correo.</p>
           }
-
           @for (c of contacts(); track c.id) {
             <label class="contact">
               <input type="checkbox" [value]="c.id" (change)="toggle(c.id, $event)" data-testid="distribute-contact-checkbox" />
@@ -106,15 +115,39 @@ const SECTION_LABELS: Record<string, string> = {
             </label>
           }
 
-          <label class="contact" style="margin-top:8px">
-            <input type="checkbox" [checked]="channel()==='email'" (change)="setChannel($event)" data-testid="distribute-email-toggle" />
-            <span>Enviar por correo (además del enlace)</span>
-          </label>
+          @if (!composerOpen()) {
+            <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap">
+              <button class="btn btn-primary btn-sm" (click)="openComposer()" data-testid="distribute-email-open">📧 Enviar por correo</button>
+              <button class="btn btn-sm" (click)="generateLink()" data-testid="distribute-link-button">🔗 Generar enlace</button>
+            </div>
+          } @else {
+            <!-- Compositor del correo -->
+            <div class="composer" data-testid="email-composer">
+              <div class="comp-field">
+                <label class="ki-label">Asunto</label>
+                <input class="ki-input" [ngModel]="emailSubject()" (ngModelChange)="emailSubject.set($event)" data-testid="email-subject" />
+              </div>
+              <div class="comp-attach">
+                <span class="pdf-ic">PDF</span>
+                <span class="pdf-name">{{ pdfName() }}</span>
+                <span class="pdf-tag">adjunto</span>
+              </div>
+              <div class="comp-field">
+                <label class="ki-label">Mensaje</label>
+                <textarea class="ki-input comp-body" rows="8" [ngModel]="emailBody()" (ngModelChange)="emailBody.set($event)" data-testid="email-body"></textarea>
+              </div>
+              <p class="comp-hint">Se enviará a los destinatarios seleccionados con el PDF adjunto y un enlace de descarga.</p>
+              <div style="display:flex; gap:8px">
+                <button class="btn btn-primary btn-sm" (click)="sendEmail()" [disabled]="sending()" data-testid="email-send">
+                  {{ sending() ? 'Enviando…' : 'Enviar correo' }}
+                </button>
+                <button class="btn btn-sm" (click)="composerOpen.set(false)">Cancelar</button>
+              </div>
+            </div>
+          }
 
-          <button class="btn btn-primary btn-sm" (click)="doDistribute()" data-testid="distribute-send-button" style="margin-top:10px">
-            {{ channel()==='email' ? 'Enviar por correo' : 'Generar enlace' }}
-          </button>
-          @if (distError()) { <p class="v alerta" style="font-size:12px;margin-top:8px">{{ distError() }}</p> }
+          @if (distError()) { <p class="v alerta" style="font-size:12px;margin-top:10px">{{ distError() }}</p> }
+          @if (sentOk()) { <p style="font-size:12.5px;color:var(--green);margin-top:10px;font-weight:600">✔ Correo enviado.</p> }
           @for (d of deliveries(); track d.token) {
             <div class="dist-row">
               <input readonly [value]="d.url" />
@@ -240,8 +273,13 @@ export class ReviewApprovalPage implements OnInit {
   deliveries = signal<any[]>([]);
   patient = signal<{ fullName: string; email?: string | null } | null>(null);
   sendToPatient = signal(false);
-  channel = signal<'email' | 'link'>('link');
   distError = signal('');
+  composerOpen = signal(false);
+  emailSubject = signal('');
+  emailBody = signal('');
+  pdfName = signal('');
+  sending = signal(false);
+  sentOk = signal(false);
   examAttested = signal(false);
   showPreview = signal(false);
   previewSrc = signal<SafeResourceUrl | null>(null);
@@ -286,20 +324,58 @@ export class ReviewApprovalPage implements OnInit {
     if (checked) this.selectedContacts.add(id); else this.selectedContacts.delete(id);
   }
   setSendToPatient(ev: Event) { this.sendToPatient.set((ev.target as HTMLInputElement).checked); }
-  setChannel(ev: Event) { this.channel.set((ev.target as HTMLInputElement).checked ? 'email' : 'link'); }
 
-  async doDistribute() {
+  private hasRecipient(): boolean {
+    return this.selectedContacts.size > 0 || this.sendToPatient();
+  }
+
+  /** Abre el compositor con asunto/cuerpo precargados desde el servidor. */
+  async openComposer() {
     this.distError.set('');
-    if (this.selectedContacts.size === 0 && !this.sendToPatient()) {
-      this.distError.set('Selecciona al menos un destinatario.');
-      return;
+    this.sentOk.set(false);
+    if (!this.hasRecipient()) { this.distError.set('Selecciona al menos un destinatario.'); return; }
+    if (!this.emailSubject()) {
+      const d = await this.api.emailDraft(this.caseId);
+      this.emailSubject.set(d.subject);
+      this.emailBody.set(d.body);
+      this.pdfName.set(d.pdfFilename);
     }
+    this.composerOpen.set(true);
+  }
+
+  /** Envía el correo editado (con PDF adjunto) a los destinatarios seleccionados. */
+  async sendEmail() {
+    this.distError.set('');
+    this.sending.set(true);
     try {
-      const res = await this.api.distribute(this.caseId, [...this.selectedContacts], this.channel(), this.sendToPatient());
+      const res = await this.api.distribute(this.caseId, {
+        contactIds: [...this.selectedContacts], channel: 'email', sendToPatient: this.sendToPatient(),
+        subject: this.emailSubject(), body: this.emailBody(),
+      });
+      this.deliveries.set(res.deliveries ?? []);
+      this.composerOpen.set(false);
+      this.sentOk.set(true);
+    } catch (err: unknown) {
+      const body = (err as { error?: { error?: string } })?.error;
+      this.distError.set(body?.error ?? 'No se pudo enviar el correo.');
+    } finally {
+      this.sending.set(false);
+    }
+  }
+
+  /** Solo genera el enlace de descarga (sin correo). */
+  async generateLink() {
+    this.distError.set('');
+    this.sentOk.set(false);
+    if (!this.hasRecipient()) { this.distError.set('Selecciona al menos un destinatario.'); return; }
+    try {
+      const res = await this.api.distribute(this.caseId, {
+        contactIds: [...this.selectedContacts], channel: 'link', sendToPatient: this.sendToPatient(),
+      });
       this.deliveries.set(res.deliveries ?? []);
     } catch (err: unknown) {
       const body = (err as { error?: { error?: string } })?.error;
-      this.distError.set(body?.error ?? 'No se pudo distribuir.');
+      this.distError.set(body?.error ?? 'No se pudo generar el enlace.');
     }
   }
   async copy(url: string) { await navigator.clipboard.writeText(url); }
