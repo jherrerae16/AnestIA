@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { prisma } from '../prisma';
-import type { FormAnswers } from '@anestia/shared';
+import { toTitleCase, type FormAnswers } from '@anestia/shared';
 
 /** Cliente Prisma o cliente transaccional (para composición atómica). */
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -18,8 +18,12 @@ export async function upsertFromForm(
   const get = (order: number) => answers[String(order)]?.value;
   // Clave del documento sin puntos de miles (cédula "1.042" ≡ "1042"); pasaporte se conserva.
   const documentId = str(get(2)).replace(/\.(?=\d)/g, '').trim();
-  const fullName = str(get(1));
-  if (!documentId || !fullName) return null; // sin identificación no se crea paciente
+  const rawName = str(get(1));
+  if (!documentId || !rawName) return null; // sin identificación no se crea paciente
+  // Nombre normalizado a Title-Case en un solo punto (el guardado): corrige "juan herrera"
+  // → "Juan Herrera" y "MARIA HERRERA" → "Maria Herrera" en BD, panel, PDF y export por
+  // igual. toTitleCase respeta partículas ("de la cruz") y es el mismo que usa el documento.
+  const fullName = toTitleCase(rawName);
 
   // Mapeo por order del Google Form real: P1 nombre, P2 doc, P3 nacimiento, P4 sexo (Hombre/Mujer),
   // P7 teléfono, P8 aseguradora, P11 grupo sanguíneo, P24 correo.

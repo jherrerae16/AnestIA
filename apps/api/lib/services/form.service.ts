@@ -45,6 +45,14 @@ export async function acceptConsent(caseId: string): Promise<void> {
 /** Guardado parcial: valida forma, persiste partial=true. NO emite evento. */
 export async function savePartial(caseId: string, rawAnswers: unknown): Promise<void> {
   const answers = formAnswersSchema.parse(rawAnswers);
+
+  // Tras enviar, el autosave NO puede pisar las respuestas. El token del formulario sigue
+  // vivo 7 días, así que una pestaña abierta puede disparar un save mientras el worker ya
+  // está leyendo las respuestas: sobrescribirlas (partial=true) es una carrera contra el
+  // pipeline y además revierte el estado a RESPONDIENDO. Una vez enviado, es inmutable.
+  const fr = await prisma.formResponse.findUnique({ where: { caseId }, select: { submittedAt: true } });
+  if (fr?.submittedAt) return;
+
   await prisma.formResponse.upsert({
     where: { caseId },
     update: { answers: answers as never, partial: true },
