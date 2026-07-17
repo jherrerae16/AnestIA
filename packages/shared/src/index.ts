@@ -4,6 +4,7 @@ export * from './preset';
 export * from './form';
 export * from './consent';
 export * from './lab';
+export * from './lab-groups';
 export * from './glp1';
 export * from './clinical';
 export * from './pdf-template';

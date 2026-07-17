@@ -1,4 +1,5 @@
 import { chromium, type Browser } from 'playwright';
+import { EMPTY_HEADER_TEMPLATE } from '@anestia/shared';
 import { logger } from '../logger';
 
 /**
@@ -14,7 +15,12 @@ async function getBrowser(): Promise<Browser> {
   return browser;
 }
 
-export async function renderPdf(html: string): Promise<Buffer> {
+/**
+ * `footerTemplate` va al margin box de Chromium, que reserva el espacio en TODAS las páginas.
+ * Por eso el margen inferior (18mm) es mayor que el resto: es el hueco del pie. Un pie dentro
+ * del body no serviría — el contenido de las páginas siguientes se le monta encima.
+ */
+export async function renderPdf(html: string, footerTemplate?: string): Promise<Buffer> {
   const b = await getBrowser();
   const page = await b.newPage();
   try {
@@ -22,7 +28,10 @@ export async function renderPdf(html: string): Promise<Buffer> {
     const pdf = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '10mm', bottom: '14mm', left: '10mm', right: '10mm' },
+      displayHeaderFooter: !!footerTemplate,
+      headerTemplate: EMPTY_HEADER_TEMPLATE,
+      footerTemplate: footerTemplate ?? EMPTY_HEADER_TEMPLATE,
+      margin: { top: '12mm', bottom: '18mm', left: '10mm', right: '10mm' },
     });
     return Buffer.from(pdf);
   } finally {

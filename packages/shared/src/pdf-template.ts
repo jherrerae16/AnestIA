@@ -1,4 +1,5 @@
 import type { DocumentJSON, DocField } from './document';
+import { grupoLabel, isLabGrupo } from './lab-groups';
 
 export interface Branding {
   logoUrl?: string | null;
@@ -88,6 +89,11 @@ function idGrid(section: Record<string, DocField>, cells: [string, string][]): s
     .join('')}</div>`;
 }
 
+/** Primera letra en mayúscula, resto tal cual ("grupo sanguineo" → "Grupo sanguineo"). */
+function sentenceCase(s: string): string {
+  return s.charAt(0).toLocaleUpperCase('es') + s.slice(1);
+}
+
 /** ¿Campo derivado por IA (dato inferido, no reportado directamente por el paciente)? */
 function isDerived(f: DocField | undefined): boolean {
   return !!f && f.estado === 'ok' && typeof f.fuente === 'string' && f.fuente.startsWith('derivado');
@@ -124,10 +130,14 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   const ant = doc.antecedentes ?? {};
   const vp = doc.valoracion_plan ?? {};
 
+  // Paraclínicos: una fila por tipo de estudio. Las claves ya vienen agrupadas desde el
+  // motor (clinical.service); las de documentos antiguos (una clave por analito) siguen
+  // renderizando con su propio nombre.
   const paraclinicos = Object.entries(doc.paraclinicos ?? {})
     .map(([k, f], i) => {
       const shade = i % 2 === 1 ? ' class="alt"' : '';
-      return `<tr${shade}><th>${escapeHtml(k.replace(/_/g, ' '))}</th><td${alertClass(f)}>${fieldVal(f)}</td></tr>`;
+      const label = isLabGrupo(k) ? grupoLabel(k) : sentenceCase(k.replace(/_/g, ' '));
+      return `<tr${shade}><th class="estudio">${escapeHtml(label)}</th><td${alertClass(f)}>${fieldVal(f)}</td></tr>`;
     })
     .join('') || '<tr><td colspan="2">No se cargaron paraclínicos.</td></tr>';
 
@@ -137,7 +147,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
 
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>
   * { box-sizing: border-box; }
-  body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 10px; color: #14212b; margin: 0; padding: 18px 22px 40px; position: relative; }
+  body { font-family: 'Helvetica Neue', Arial, sans-serif; font-size: 10px; color: #14212b; margin: 0; padding: 0; position: relative; }
   .watermark { position: fixed; top: 42%; left: 8%; transform: rotate(-24deg); font-size: 34px; color: rgba(179,38,30,.14); font-weight: 800; letter-spacing: 2px; pointer-events: none; }
   header { display: grid; grid-template-columns: 120px 1fr 120px; align-items: center; border-bottom: 2px solid #0b5c6b; padding-bottom: 8px; }
   header .logo { display: flex; align-items: center; }
@@ -145,10 +155,12 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   header .title { text-align: center; }
   header .title h1 { margin: 0; font-size: 15px; color: #0b5c6b; letter-spacing: 1px; }
   header .title p { margin: 2px 0 0; font-size: 9px; color: #5b6b73; }
-  h2.band { background: #084651; color: #fff; font-size: 10.5px; font-weight: 700; padding: 5px 9px; margin: 13px 0 0; letter-spacing: .6px; text-transform: uppercase; border-radius: 3px 3px 0 0; }
+  h2.band { background: #084651; color: #fff; font-size: 10.5px; font-weight: 700; padding: 5px 9px; margin: 13px 0 0; letter-spacing: .6px; border-radius: 3px 3px 0 0; }
   table { width: 100%; border-collapse: collapse; background: #fbfdfd; border: 1px solid #d9e6e8; border-top: none; }
   th, td { text-align: left; padding: 3px 9px; vertical-align: top; }
   th { width: 34%; color: #0a3b44; font-weight: 700; }
+  th.estudio { width: 22%; letter-spacing: .3px; }
+  tr { page-break-inside: avoid; }
   tr.alt { background: #eef5f6; }
   td.alerta { color: #b3261e; font-weight: 700; }
   .der-mark { color: #c8881a; font-weight: 700; margin-left: 2px; }
@@ -162,7 +174,6 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   .legend { font-size: 7.5px; color: #7a6a3a; background: #fdf6e8; border: 1px solid #ecdcb8; border-radius: 4px; padding: 4px 8px; margin-top: 8px; }
   .legend b { color: #c8881a; }
   .narrativo td { white-space: pre-line; }
-  footer { position: fixed; bottom: 10px; left: 22px; right: 22px; font-size: 8px; color: #5b6b73; border-top: 1px solid #cdd7da; padding-top: 4px; display: flex; justify-content: space-between; }
   .firma { margin-top: 22px; page-break-inside: avoid; }
   .firma .sig-space { min-height: 40px; display: flex; align-items: flex-end; }
   .firma img { height: 40px; }
@@ -176,7 +187,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     <div></div>
   </header>
 
-  <h2 class="band">IDENTIFICACIÓN</h2>
+  <h2 class="band">Identificación</h2>
   ${idGrid(id, [
     ['paciente','Paciente'],['documento','Documento'],['edad_sexo','Edad / Sexo'],
     ['peso_talla_imc','Peso / Talla / IMC'],['diagnostico_preoperatorio','Diagnóstico preoperatorio'],['procedimiento','Procedimiento'],
@@ -184,7 +195,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ['asa','Clasificación ASA'],['tipo_cirugia','Tipo de cirugía'],['condicion_actual','Condición actual'],
   ])}
 
-  <h2 class="band">ANTECEDENTES Y MEDICACIÓN</h2>
+  <h2 class="band">Antecedentes y medicación</h2>
   <table>${rows(ant, [
     ['patologicos','Patológicos'],['quirurgicos','Quirúrgicos'],['medicamentos','Medicamentos'],
     ['glp1','Uso de agonistas GLP-1'],['alergias','Alergias'],['transfusionales','Transfusionales'],
@@ -192,10 +203,10 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ['grupo_sanguineo','Grupo sanguíneo'],
   ], true)}</table>
 
-  <h2 class="band">PARACLÍNICOS DISPONIBLES</h2>
+  <h2 class="band">Paraclínicos disponibles</h2>
   <table>${paraclinicos}</table>
 
-  <h2 class="band">EXAMEN FÍSICO</h2>
+  <h2 class="band">Examen físico</h2>
   <table>${rows(doc.examen_fisico ?? {}, [
     ['peso_talla_imc','Peso / Talla / IMC'],
     ['signos_vitales','Signos vitales'],['via_aerea','Vía aérea'],['cuello','Cuello'],
@@ -204,7 +215,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   ])}</table>
   <p class="nota">Los datos inferidos del examen físico y los signos vitales deben corroborarse antes del procedimiento.</p>
 
-  <h2 class="band">VALORACIÓN Y PLAN</h2>
+  <h2 class="band">Valoración y plan</h2>
   <table class="narrativo">${rows(vp, [['concepto','Concepto anestésico'],['plan','Plan anestésico'],['recomendaciones','Recomendaciones']])}</table>
 
   ${draft ? '<div class="legend">Los datos marcados con <b>°</b> son inferidos por el sistema a partir de las respuestas del paciente y <b>deben ser verificados</b> por el anestesiólogo antes de aprobar el documento.</div>' : ''}
@@ -215,6 +226,23 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ${firmaSub(branding)}
   </div>
 
-  <footer><span>${escapeHtml(branding.footer ?? 'AnestIA')}</span><span>${escapeHtml(opts.fechaValoracion ?? '')}</span></footer>
   </body></html>`;
 }
+
+/**
+ * Pie de página del PDF. Va como `footerTemplate` de Playwright, NO dentro del body:
+ * un `position: fixed` en el body sólo se ancla al viewport de impresión y el contenido
+ * de las páginas siguientes le pasa por encima. El margin box de Chromium sí lo reserva
+ * en todas las páginas.
+ */
+export function buildFooterTemplate(branding: Branding, opts: BuildOpts = {}): string {
+  return `<div style="width:100%; margin:0 10mm; font-family:'Helvetica Neue',Arial,sans-serif;
+    font-size:8px; color:#5b6b73; border-top:1px solid #cdd7da; padding-top:4px;
+    display:flex; justify-content:space-between; align-items:center;">
+    <span>${escapeHtml(branding.footer ?? 'AnestIA')}</span>
+    <span>${escapeHtml(opts.fechaValoracion ?? '')}</span>
+  </div>`;
+}
+
+/** Cabecera vacía: Chromium exige un template si displayHeaderFooter está activo. */
+export const EMPTY_HEADER_TEMPLATE = '<div></div>';
