@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { canApprove, applyExamNormal } from './approval';
+import { canApprove, applyExamNormal, requiresMeasurement, MEASURED_EXAM_FIELDS } from './approval';
 import { EXAM_FIELDS } from './clinical';
 import type { DocumentJSON } from './document';
 
@@ -46,13 +46,40 @@ describe('canApprove — regla bloqueante (PBT invariant)', () => {
 });
 
 describe('applyExamNormal', () => {
-  it('limpia el estado pendiente: tras aplicar, canApprove no bloquea por examen', () => {
+  it('confirma los hallazgos cualitativos con trazabilidad de la atestación', () => {
     const withNormal = applyExamNormal(baseFields(true, true));
     for (const k of EXAM_FIELDS) {
+      if (requiresMeasurement(k)) continue;
       expect(withNormal.examen_fisico[k]?.estado).toBe('ok');
       // CS3: la fuente deja trazabilidad de que fue una atestación explícita, no "normal por defecto".
       expect(withNormal.examen_fisico[k]?.fuente).toBe('anestesiologo:examen-normal-confirmado');
     }
+  });
+
+  // CS2: el corazón de esta regla. Un clic no puede escribir "TA 120/80" en un documento
+  // firmado cuando nadie puso un tensiómetro.
+  it('NUNCA inventa cifras: signos vitales y peso/talla siguen pendientes', () => {
+    const withNormal = applyExamNormal(baseFields(true, true));
+    for (const k of MEASURED_EXAM_FIELDS) {
+      expect(withNormal.examen_fisico[k]?.estado).toBe('pendiente_examen');
+      expect(withNormal.examen_fisico[k]?.valor).toBeNull();
+    }
+    expect(JSON.stringify(withNormal)).not.toContain('120/80');
+  });
+
+  it('no se puede aprobar sólo con la atestación: falta lo medido', () => {
+    const withNormal = applyExamNormal(baseFields(true, true));
+    const check = canApprove(withNormal);
+    expect(check.ok).toBe(false);
+    expect(check.blockers.some((b) => b.includes('signos vitales'))).toBe(true);
+  });
+
+  it('con los valores medidos ya ingresados, la atestación los respeta y se puede aprobar', () => {
+    const base = baseFields(true, true);
+    base.examen_fisico['signos_vitales'] = { valor: 'TA 138/86 · FC 88', estado: 'ok', fuente: 'anestesiologo' };
+    base.examen_fisico['peso_talla_imc'] = { valor: '76 kg / 1.95 m', estado: 'ok', fuente: 'anestesiologo' };
+    const withNormal = applyExamNormal(base);
+    expect(withNormal.examen_fisico['signos_vitales']?.valor).toBe('TA 138/86 · FC 88');
     expect(canApprove(withNormal).ok).toBe(true);
   });
 });
