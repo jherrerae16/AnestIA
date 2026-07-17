@@ -172,8 +172,15 @@ function norm(v: unknown): string {
     .errors div { margin:2px 0; }
 
     /* SUBMIT BAR */
-    .submit-bar { position:sticky; bottom:0; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); border-top:1px solid var(--border); padding:14px 20px; display:flex; gap:10px; justify-content:flex-end; align-items:center; z-index:50; }
+    .submit-bar { position:sticky; bottom:0; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); border-top:1px solid var(--border); padding:14px 20px; display:flex; gap:10px; justify-content:flex-end; align-items:center; z-index:50; flex-wrap:wrap; }
     .submit-hint { font-size:12px; color:var(--muted); margin-right:auto; }
+    /* En móvil el hint + 2 botones no caben en una fila (375px): el contador se cortaba y
+       "Enviar respuestas" partía en dos líneas. Se apila el hint arriba y los botones abajo. */
+    @media (max-width:480px) {
+      .submit-bar { flex-direction:column; align-items:stretch; gap:8px; padding:12px 16px; }
+      .submit-hint { margin-right:0; text-align:center; }
+      .submit-bar .btn-ghost, .submit-bar .btn-send { width:100%; }
+    }
     .btn-ghost { background:none; border:1.5px solid var(--border2); color:var(--muted); padding:11px 20px; border-radius:var(--r-pill); font-size:14px; font-weight:500; cursor:pointer; transition:all .15s; font-family:var(--font-body); }
     .btn-ghost:hover { border-color:var(--muted); color:var(--text); }
     .btn-send { background:var(--primary); color:#fff; border:none; padding:12px 28px; border-radius:var(--r-pill); font-size:14.5px; font-weight:600; cursor:pointer; transition:all .2s; font-family:var(--font-body); }
@@ -185,7 +192,7 @@ function norm(v: unknown): string {
     .consent h2 { font-family:var(--font-display); font-size:22px; font-weight:700; color:var(--text); margin-bottom:16px; letter-spacing:-.4px; }
     .consent-body { background:var(--bg3); border:1px solid var(--border); border-radius:var(--r-md); padding:18px; font-size:13.5px; line-height:1.6; color:var(--muted); white-space:pre-line; max-height:300px; overflow:auto; margin-bottom:18px; }
     .consent-check { display:flex; gap:11px; align-items:flex-start; font-size:14px; color:var(--text); margin-bottom:24px; cursor:pointer; }
-    .consent-check input { width:18px; height:18px; margin-top:1px; accent-color:var(--primary); }
+    .consent-check input { width:22px; height:22px; margin-top:1px; accent-color:var(--primary); flex-shrink:0; }
     .btn-cta { display:inline-flex; align-items:center; gap:8px; background:var(--primary); color:#fff; font-size:15px; font-weight:600; padding:14px 32px; border-radius:var(--r-pill); border:none; cursor:pointer; transition:all .2s; font-family:var(--font-body); }
     .btn-cta:hover:not(:disabled) { background:var(--primary-dark); transform:translateY(-2px); box-shadow:0 8px 24px rgba(11,92,107,.3); }
     .btn-cta:disabled { background:var(--border2); cursor:not-allowed; transform:none; box-shadow:none; }

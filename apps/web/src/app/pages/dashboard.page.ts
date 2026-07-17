@@ -32,9 +32,18 @@ function badgeClass(status: string): string {
     .export-msg { font-size:12px; color:var(--muted); margin:0 0 8px; }
 
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
+    /* En móvil 3 columnas dejan ~110px por tarjeta y "PENDIENTE REVISIÓN" se cortaba.
+       Se pasa a 1 columna apilada por debajo de 560px. */
+    @media (max-width:560px) {
+      .kpi-row { grid-template-columns: 1fr; }
+    }
 
     table { width:100%; border-collapse:collapse; }
-    .table-card { padding:0; overflow:hidden; }
+    /* overflow-x:auto en vez de hidden: en móvil la tabla es más ancha que la pantalla y se
+       cortaba en seco (columnas Estado/Alertas invisibles). Ahora scrollea dentro de su
+       tarjeta sin romper el ancho del body. min-width evita que las columnas se aplasten. */
+    .table-card { padding:0; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .table-card table { min-width:520px; }
     thead th {
       text-align:left; padding:12px 18px; font-size:10px; font-weight:600;
       text-transform:uppercase; letter-spacing:0.07em; color:var(--muted);

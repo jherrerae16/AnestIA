@@ -12,6 +12,9 @@ import { ApiService } from '../core/api.service';
     .page-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
     .search-box { margin-bottom: 20px; }
     .search-box .ki-input { max-width: 340px; }
+    /* 5 columnas no caben en móvil: scroll dentro del contenedor, no en el body. */
+    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table-scroll .results-table { min-width: 560px; }
     .results-table { width: 100%; border-collapse: collapse; }
     .results-table thead th { background: var(--bg3); font-size: 10px; font-weight: 600; text-transform: uppercase;
       letter-spacing: 0.07em; color: var(--muted); text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); }
@@ -47,6 +50,7 @@ import { ApiService } from '../core/api.service';
         </div>
 
         @if (results().length) {
+          <div class="table-scroll">
           <table class="results-table">
             <thead>
               <tr>
@@ -69,6 +73,7 @@ import { ApiService } from '../core/api.service';
               }
             </tbody>
           </table>
+          </div>
         }
 
         @if (selected(); as p) {
