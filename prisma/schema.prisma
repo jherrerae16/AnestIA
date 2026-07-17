@@ -153,8 +153,14 @@ model ExtractedLabResult {
   value      String
   unit       String?
   refRange   String?
+  grupo      String?  // tipo de estudio leído del informe: "hemograma", "coagulacion", ...
+  reportDate DateTime? // fecha del informe leída del propio examen (NO la de carga): un
+                       // examen viejo cambia la lectura clínica y el médico debe verla.
   flag       LabFlag  @default(NORMAL)
   sourceRef  String?  // referencia a la porción del documento fuente (para verificación)
+  // Cómo se extrajo: "texto" (capas: unpdf + Haiku) o "vision" (fallback / modo visión).
+  // Permite medir en el modo comparativo qué método produjo cada dato antes de migrar.
+  extractionMethod String? @default("vision")
   createdAt  DateTime @default(now())
 }
 
