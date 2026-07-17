@@ -20,9 +20,36 @@ function norm(s: string): string {
   return s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
-/** Devuelve el analito canónico o null si no se reconoce. */
+/**
+ * Patrones de los informes reales, que no nombran el analito a secas: "RECUENTO TOTAL DE
+ * PLAQUETAS", "CREATININA EN SUERO (SERICA)". Con igualdad exacta no se reconocían y
+ * `flagLab` los daba por NORMAL sin evaluarlos — un valor crítico pasaba en silencio.
+ *
+ * El orden importa: gana el primero que coincida. Los patrones negativos (?!…) excluyen
+ * analitos distintos que comparten palabra — "CREATININA ORINA" no es la creatinina sérica,
+ * y "Leucocitos (sedimento)" del uroanálisis no es el recuento en sangre.
+ */
+const PATTERNS: [RegExp, string][] = [
+  [/^(?!.*(orina|relacion|indice|\/)).*creatinina/, 'Creatinina'],
+  [/(recuento (total )?de )?plaquetas|^plt/, 'Plaquetas'],
+  [/^(?!.*(sedimento|estearasa|orina)).*(recuento de )?leucocitos|^wbc$|globulos blancos/, 'Leucocitos'],
+  [/hemoglobina(?! corpuscular)|^hb$|^hgb$/, 'Hemoglobina'],
+  [/glicemia|glucemia|glucosa en (suero|sangre)|^glucosa$/, 'Glucemia'],
+  [/^(inr|isi)$|razon normalizada/, 'INR'],
+];
+
+/**
+ * Devuelve el analito canónico o null si no se reconoce.
+ * Primero igualdad exacta (sinónimos cortos), luego los patrones de los informes reales.
+ */
 export function canonicalAnalyte(name: string): string | null {
-  return SYNONYMS[norm(name)] ?? null;
+  const n = norm(name);
+  const exact = SYNONYMS[n];
+  if (exact) return exact;
+  for (const [re, canonical] of PATTERNS) {
+    if (re.test(n)) return canonical;
+  }
+  return null;
 }
 
 /** Extrae el primer número de un string ("15.9 g/dL" → 15.9, "244.000" → 244000). null si no hay. */

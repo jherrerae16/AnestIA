@@ -83,6 +83,22 @@ function titleCaseFirst(s: string): string {
  * - No reconocido → capitalizado tal cual (marcado para revisión/IA).
  * Devuelve { text, unresolved } donde `unresolved` lista lo que no se pudo traducir.
  */
+/** Escapa un término para usarlo dentro de una expresión regular. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * ¿El texto contiene el término como PALABRA completa?
+ *
+ * Con `includes` a secas, "lipoma" contenía "lipo" y un lipoma (tumor benigno) se traducía
+ * a "Liposucción" en el documento firmado. El procedimiento del paciente no se adivina por
+ * coincidencia de letras (CS2): o coincide la palabra, o el texto se deja tal cual.
+ */
+function matchesTerm(texto: string, termino: string): boolean {
+  return new RegExp(`(?<![a-z0-9])${escapeRe(termino)}(?![a-z0-9])`, 'i').test(texto);
+}
+
 export function toMedicalTerms(raw: string): { text: string; unresolved: string[] } {
   const parts = raw
     .split(/,|\by\b|;|\/|\+/i)
@@ -94,7 +110,7 @@ export function toMedicalTerms(raw: string): { text: string; unresolved: string[
   const unresolved: string[] = [];
   for (const part of parts) {
     const n = norm(part);
-    const rule = TERMS.find((r) => r.match.some((m) => n.includes(m)));
+    const rule = TERMS.find((r) => r.match.some((m) => matchesTerm(n, m)));
     if (rule) {
       const mods = MODIFIERS.filter(([re]) => re.test(part)).map(([, label]) => label);
       out.push(mods.length ? `${rule.medical} ${mods.join(' ')}` : rule.medical);

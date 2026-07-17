@@ -29,4 +29,25 @@ describe('toMedicalTerms — coloquial → médico', () => {
     expect(medicalTerm('')).toBeNull();
     expect(medicalTerm(null)).toBeNull();
   });
+
+  // CS2: el procedimiento no se adivina por coincidencia de letras. Con `includes` a secas,
+  // "lipoma" (tumor benigno) contenía "lipo" y salía "Liposucción" en el documento firmado.
+  describe('coincide por palabra, no por substring', () => {
+    it('no traduce palabras que sólo CONTIENEN un término', () => {
+      expect(medicalTerm('lipoma')).toBe('Lipoma');
+      expect(medicalTerm('plasma rico en plaquetas')).toBe('Plasma rico en plaquetas');
+      expect(medicalTerm('colonoscopia')).toBe('Colonoscopia');
+    });
+
+    it('sigue traduciendo el término real, solo o en frase', () => {
+      expect(medicalTerm('lipo')).toBe('Liposucción');
+      expect(medicalTerm('me van a hacer una lipo')).toBe('Liposucción');
+      expect(medicalTerm('lipoescultura')).toBe('Liposucción');
+      expect(medicalTerm('me van a operar la vesícula')).toBe('Colecistectomía');
+    });
+
+    it('lo no reconocido se marca como unresolved en vez de adivinarse', () => {
+      expect(toMedicalTerms('lipoma').unresolved).toContain('lipoma');
+    });
+  });
 });
