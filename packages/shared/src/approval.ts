@@ -4,6 +4,18 @@ import { EXAM_FIELDS } from './clinical';
 /** Campos de identificación obligatorios para poder aprobar. */
 export const REQUIRED_ID_FIELDS = ['paciente', 'documento', 'procedimiento', 'asa'] as const;
 
+/** Etiquetas legibles del examen, para nombrar lo que falta al bloquear la aprobación. */
+const EXAM_LABELS: Record<string, string> = {
+  peso_talla_imc: 'peso / talla / IMC',
+  signos_vitales: 'signos vitales',
+  via_aerea: 'vía aérea',
+  cuello: 'cuello',
+  cardiovascular_respiratorio: 'cardiovascular / respiratorio',
+  abdomen: 'abdomen',
+  extremidades: 'extremidades',
+  snc: 'sistema nervioso central',
+};
+
 export interface ApprovalCheck {
   ok: boolean;
   blockers: string[];
@@ -20,8 +32,14 @@ export function canApprove(fields: DocumentJSON): ApprovalCheck {
 
   const exam = fields.examen_fisico ?? {};
   const pending = Object.entries(exam).filter(([, f]) => f?.estado === 'pendiente_examen');
-  if (Object.keys(exam).length === 0 || pending.length > 0) {
+  if (Object.keys(exam).length === 0) {
     blockers.push('El examen físico está pendiente. Ingresa o confirma los valores antes de aprobar.');
+  } else if (pending.length > 0) {
+    // Nombrar los campos: los medidos (signos vitales, peso/talla) no los cubre la
+    // atestación de examen normal y hay que teclearlos, así que decir sólo "pendiente"
+    // deja al médico buscando qué falta.
+    const nombres = pending.map(([k]) => EXAM_LABELS[k] ?? k).join(', ');
+    blockers.push(`Falta registrar en el examen físico: ${nombres}. Son datos medidos: deben ingresarse.`);
   }
 
   const id = fields.identificacion ?? {};
@@ -35,16 +53,30 @@ export function canApprove(fields: DocumentJSON): ApprovalCheck {
   return { ok: blockers.length === 0, blockers };
 }
 
-/** Valores normales estándar del examen físico (confirmación activa del anestesiólogo). */
+/**
+ * Campos del examen que exigen un INSTRUMENTO para conocerse: tensiómetro, pulsioxímetro,
+ * báscula. No hay atestación posible sin medición — un "normal" aquí sería una cifra
+ * concreta que nadie tomó, dentro de un documento firmado (CS3). Se teclean o no se aprueba.
+ */
+export const MEASURED_EXAM_FIELDS = ['signos_vitales', 'peso_talla_imc'] as const;
+
+/** ¿El campo requiere medición instrumental (y por tanto no es atestable en bloque)? */
+export function requiresMeasurement(key: string): boolean {
+  return (MEASURED_EXAM_FIELDS as readonly string[]).includes(key);
+}
+
+/**
+ * Hallazgos cualitativos del examen presencial. El anestesiólogo SÍ puede atestarlos de
+ * memoria tras explorar al paciente: son observaciones, no lecturas de aparato.
+ * `signos_vitales` y `peso_talla_imc` NO están aquí a propósito — ver MEASURED_EXAM_FIELDS.
+ */
 export const NORMAL_EXAM: Record<string, string> = {
-  signos_vitales: 'TA 120/80 mmHg · FC 72 lpm · FR 16 rpm · SatO2 98%',
   via_aerea: 'Mallampati I · AO >4 cm · DTM >6 cm',
   cuello: 'Móvil, sin masas',
   cardiovascular_respiratorio: 'Ruidos cardíacos rítmicos sin soplos; murmullo vesicular conservado',
   abdomen: 'Blando, no doloroso',
   extremidades: 'Sin edemas, pulsos presentes',
   snc: 'Alerta, orientado, sin déficit',
-  peso_talla_imc: 'Según datos del formulario',
 };
 
 function okField(valor: string, fuente = 'anestesiologo'): DocField {
@@ -52,15 +84,22 @@ function okField(valor: string, fuente = 'anestesiologo'): DocField {
 }
 
 /**
- * Rellena el examen físico con valores normales COMO ATESTACIÓN EXPLÍCITA del anestesiólogo
- * (CS3): NO son "normales por defecto" ni inferidos por la IA. La fuente y la nota dejan
- * trazabilidad de que fue una confirmación activa de examen presencial normal; requiere que
- * el llamador (servidor) exija la atestación del médico. Cada valor sigue siendo editable
- * campo a campo antes de aprobar.
+ * Atestación de examen presencial normal (CS3). Rellena SÓLO los hallazgos cualitativos que
+ * el anestesiólogo puede confirmar de memoria tras explorar al paciente.
+ *
+ * Los signos vitales y el peso/talla NO se rellenan: son cifras que exigen instrumento, y
+ * escribir "TA 120/80" sin haber medido pondría un dato fabricado en un documento firmado —
+ * exactamente lo que prohíbe CS2. Quedan en `pendiente_examen`, lo que además bloquea la
+ * aprobación (canApprove) hasta que el médico los teclee.
  */
 export function applyExamNormal(fields: DocumentJSON): DocumentJSON {
-  const examen_fisico: Record<string, DocField> = {};
+  const examen_fisico: Record<string, DocField> = { ...(fields.examen_fisico ?? {}) };
   for (const key of EXAM_FIELDS) {
+    if (requiresMeasurement(key)) {
+      // Se respeta lo ya medido; si no hay medición, sigue pendiente.
+      if (examen_fisico[key]?.estado !== 'ok') examen_fisico[key] = pendingExam();
+      continue;
+    }
     examen_fisico[key] = {
       valor: NORMAL_EXAM[key] ?? 'Sin hallazgos',
       estado: 'ok',
@@ -69,6 +108,11 @@ export function applyExamNormal(fields: DocumentJSON): DocumentJSON {
     };
   }
   return { ...fields, examen_fisico };
+}
+
+/** Campo del examen aún no medido. */
+function pendingExam(): DocField {
+  return { valor: null, estado: 'pendiente_examen', fuente: null };
 }
 
 /** Aplica una edición puntual a un campo (sección.clave). */

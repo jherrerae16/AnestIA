@@ -28,6 +28,14 @@ const SECTION_LABELS: Record<string, string> = {
     .page-head p { font-size:13px; color:var(--muted); margin-top:2px; }
 
     .cols { display:grid; grid-template-columns: 1.25fr 1fr; gap:16px; align-items:start; }
+    .side { display:flex; flex-direction:column; gap:16px; min-width:0; }
+    .attach { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--border, #e6edee); }
+    .attach:last-of-type { border-bottom:none; }
+    .a-name { font-size:12.5px; overflow-wrap:anywhere; }
+    .a-actions { display:flex; gap:6px; flex-shrink:0; }
+    .attach-frame { width:100%; height:520px; border:1px solid var(--border, #e6edee); border-radius:6px; margin:8px 0 12px; background:#fff; }
+    .lab-date { font-size:11px; font-weight:500; margin-left:4px; }
+    .lab-date.alerta { color:#b3261e; font-weight:700; }
     .sec-block { margin-bottom:18px; }
     .sec-block:last-child { margin-bottom:0; }
     .field { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; }
@@ -236,18 +244,77 @@ const SECTION_LABELS: Record<string, string> = {
             </div>
           }
         </div>
-        <div class="card">
-          <div class="card-title" style="margin-bottom:14px">Fuente · Laboratorios</div>
-          @for (l of labs(); track l.analyte) {
-            <div class="field">
-              <span class="k">{{ l.analyte }}</span>
-              <span class="v">
-                <span [class.alerta]="l.flag!=='NORMAL'">{{ l.value }} {{ l.unit }}</span>
-                <span class="lab-flag muted"> · {{ l.flag }}</span>
-              </span>
+        <div class="side">
+          @if (patient(); as p) {
+            <div class="card" data-testid="patient-card">
+              <div class="card-title" style="margin-bottom:14px">Paciente</div>
+              <div class="field"><span class="k">Nombre</span><span class="v">{{ p.fullName }}</span></div>
+              <div class="field"><span class="k">Documento</span><span class="v">{{ p.documentId || '—' }}</span></div>
+              <div class="field"><span class="k">Edad</span><span class="v">{{ p.edad != null ? p.edad + ' años' : '—' }}</span></div>
+              <div class="field"><span class="k">Sexo</span><span class="v">{{ p.sex || '—' }}</span></div>
+              <div class="field">
+                <span class="k">Teléfono</span>
+                <span class="v">@if (p.phone) { <a [href]="'tel:' + p.phone">{{ p.phone }}</a> } @else { — }</span>
+              </div>
+              <div class="field">
+                <span class="k">Correo</span>
+                <span class="v">@if (p.email) { <a [href]="'mailto:' + p.email">{{ p.email }}</a> } @else { — }</span>
+              </div>
+              <div class="field"><span class="k">Aseguradora</span><span class="v">{{ p.insurer || '—' }}</span></div>
+              <div class="field"><span class="k">Grupo sanguíneo</span><span class="v">{{ p.bloodType || '—' }}</span></div>
             </div>
           }
-          @if (!labs().length) { <div class="empty">Sin laboratorios cargados.</div> }
+
+          <div class="card" data-testid="attachments-card">
+            <div class="card-title" style="margin-bottom:14px">Exámenes adjuntos del paciente</div>
+            <p class="edit-hint">Los archivos originales tal como los subió el paciente. Revísalos: lo de abajo es lo que la IA leyó de ellos.</p>
+            @for (a of attachments(); track a.id) {
+              <div class="attach">
+                <span class="a-name">{{ a.filename }}</span>
+                <span class="a-actions">
+                  @if (a.viewable) {
+                    <button class="btn btn-sm" (click)="toggleAttachment(a.id)" [attr.data-testid]="'attach-view-' + a.id">
+                      {{ openAttachment() === a.id ? 'Cerrar' : 'Ver' }}
+                    </button>
+                  }
+                  <a class="btn btn-sm" [href]="a.url" target="_blank" rel="noopener">Abrir</a>
+                </span>
+              </div>
+              @if (openAttachment() === a.id && attachmentSrc(); as src) {
+                <iframe class="attach-frame" [src]="src" [title]="a.filename"></iframe>
+              }
+            }
+            @if (!attachments().length) { <div class="empty">El paciente no adjuntó exámenes.</div> }
+          </div>
+
+          <div class="card">
+            <div class="card-title" style="margin-bottom:14px">Fuente · Laboratorios</div>
+            @for (g of labGroups(); track g.grupo) {
+              <div class="sec-block">
+                <div class="section-label">
+                  {{ g.label }}
+                  @if (g.fecha) {
+                    <span class="lab-date" [class.alerta]="g.desactualizado"
+                      [title]="g.desactualizado ? 'Examen de hace 3 meses o más — verificar vigencia' : ''">
+                      · {{ g.fecha }}{{ g.desactualizado ? ' ⚠' : '' }}
+                    </span>
+                  } @else {
+                    <span class="lab-date muted" title="El informe no traía fecha impresa">· sin fecha</span>
+                  }
+                </div>
+                @for (l of g.labs; track l.analyte) {
+                  <div class="field">
+                    <span class="k">{{ l.analyte }}</span>
+                    <span class="v">
+                      <span [class.alerta]="l.flag!=='NORMAL'">{{ l.value }} {{ l.unit }}</span>
+                      <span class="lab-flag muted"> · {{ l.flag }}</span>
+                    </span>
+                  </div>
+                }
+              </div>
+            }
+            @if (!labs().length) { <div class="empty">Sin laboratorios cargados.</div> }
+          </div>
         </div>
       </div>
 
@@ -260,12 +327,13 @@ const SECTION_LABELS: Record<string, string> = {
         @if (!check()?.ok) {
           <label class="contact" style="margin-bottom:10px;font-size:12.5px">
             <input type="checkbox" [checked]="examAttested()" (change)="setExamAttested($event)" data-testid="exam-attest-checkbox" />
-            <span>Confirmo que examiné al paciente presencialmente y el examen físico es normal.</span>
+            <span>Confirmo que examiné al paciente presencialmente y los hallazgos son normales.
+              Los signos vitales y el peso/talla los ingreso yo con los valores medidos.</span>
           </label>
         }
         <div class="bar-actions">
           @if (!check()?.ok) {
-            <button class="btn" [disabled]="!examAttested()" (click)="loadNormal()" data-testid="exam-load-normal-button">Marcar examen normal</button>
+            <button class="btn" [disabled]="!examAttested()" (click)="loadNormal()" data-testid="exam-load-normal-button">Confirmar hallazgos normales</button>
           }
           <span class="spacer"></span>
           <button class="btn" (click)="reject()" data-testid="review-reject-button">Rechazar</button>
@@ -302,7 +370,23 @@ export class ReviewApprovalPage implements OnInit {
   auditFindings = signal<{ level: string; category: string; message: string; field?: string }[]>([]);
   contacts = signal<any[]>([]);
   deliveries = signal<any[]>([]);
-  patient = signal<{ fullName: string; email?: string | null } | null>(null);
+  patient = signal<{
+    fullName: string;
+    documentId?: string | null;
+    edad?: number | null;
+    sex?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    insurer?: string | null;
+    bloodType?: string | null;
+  } | null>(null);
+  attachments = signal<{ id: string; filename: string; url: string; viewable: boolean }[]>([]);
+  /** Labs agrupados por estudio con fecha y vigencia — los resuelve el servidor. */
+  labGroups = signal<
+    { grupo: string; label: string; fecha: string | null; desactualizado: boolean; labs: any[] }[]
+  >([]);
+  openAttachment = signal<string | null>(null);
+  attachmentSrc = signal<SafeResourceUrl | null>(null);
   sendToPatient = signal(false);
   distError = signal('');
   composerOpen = signal(false);
@@ -328,6 +412,8 @@ export class ReviewApprovalPage implements OnInit {
     const r = await this.api.getReview(this.caseId);
     this.fields.set(r.fields ?? {});
     this.labs.set(r.labs ?? []);
+    this.labGroups.set(r.labGroups ?? []);
+    this.attachments.set(r.attachments ?? []);
     this.check.set(r.canApprove);
     this.patient.set(r.patient ?? null);
     // Hallazgos del auditor: primero lo más severo.
@@ -341,6 +427,19 @@ export class ReviewApprovalPage implements OnInit {
       this.sendToPatient.set(Boolean(r.patient?.email)); // por defecto, marcar al paciente si tiene correo
       this.loadPreview(); // muestra el documento final automáticamente
     }
+  }
+
+  /** Abre/cierra el visor del examen original adjunto (PDF o imagen). */
+  toggleAttachment(id: string) {
+    if (this.openAttachment() === id) {
+      this.openAttachment.set(null);
+      this.attachmentSrc.set(null);
+      return;
+    }
+    const a = this.attachments().find((x) => x.id === id);
+    if (!a) return;
+    this.openAttachment.set(id);
+    this.attachmentSrc.set(this.sanitizer.bypassSecurityTrustResourceUrl(a.url));
   }
 
   /** Fija el src del iframe (bust cache para reflejar cambios recientes). */
