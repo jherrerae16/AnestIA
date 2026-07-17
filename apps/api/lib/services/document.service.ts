@@ -3,7 +3,7 @@ import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
 import { logAudit } from '../audit';
 import { brandingDataUri } from '../pdf/branding';
-import { buildDocumentHtml, toTitleCase, type Branding, type DocumentJSON } from '@anestia/shared';
+import { buildDocumentHtml, buildFooterTemplate, toTitleCase, type Branding, type DocumentJSON } from '@anestia/shared';
 
 /**
  * Renderiza el PDF de BORRADOR del caso desde el GeneratedAssessment.
@@ -29,11 +29,9 @@ export async function renderDraftForCase(caseId: string, fechaValoracion: string
     footer: a?.footerText ?? 'AnestIA',
   };
 
-  const html = buildDocumentHtml(assessment.fields as DocumentJSON, branding, {
-    draft: true,
-    fechaValoracion,
-  });
-  const pdf = await renderPdf(html);
+  const opts = { draft: true, fechaValoracion };
+  const html = buildDocumentHtml(assessment.fields as DocumentJSON, branding, opts);
+  const pdf = await renderPdf(html, buildFooterTemplate(branding, opts));
 
   const storage = getStorageProvider();
   await storage.put(pdf, { caseId, type: 'DRAFT_PDF', filename: 'borrador.pdf' });
@@ -72,11 +70,9 @@ export async function previewPdfForCase(
 
   // Borrador salvo que el caso ya esté aprobado/entregado (documento final).
   const isFinal = kase.status === 'APROBADO' || kase.status === 'ENTREGADO';
-  const html = buildDocumentHtml(assessment.fields as DocumentJSON, branding, {
-    draft: !isFinal,
-    fechaValoracion: new Date().toLocaleDateString('es-CO'),
-  });
-  const pdf = await renderPdf(html);
+  const opts = { draft: !isFinal, fechaValoracion: new Date().toLocaleDateString('es-CO') };
+  const html = buildDocumentHtml(assessment.fields as DocumentJSON, branding, opts);
+  const pdf = await renderPdf(html, buildFooterTemplate(branding, opts));
   return { pdf, filename: documentFilename(kase.patient?.fullName) };
 }
 

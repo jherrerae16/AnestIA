@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { buildDocumentHtml, escapeHtml, toTitleCase, type Branding } from './pdf-template';
+import { buildDocumentHtml, buildFooterTemplate, escapeHtml, toTitleCase, type Branding } from './pdf-template';
 import type { DocumentJSON } from './document';
 
 const branding: Branding = { doctorName: 'Dr. Jorge A. Luquetta', specialty: 'Anestesiología', registry: '123' };
@@ -31,9 +31,45 @@ describe('buildDocumentHtml', () => {
   it('incluye secciones del Diseño Oficial + firma', () => {
     const html = buildDocumentHtml(docWithExam(true), branding);
     expect(html).toContain('VALORACIÓN PREANESTÉSICA');
-    expect(html).toContain('ANTECEDENTES Y MEDICACIÓN');
-    expect(html).toContain('EXAMEN FÍSICO');
+    expect(html).toContain('Antecedentes y medicación');
+    expect(html).toContain('Examen físico');
     expect(html).toContain('Dr. Jorge A. Luquetta');
+  });
+});
+
+describe('paraclínicos — seccionados por tipo de estudio', () => {
+  const doc: DocumentJSON = {
+    ...docWithExam(true),
+    paraclinicos: {
+      hemograma: { valor: 'Hemoglobina 15.9 g/dL. Dentro de los rangos reportados.', estado: 'ok', fuente: 'lab' },
+      coagulacion: { valor: 'INR 0.97. Dentro de los rangos reportados.', estado: 'ok', fuente: 'lab' },
+    },
+  };
+
+  it('el nombre del estudio va en Sentence case con tilde', () => {
+    const html = buildDocumentHtml(doc, branding);
+    expect(html).toContain('>Hemograma<');
+    expect(html).toContain('>Coagulación<');
+  });
+
+  it('documentos antiguos (una clave por analito) siguen renderizando', () => {
+    const viejo: DocumentJSON = {
+      ...docWithExam(true),
+      paraclinicos: { grupo_sanguineo: { valor: 'O+', estado: 'ok', fuente: 'lab' } },
+    };
+    expect(buildDocumentHtml(viejo, branding)).toContain('Grupo sanguineo');
+  });
+});
+
+describe('buildFooterTemplate', () => {
+  it('el pie NO va en el body: lo pinta el margin box de Chromium en cada página', () => {
+    expect(buildDocumentHtml(docWithExam(true), branding)).not.toContain('<footer');
+  });
+
+  it('lleva el texto del perfil y la fecha, escapados', () => {
+    const html = buildFooterTemplate({ ...branding, footer: 'Clínica <Portoazul>' }, { fechaValoracion: '16-07-2026' });
+    expect(html).toContain('Clínica &lt;Portoazul&gt;');
+    expect(html).toContain('16-07-2026');
   });
 });
 
