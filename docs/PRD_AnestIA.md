@@ -727,3 +727,50 @@ Si algún punto falla, corrige antes de emitir. No entregues una salida que no c
 - Toda modificación aprobada por el anestesiólogo responsable se incorpora vía Registro de Cambios.
 - Ante conflicto entre documentos, prevalece la jerarquía definida.
 - Prioriza siempre la seguridad del paciente y la calidad clínica sobre la estética.
+
+---
+
+## Estado de implementación (bitácora)
+
+> Esta sección registra **lo construido**, no requisitos nuevos. El cuerpo del PRD sigue siendo el
+> contrato de qué debe hacer el sistema; aquí se anota cómo quedó. Última actualización: 2026-07-17.
+
+### Construido y funcionando (piloto de punta a punta con la key real)
+
+- **Captura (U1):** formulario nativo del paciente, responsive mobile-first (donde responde la
+  mayoría). Consentimiento Ley 1581. Enlace tokenizado (7 días). *(RF-2.4, RF-2.5)*
+- **Lab Intelligence (U2):** extracción de labs con Claude. Rediseñada en **cascada** —
+  texto embebido del PDF (unpdf, cero tokens) → Haiku a JSON; fallback automático a visión (Sonnet)
+  para escaneados. Modo `comparativo` corre ambos y audita el diff para migrar con datos.
+  Cada lab guarda `sourceRef`, `grupo` (tipo de estudio) y `reportDate` (fecha del informe). Flagging
+  determinístico por código, con reconocimiento de los nombres largos de los informes reales.
+  *(RF-3.x, CS2)*
+- **Motor clínico (U3):** Opus tras el adaptador. Salida estructurada (JSON Schema + Zod). Examen
+  físico siempre `pendiente_examen`. Auditor clínico independiente antes del render. *(RF-4.x, D.x)*
+- **Documento (U4):** PDF por plantilla HTML/CSS (Playwright). Paraclínicos agrupados por estudio con
+  fecha y aviso de vigencia; pie por página; firma visual. *(RF-5.x, Anexo C)*
+- **Revisión/HITL (U5):** el médico edita, ve los exámenes originales (visor de adjuntos) y la ficha
+  completa del paciente. Aprobación bloqueada mientras el examen físico esté pendiente. Versión
+  aprobada inmutable + audit log. *(RF-6.x, CS1, CS3, CS7)*
+- **Distribución (U6):** compositor de correo editable + PDF adjunto; enlace de descarga tokenizado.
+  *(RF-7.x)*
+
+### Refuerzos de seguridad clínica (sobre lo ya especificado)
+
+- El "examen normal" atestado por el médico **ya no rellena cifras de signos vitales** (TA/FC/SatO2)
+  ni peso/talla: exigen medición, quedan pendientes y bloquean la aprobación. *(CS2, CS3)*
+- No se traduce un procedimiento por coincidencia de letras ("lipoma" ≠ liposucción). *(CS2)*
+- No se afirma "Niega X" cuando el paciente dejó la pregunta en blanco. *(CS2)*
+- El flagging reconoce los nombres largos de los informes reales, para no dar por NORMAL sin evaluar.
+
+### Pendientes conocidos
+
+- Editor de cuestionarios propios (hoy sólo el preset base; el selector al crear caso ya existe).
+- Reconciliador de casos atascados si falla el `publish` a la cola (hoy se recupera a mano).
+- Decisión sobre la exportación opcional a Google Sheets (funciona, disparo manual; poco uso real).
+- Rotar la `ANTHROPIC_API_KEY` (hoy en claro en `.env`, no versionada).
+
+### Notas de dominio pendientes de validación del Dr. Luquetta
+
+- Los **umbrales de alerta de laboratorio** (Anexo B) siguen siendo ilustrativos.
+- El **umbral de vigencia** de un examen (hoy 3 meses) es un valor por defecto.

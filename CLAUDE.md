@@ -50,13 +50,31 @@ Detalle clínico completo: `docs/prompt-maestro-v2.md`. Regla resumida: `.claude
 
 ## Estrategia de IA (clave para avanzar sin la key)
 
-Toda llamada al LLM vive detrás de un **adaptador** (`lib/ai/`). Un flag decide entre:
+Toda llamada al LLM vive detrás de un **adaptador** (`lib/ai/`). `AI_PROVIDER` decide entre:
 - `stub`: devuelve un JSON de ejemplo (caso de referencia del Diseño Oficial). Permite construir y
   probar TODO el flujo aguas abajo (PDF, revisión, aprobación, distribución) sin key.
-- `anthropic`: llamada real vía Vercel AI SDK cuando exista `ANTHROPIC_API_KEY`.
+- `anthropic`: llamada real vía el SDK de Anthropic (`@anthropic-ai/sdk`) cuando exista
+  `ANTHROPIC_API_KEY`. (No es el Vercel AI SDK; la salida estructurada se fuerza con JSON Schema +
+  validación Zod en el borde.)
 
-**Solo dos funciones dependen de la key:** extracción de labs por visión y el motor clínico. El resto
-del sistema no toca el LLM. Cambiar de `stub` a `anthropic` debe ser **un solo punto de cambio**.
+**Solo dos funciones dependen de la key:** extracción de labs y el motor clínico. El resto del sistema
+no toca el LLM. Cambiar de `stub` a `anthropic` es **un solo punto de cambio** (`lib/ai/index.ts`).
+
+**Modelo por tarea** (no usar Opus para lo que Haiku resuelve):
+- Motor clínico → **Opus** (`claude-opus-4-8`). Es juicio médico —ASA, riesgo, plan— que el
+  anestesiólogo firma. Streaming + `stop_reason=max_tokens` chequeado (un documento truncado se
+  rechaza, no se parsea a medias).
+- Extracción de labs → **Haiku** (`claude-haiku-4-5`) sobre texto embebido; **Sonnet**
+  (`claude-sonnet-5`) como fallback de visión para escaneados.
+
+**Extracción de labs en cascada** (`LAB_EXTRACTION_MODE=capas|vision|comparativo`):
+1. `unpdf` lee el texto embebido del PDF (cero tokens) y lo valida por código.
+2. Si sirve → Haiku lo pasa a JSON estructurado (Zod).
+3. Si el PDF es escaneado/ilegible → escala automáticamente a visión (Sonnet), por archivo y con el
+   motivo registrado en audit log. Nunca es una decisión manual.
+`comparativo` corre ambos métodos, persiste sólo visión (el conocido) y registra el diff
+(`extraction.compared`) para decidir la migración con datos empíricos. Cada lab guarda su
+`extractionMethod`. Ahorro medido: ~80% vs visión pura, misma precisión.
 
 ## Estructura del proyecto
 
@@ -81,7 +99,8 @@ anestia/
 
 - **Angular:** standalone components, signals, control flow nativo (`@if`, `@for`); sin NgModules.
 - **Next.js:** API Routes en `app/api/**/route.ts`; lógica de negocio en `lib/`, no en los handlers.
-- **Zod:** los esquemas viven en `lib/schemas/` y se comparten entre API e IA.
+- **Zod:** los esquemas de dominio viven en `packages/shared/src/` y se comparten entre API,
+  frontend e IA (mismo esquema valida los tres bordes).
 - **Prisma:** migraciones versionadas; nada de SQL crudo salvo pgvector.
 - **Nombres y comentarios de dominio en español** (antecedentes, glosa, valoración, etc.).
 - **Sin contenedores.** PostgreSQL y servicios como instalación LTS local.
@@ -98,7 +117,31 @@ npm run worker           # arranca los workers de pg-boss (pipeline)
 
 ## Flujo (event-driven)
 
-`form.submitted` (el paciente envía) → cola pg-boss → `lab.extract` → `lab.flag` →
-`clinical.generate` (examen físico = pendiente) → `document.render` (borrador) →
-notificación al anestesiólogo → revisión/aprobación (HITL) → distribución.
-No hay polling: el disparador es el submit.
+`form.submitted` (el paciente envía) → cola pg-boss → extracción de labs (cascada) →
+`lab.flag` (flagging determinístico por código) → `clinical.generate` (examen físico = pendiente)
+→ `clinical.audit` (auditor independiente) → `document.render` (borrador) → notificación al
+anestesiólogo → revisión/aprobación (HITL) → distribución. No hay polling: el disparador es el submit.
+
+Cada etapa registra `pipeline.stage_failed` en el audit log si revienta (fail-closed pero no
+silencioso). **Pendiente:** un reconciliador que re-emita `form.submitted` para casos con formulario
+enviado y sin documento (hoy se recupera a mano).
+
+## Estado de implementación (al día)
+
+Piloto funcional de punta a punta con la key real. Lo construido en las últimas sesiones:
+
+- **Motor clínico real** (Opus) tras el adaptador; auditor clínico independiente antes del render.
+- **Extracción de labs en cascada** texto→visión con modo comparativo (ver *Estrategia de IA*).
+- **Documento:** paraclínicos agrupados por tipo de estudio con fecha del informe y aviso de
+  vigencia; pie de página por página; títulos en Sentence case.
+- **Revisión:** el médico ve los exámenes originales (visor de adjuntos) y la ficha completa del
+  paciente; labs agrupados con su fecha.
+- **Seguridad clínica reforzada:** el examen "normal" ya no ateste cifras de signos vitales que
+  nadie midió (quedan pendientes y bloquean la aprobación); no se traduce un procedimiento por
+  coincidencia de letras ("lipoma" ≠ liposucción); el flagging reconoce los nombres largos de los
+  informes reales; no se afirma "Niega X" cuando el paciente no respondió.
+- **Móvil:** formulario del paciente y panel del médico responsive; tablas del panel como tarjetas
+  en el celular (donde responde la mayoría de pacientes).
+
+**Pendientes conocidos:** editor de cuestionarios propios; reconciliador de casos atascados;
+decisión sobre la exportación a Google Sheets; rotar la key (hoy en claro en `.env`).

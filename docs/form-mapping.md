@@ -1,36 +1,46 @@
-# Form Mapping — 22 preguntas → Documento
+# Form Mapping — cuestionario base → Documento
 
-Cuestionario base (preset "Preanestésica general"). ⭐ = campo nuevo respecto de la plantilla previa.
-🫁 = relevancia directa para vía aérea/anestesia. Fuente exhaustiva: Anexo A del PRD.
+Cuestionario base (preset "Preanestésica general"), tal como está sembrado en `prisma/seed.ts`.
+**Los números (P#) son load-bearing:** el motor lee las respuestas por `order`, así que este mapping
+debe coincidir con el seed y con la constante `PREGUNTAS` de `lib/ai/anthropic.ts`. 🫁 = relevancia
+directa para vía aérea/anestesia. Fuente exhaustiva del dominio: Anexo A del PRD.
 
-| # | Pregunta | Campo documento | Tipo | Notas |
+26 preguntas; varias son condicionales (se muestran según una respuesta previa).
+
+| P# | Pregunta | Tipo | Campo documento | Notas |
 |---|---|---|---|---|
-| 1 | Nombre completo | Paciente | texto | obligatorio |
-| 2 | Nº de documento | Documento | texto | obligatorio |
-| 3 | Fecha de nacimiento | Edad | fecha→derivada | calcula edad |
-| 4 | Sexo | Sexo | selección | ajusta rangos de labs |
-| 5 | Peso (kg) | Peso/IMC | número | → IMC |
-| 6 | Estatura (cm) | Talla/IMC | número | convertir cm→m |
-| 7 | Teléfono | Contacto | texto | |
-| 8 | ⭐ Entidad aseguradora | Aseguradora/destinatario | texto | alimenta directorio |
-| 9 | Cirugía/procedimiento | Procedimiento | texto | |
-| 10 | Fecha de cirugía | Fecha procedimiento | fecha | prioriza por urgencia |
-| 11 | ⭐ Grupo sanguíneo | Grupo sanguíneo | selección | |
-| 12 | ¿Sufre alguna enfermedad? | Antecedentes patológicos | sí/no | gatilla P13 |
-| 13 | Patologías (checklist) | Antecedentes patológicos | multiselección | 🫁 apnea del sueño, HTP |
-| 14 | ¿Toma medicamentos? | Medicamentos | texto | detección GLP-1 |
-| 15 | ¿Alergias? | Alergias | texto | |
-| 16 | ¿Cirugías/anestesias previas? | Ant. quirúrgicos/anestésicos | texto | |
-| 17 | ⭐ ¿Transfusiones previas? | Ant. transfusionales | sí/no+detalle | |
-| 18 | ¿Sustancias psicoactivas? | Hábitos | sí/no | |
-| 19 | ¿Alcohol? | Hábitos | sí/no | |
-| 20 | ¿Fuma/vapea? | Hábitos | sí/no | gatilla P21 |
-| 21 | Cigarrillos/vapeo por día | Hábitos | número (condicional) | 🫁 |
-| 22 | ⭐🫁 ¿Prótesis dental / diseño de sonrisa? | Vía aérea | sí/no+detalle | relevante intubación |
-| — | Adjuntos | Paraclínicos | archivo | hemograma, coagulación, ECG, eco |
-| — | Examen físico/signos vitales | Examen físico | pendiente_examen | nunca inventar |
-| — | Diagnóstico·ASA·Concepto·Plan·Recomendaciones | Valoración y plan | IA (HITL) | derivado |
+| 1 | Nombre completo | texto | Paciente | obligatorio; Title-Case al guardar |
+| 2 | Número de documento | texto | Documento | obligatorio; sin puntos de miles |
+| 3 | Fecha de nacimiento | fecha | Edad (derivada) | calcula edad |
+| 4 | Sexo | selección | Edad/Sexo | Hombre/Mujer/Prefiero no decirlo; ajusta rangos de labs |
+| 5 | Peso (kg) | número | Peso/Talla/IMC | → IMC |
+| 6 | Estatura (cm) | número | Peso/Talla/IMC | cm→m |
+| 7 | Teléfono de contacto | texto | Contacto | |
+| 8 | Entidad aseguradora | selección | Aseguradora | Particular/Otra |
+| 9 | Cirugía o procedimiento | texto | Procedimiento | traducción coloquial→médico (por palabra) |
+| 10 | Fecha de cirugía | fecha | Fecha procedimiento | |
+| 11 | Grupo sanguíneo | selección | Grupo sanguíneo | |
+| 12 | ¿Sufre de alguna enfermedad? | sí/no | Antec. patológicos | gatilla P13 |
+| 13 | Patologías (checklist) | multiselección | Antec. patológicos | condicional (P12=sí); 🫁 apnea, HTP |
+| 14 | ¿Toma medicamentos actualmente? | sí/no | Medicamentos | gatilla P15 |
+| 15 | ¿Cuáles medicamentos? | texto | Medicamentos | condicional (P14=sí); **detección GLP-1** |
+| 16 | ¿Es alérgico a algún medicamento/sustancia? | sí/no | Alergias | gatilla P17 |
+| 17 | ¿A qué es alérgico? | texto | Alergias | condicional (P16=sí) |
+| 18 | ¿Cirugía/anestesia previa? | sí/no | Ant. quirúrgicos | gatilla P19 |
+| 19 | ¿Cuáles cirugías? | texto | Ant. quirúrgicos | condicional (P18=sí); traducción médica |
+| 20 | ¿Transfusión sanguínea previa? | sí/no | Ant. transfusionales | |
+| 21 | 🫁 ¿Prótesis dental / diseño de sonrisa? | sí/no | Vía aérea | relevante para intubación |
+| 22 | ¿Fuma o vapea? | sí/no | Hábitos | gatilla P23 |
+| 23 | 🫁 ¿Cuántos cigarrillos/vapeo al día? | texto | Hábitos | condicional (P22=sí) |
+| 24 | ¿Consume alcohol? | sí/no | Hábitos | |
+| 25 | ¿Consume sustancias psicoactivas? | sí/no | Hábitos | |
+| 26 | Correo electrónico | texto | Contacto/destinatario | |
+| — | Adjuntos (opcional) | archivo | Paraclínicos | extracción en cascada (texto→visión) |
+| — | Examen físico / signos vitales | — | Examen físico | `pendiente_examen`; nunca inventar (CS3) |
+| — | Diagnóstico·ASA·Concepto·Plan·Recomendaciones | — | Valoración y plan | IA derivado, confirma el médico (HITL) |
 
-Checklist de patologías (P13): HTA, diabetes mellitus, hipotiroidismo, hipertiroidismo, arritmia,
-infarto de miocardio, EPOC, asma, hipertensión pulmonar, apnea del sueño, litiasis renal, infección
-renal a repetición, insuficiencia renal, gastritis, migraña, enfermedades articulares, otra.
+**Negaciones (CS2):** para los sí/no, el documento sólo escribe "Niega X" si el paciente respondió
+**No** explícitamente. Si dejó la pregunta en blanco, el campo queda sin reportar — no se afirma una
+negación que el paciente no hizo.
+
+**GLP-1:** se detecta del detalle de medicamentos (P15), no del sí/no (P14).
