@@ -39,11 +39,22 @@ function badgeClass(status: string): string {
     }
 
     table { width:100%; border-collapse:collapse; }
-    /* overflow-x:auto en vez de hidden: en móvil la tabla es más ancha que la pantalla y se
-       cortaba en seco (columnas Estado/Alertas invisibles). Ahora scrollea dentro de su
-       tarjeta sin romper el ancho del body. min-width evita que las columnas se aplasten. */
-    .table-card { padding:0; overflow-x:auto; -webkit-overflow-scrolling:touch; }
-    .table-card table { min-width:520px; }
+    .table-card { padding:0; overflow:hidden; }
+    /* Escritorio muestra tabla, oculta las tarjetas; móvil al revés. Una tabla ancha no se
+       navega bien en el celular — el médico ve mejor una tarjeta por caso. */
+    .case-cards { display:none; }
+    @media (max-width:640px) {
+      .table-card table { display:none; }
+      .case-cards { display:flex; flex-direction:column; }
+      .case-card { padding:14px 16px; border-bottom:1px solid var(--border); display:flex; flex-direction:column; gap:8px; }
+      .case-card:last-child { border-bottom:none; }
+      .cc-top { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
+      .cc-pt { display:flex; flex-direction:column; min-width:0; flex:1; }
+      .cc-top .card-badge { flex-shrink:0; white-space:nowrap; }
+      .cc-proc { font-size:14px; color:var(--text); }
+      .cc-bottom { display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px; }
+      .case-cards .empty { padding:24px 16px; }
+    }
     thead th {
       text-align:left; padding:12px 18px; font-size:10px; font-weight:600;
       text-transform:uppercase; letter-spacing:0.07em; color:var(--muted);
@@ -90,6 +101,7 @@ function badgeClass(status: string): string {
         </div>
       </div>
 
+      <!-- Escritorio: tabla. Móvil: lista de tarjetas (misma data, ver .case-cards). -->
       <div class="card table-card">
         <table>
           <thead>
@@ -117,6 +129,32 @@ function badgeClass(status: string): string {
             }
           </tbody>
         </table>
+
+        <!-- Móvil: una tarjeta por caso, más cómoda que scrollear una tabla en el celular. -->
+        <div class="case-cards">
+          @for (c of data()?.cases ?? []; track c.id) {
+            <div class="case-card" data-testid="dashboard-case-card">
+              <div class="cc-top">
+                <div class="cc-pt">
+                  <span class="pt-name">{{ c.patient?.fullName ?? '—' }}</span>
+                  @if (c.patient?.documentId) { <span class="pt-doc">{{ c.patient.documentId }}</span> }
+                </div>
+                <span class="card-badge" [class]="'card-badge ' + badge(c.status)">{{ label(c.status) }}</span>
+              </div>
+              <div class="cc-proc">{{ c.procedure ?? 'Sin procedimiento' }}</div>
+              <div class="cc-bottom">
+                @if (c.alertas) { <span class="alerts">{{ c.alertas }} alerta{{ c.alertas === 1 ? '' : 's' }}</span> }
+                @else { <span class="muted">Sin alertas</span> }
+                @if (c.status==='PENDIENTE_REVISION' || c.status==='APROBADO' || c.status==='ENTREGADO') {
+                  <a class="rev-link" [routerLink]="['/cases', c.id, 'review']">Revisar →</a>
+                }
+              </div>
+            </div>
+          }
+          @if (!(data()?.cases ?? []).length) {
+            <div class="empty">Aún no hay casos. Crea uno desde “Nuevo caso”.</div>
+          }
+        </div>
         <!-- Los enlaces que el paciente aún no respondió no son casos: se cuentan aparte
              en vez de llenar la tabla de filas en blanco. -->
         @if (data()?.indicadores?.enlacesPendientes) {
