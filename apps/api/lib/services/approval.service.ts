@@ -4,18 +4,60 @@ import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
 import { logAudit } from '../audit';
 import { brandingDataUri } from '../pdf/branding';
+import { filenameFromKey, isViewableInline, mimeFor } from '../mime';
 import { auditForCase } from './audit-clinical.service';
 import {
   canApprove,
   applyExamNormal,
   applyEdit,
   buildDocumentHtml,
+  buildFooterTemplate,
+  groupLabsToProse,
+  formatReportDate,
+  normalizeGrupo,
   type Branding,
   type DocumentJSON,
   type AuditReport,
 } from '@anestia/shared';
 
-/** Carga los datos de revisión: assessment + respuestas fuente + labs (con sourceRef). */
+/** Edad en años a partir de la fecha de nacimiento. Null si no hay fecha o es absurda. */
+function edadDesde(birthDate: Date | null, hoy: Date): number | null {
+  if (!birthDate) return null;
+  let edad = hoy.getFullYear() - birthDate.getFullYear();
+  const m = hoy.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && hoy.getDate() < birthDate.getDate())) edad--;
+  return edad >= 0 && edad < 130 ? edad : null;
+}
+
+/**
+ * Ficha del paciente para la pantalla de revisión. Devuelve lo que el paciente reportó
+ * (contacto, aseguradora, grupo sanguíneo) además del nombre: el médico necesita poder
+ * llamarlo o comprobar su aseguradora sin salir del caso.
+ */
+function patientSummary(p: {
+  fullName: string;
+  documentId: string;
+  birthDate: Date | null;
+  sex: string | null;
+  phone: string | null;
+  email: string | null;
+  insurer: string | null;
+  bloodType: string | null;
+}) {
+  return {
+    fullName: p.fullName,
+    documentId: p.documentId,
+    birthDate: p.birthDate ? p.birthDate.toISOString().slice(0, 10) : null,
+    edad: edadDesde(p.birthDate, new Date()),
+    sex: p.sex,
+    phone: p.phone,
+    email: p.email,
+    insurer: p.insurer,
+    bloodType: p.bloodType,
+  };
+}
+
+/** Carga los datos de revisión: assessment + respuestas fuente + labs + adjuntos originales. */
 export async function getReview(caseId: string, anesthesiologistId: string) {
   const kase = await prisma.case.findFirst({
     where: { id: caseId, anesthesiologistId },
@@ -23,8 +65,9 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
       assessment: true,
       formResponse: true,
       labResults: true,
+      attachments: true,
       approval: true,
-      patient: { select: { fullName: true, email: true } },
+      patient: true,
     },
   });
   if (!kase) return null;
@@ -34,9 +77,49 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
     status: kase.status,
     fields,
     answers: kase.formResponse?.answers ?? {},
-    labs: kase.labResults.map((l) => ({ analyte: l.analyte, value: l.value, unit: l.unit, flag: l.flag, sourceRef: l.sourceRef })),
+    labs: kase.labResults.map((l) => ({
+      analyte: l.analyte,
+      value: l.value,
+      unit: l.unit,
+      grupo: l.grupo,
+      reportDate: l.reportDate ? l.reportDate.toISOString().slice(0, 10) : null,
+      flag: l.flag,
+      sourceRef: l.sourceRef,
+    })),
+    // Agrupado por estudio con fecha y vigencia ya resueltas: la regla de antigüedad vive
+    // en shared (un solo sitio), no duplicada en el cliente.
+    labGroups: groupLabsToProse(
+      kase.labResults.map((l) => ({
+        analyte: l.analyte,
+        value: l.value,
+        unit: l.unit,
+        grupo: l.grupo,
+        reportDate: l.reportDate ? l.reportDate.toISOString().slice(0, 10) : null,
+        flag: l.flag,
+        sourceRef: l.sourceRef ?? undefined,
+      })),
+      new Date().toISOString().slice(0, 10),
+    ).map((g) => ({
+      grupo: g.grupo,
+      label: g.label,
+      fecha: g.fecha ? formatReportDate(g.fecha) : null,
+      desactualizado: g.desactualizado,
+      labs: kase.labResults
+        .filter((l) => normalizeGrupo(l.grupo) === g.grupo)
+        .map((l) => ({ analyte: l.analyte, value: l.value, unit: l.unit, flag: l.flag })),
+    })),
+    // Archivos originales del paciente: el médico debe poder leer el examen, no sólo lo
+    // que la IA extrajo de él. La URL apunta a /api/download (exige sesión y propiedad).
+    attachments: kase.attachments.map((a) => ({
+      id: a.id,
+      type: a.type,
+      filename: filenameFromKey(a.url),
+      url: `/api/download/${encodeURIComponent(a.url)}`,
+      viewable: isViewableInline(mimeFor(filenameFromKey(a.url))),
+      uploadedAt: a.createdAt.toISOString(),
+    })),
     approved: Boolean(kase.approval),
-    patient: kase.patient ? { fullName: kase.patient.fullName, email: kase.patient.email } : null,
+    patient: kase.patient ? patientSummary(kase.patient) : null,
     // Reporte del auditor independiente (hallazgos para el anestesiólogo).
     audit: kase.assessment?.auditReport ?? null,
     canApprove: fields ? canApprove(fields) : { ok: false, blockers: ['No hay borrador generado.'] },
@@ -137,8 +220,9 @@ export async function approve(caseId: string, anesthesiologistId: string): Promi
     footer: a.footerText ?? 'Documento aprobado y firmado electrónicamente por el anestesiólogo tratante',
   };
   // PDF final: sin marca de agua (draft:false).
-  const html = buildDocumentHtml(fields, branding, { draft: false, fechaValoracion: new Date().toLocaleDateString('es-CO') });
-  const pdf = await renderPdf(html);
+  const opts = { draft: false, fechaValoracion: new Date().toLocaleDateString('es-CO') };
+  const html = buildDocumentHtml(fields, branding, opts);
+  const pdf = await renderPdf(html, buildFooterTemplate(branding, opts));
   const { key } = await getStorageProvider().put(pdf, { caseId, type: 'FINAL_PDF', filename: 'valoracion-final.pdf' });
 
   const snapshot = JSON.stringify(fields);
@@ -159,8 +243,19 @@ export async function approve(caseId: string, anesthesiologistId: string): Promi
 export async function reject(caseId: string, anesthesiologistId: string, reason: string): Promise<void> {
   const kase = await prisma.case.findFirst({ where: { id: caseId, anesthesiologistId }, include: { approval: true } });
   if (!kase || kase.approval) return;
-  await prisma.case.update({ where: { id: caseId }, data: { status: 'RESPONDIENDO' } });
-  await prisma.formResponse.updateMany({ where: { caseId }, data: { partial: true, submittedAt: null } });
+
+  // Se borran los artefactos derivados, no sólo el estado. El pipeline es idempotente por
+  // existencia de salida (extractForCase sale si ya hay labs; generateForCase, si ya hay
+  // assessment): si no se borran, el reenvío del paciente NO regenera nada y el médico
+  // recibe otra vez el documento que acaba de rechazar, sin ningún aviso.
+  // Los adjuntos se conservan: el paciente puede añadir exámenes, no re-subir los válidos.
+  await prisma.$transaction([
+    prisma.generatedAssessment.deleteMany({ where: { caseId } }),
+    prisma.extractedLabResult.deleteMany({ where: { caseId } }),
+    prisma.case.update({ where: { id: caseId }, data: { status: 'RESPONDIENDO' } }),
+    prisma.formResponse.updateMany({ where: { caseId }, data: { partial: true, submittedAt: null } }),
+  ]);
+
   await logAudit({ action: 'assessment.rejected', entity: 'Case', entityId: caseId, meta: { reason } });
 }
 

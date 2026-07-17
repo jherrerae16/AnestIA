@@ -22,6 +22,10 @@ import { ApiService } from '../core/api.service';
     .patient-name { font-weight: 600; }
     .doc { font-family: var(--font-mono); font-size: 12px; color: var(--muted2); }
     .detail-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+    .pt-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:1px; background:var(--border, #e6edee); border:1px solid var(--border, #e6edee); border-radius:6px; margin-bottom:18px; }
+    .pt-cell { background:var(--surface, #fff); padding:8px 11px; min-width:0; }
+    .pt-k { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); font-weight:600; margin-bottom:2px; }
+    .pt-v { display:block; font-size:13px; overflow-wrap:anywhere; }
     .case-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
     .case-row:last-child { border-bottom: none; }
     .case-proc { font-size: 13px; color: var(--text); flex: 1; }
@@ -48,6 +52,9 @@ import { ApiService } from '../core/api.service';
               <tr>
                 <th>Paciente</th>
                 <th>Documento</th>
+                <th>Edad / Sexo</th>
+                <th>Teléfono</th>
+                <th>Aseguradora</th>
               </tr>
             </thead>
             <tbody>
@@ -55,15 +62,34 @@ import { ApiService } from '../core/api.service';
                 <tr (click)="open(p.id)">
                   <td class="patient-name">{{ p.fullName }}</td>
                   <td class="doc">{{ p.documentId }}</td>
+                  <td>{{ edadSexo(p) }}</td>
+                  <td class="doc">{{ p.phone || '—' }}</td>
+                  <td>{{ p.insurer || '—' }}</td>
                 </tr>
               }
             </tbody>
           </table>
         }
 
-        @if (selected()) {
+        @if (selected(); as p) {
+          <div class="section-label">Ficha del paciente</div>
+          <div class="detail-title">{{ p.fullName }}</div>
+          <div class="pt-grid" data-testid="patient-detail">
+            <div class="pt-cell"><span class="pt-k">Documento</span><span class="pt-v">{{ p.documentId || '—' }}</span></div>
+            <div class="pt-cell"><span class="pt-k">Edad / Sexo</span><span class="pt-v">{{ edadSexo(p) }}</span></div>
+            <div class="pt-cell"><span class="pt-k">Grupo sanguíneo</span><span class="pt-v">{{ p.bloodType || '—' }}</span></div>
+            <div class="pt-cell">
+              <span class="pt-k">Teléfono</span>
+              <span class="pt-v">@if (p.phone) { <a [href]="'tel:' + p.phone">{{ p.phone }}</a> } @else { — }</span>
+            </div>
+            <div class="pt-cell">
+              <span class="pt-k">Correo</span>
+              <span class="pt-v">@if (p.email) { <a [href]="'mailto:' + p.email">{{ p.email }}</a> } @else { — }</span>
+            </div>
+            <div class="pt-cell"><span class="pt-k">Aseguradora</span><span class="pt-v">{{ p.insurer || '—' }}</span></div>
+          </div>
+
           <div class="section-label">Valoraciones</div>
-          <div class="detail-title">{{ selected().fullName }}</div>
           @for (c of selected().cases ?? []; track c.id) {
             <div class="case-row">
               <span class="case-proc">{{ c.procedure ?? 'Sin procedimiento' }}</span>
@@ -88,4 +114,29 @@ export class PatientHistoryPage {
     this.results.set((await this.api.searchPatients(this.q)).patients);
   }
   async open(id: string) { this.selected.set((await this.api.getPatient(id)).patient); }
+
+  /** "54 años / Masculino". Omite lo que el paciente no reportó — nunca lo rellena (CS2). */
+  edadSexo(p: { birthDate?: string | null; sex?: string | null }): string {
+    const partes: string[] = [];
+    const edad = this.edadDe(p.birthDate);
+    if (edad != null) partes.push(`${edad} años`);
+    if (p.sex) partes.push(this.sexoLabel(p.sex));
+    return partes.length ? partes.join(' / ') : '—';
+  }
+
+  private edadDe(birthDate?: string | null): number | null {
+    if (!birthDate) return null;
+    const d = new Date(birthDate);
+    if (isNaN(d.getTime())) return null;
+    const hoy = new Date();
+    let edad = hoy.getFullYear() - d.getFullYear();
+    const m = hoy.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && hoy.getDate() < d.getDate())) edad--;
+    return edad >= 0 && edad < 130 ? edad : null;
+  }
+
+  private sexoLabel(sex: string): string {
+    const s = sex.toUpperCase();
+    return s === 'MASCULINO' ? 'Masculino' : s === 'FEMENINO' ? 'Femenino' : sex;
+  }
 }
