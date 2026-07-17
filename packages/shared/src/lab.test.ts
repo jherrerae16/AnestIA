@@ -46,6 +46,29 @@ describe('canonicalAnalyte / parseNumeric', () => {
     expect(canonicalAnalyte('Hgb')).toBe('Hemoglobina');
     expect(canonicalAnalyte('desconocido')).toBeNull();
   });
+  // Nombres tal como los devuelve la extracción del informe real del piloto. Con igualdad
+  // exacta no se reconocían y flagLab los daba por NORMAL sin evaluarlos (CS1).
+  it('reconoce los nombres largos de los informes reales', () => {
+    expect(canonicalAnalyte('CREATININA EN SUERO (SERICA)')).toBe('Creatinina');
+    expect(canonicalAnalyte('RECUENTO TOTAL DE PLAQUETAS')).toBe('Plaquetas');
+    expect(canonicalAnalyte('RECUENTO DE LEUCOCITOS')).toBe('Leucocitos');
+    expect(canonicalAnalyte('GLICEMIA')).toBe('Glucemia');
+  });
+
+  it('no confunde analitos que comparten palabra', () => {
+    expect(canonicalAnalyte('CREATININA ORINA')).toBeNull(); // no es la creatinina sérica
+    expect(canonicalAnalyte('RELACION ALBUMINA / CREATININA')).toBeNull(); // cociente urinario
+    expect(canonicalAnalyte('Leucocitos (sedimento)')).toBeNull(); // uroanálisis, no hemograma
+    expect(canonicalAnalyte('LEUCOCITOS/ESTEARASA')).toBeNull();
+    expect(canonicalAnalyte('HEMOGLOBINA CORPUSCULAR MEDIA (MCH)')).toBeNull();
+  });
+
+  it('un valor alterado con nombre largo SÍ dispara la alerta', () => {
+    expect(flagLab('RECUENTO TOTAL DE PLAQUETAS', '85', null)).toBe('CRITICO');
+    expect(flagLab('CREATININA EN SUERO (SERICA)', '2.4', null)).toBe('ALERTA');
+    expect(flagLab('GLICEMIA', '310', null)).toBe('CRITICO');
+  });
+
   it('parseNumeric tolera unidades y miles', () => {
     expect(parseNumeric('15.9 g/dL')).toBe(15.9);
     expect(parseNumeric('244.000')).toBe(244000);
