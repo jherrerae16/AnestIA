@@ -12,10 +12,18 @@ import { ApiService } from '../core/api.service';
     .page-sub { font-size: 13px; color: var(--muted); margin-bottom: 20px; }
     .search-box { margin-bottom: 20px; }
     .search-box .ki-input { max-width: 340px; }
-    /* 5 columnas no caben en móvil: scroll dentro del contenedor, no en el body. */
-    .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    .table-scroll .results-table { min-width: 560px; }
     .results-table { width: 100%; border-collapse: collapse; }
+    /* Escritorio muestra la tabla; móvil, tarjetas. 5 columnas no se navegan en el celular. */
+    .pt-cards { display: none; }
+    @media (max-width: 640px) {
+      .results-table { display: none; }
+      .pt-cards { display: flex; flex-direction: column; }
+      .pt-card { padding: 13px 14px; border-bottom: 1px solid var(--border); cursor: pointer; display: flex; flex-direction: column; gap: 5px; }
+      .pt-card:last-child { border-bottom: none; }
+      .pt-card:active { background: var(--it-50); }
+      .ptc-name { font-weight: 600; color: var(--text); font-size: 14px; }
+      .ptc-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
+    }
     .results-table thead th { background: var(--bg3); font-size: 10px; font-weight: 600; text-transform: uppercase;
       letter-spacing: 0.07em; color: var(--muted); text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--border); }
     .results-table tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text); }
@@ -50,7 +58,7 @@ import { ApiService } from '../core/api.service';
         </div>
 
         @if (results().length) {
-          <div class="table-scroll">
+          <!-- Escritorio: tabla. Móvil: tarjetas (misma data, ver .pt-cards). -->
           <table class="results-table">
             <thead>
               <tr>
@@ -73,6 +81,22 @@ import { ApiService } from '../core/api.service';
               }
             </tbody>
           </table>
+
+          <!-- Móvil: una tarjeta por paciente. -->
+          <div class="pt-cards">
+            @for (p of results(); track p.id) {
+              <div class="pt-card" (click)="open(p.id)">
+                <div class="ptc-name">{{ p.fullName }}</div>
+                <div class="ptc-meta">
+                  <span>{{ p.documentId }}</span>
+                  <span>{{ edadSexo(p) }}</span>
+                </div>
+                <div class="ptc-meta">
+                  @if (p.phone) { <span>{{ p.phone }}</span> }
+                  @if (p.insurer) { <span>{{ p.insurer }}</span> }
+                </div>
+              </div>
+            }
           </div>
         }
 
