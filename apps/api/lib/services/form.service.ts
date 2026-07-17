@@ -7,6 +7,7 @@ import {
   formAnswersSchema,
   validateAnswers,
   questionSchema,
+  medicalTerm,
   type FormAnswers,
   type QuestionDef,
 } from '@anestia/shared';
@@ -50,6 +51,41 @@ export async function savePartial(caseId: string, rawAnswers: unknown): Promise<
     create: { caseId, answers: answers as never, partial: true },
   });
   await prisma.case.update({ where: { id: caseId }, data: { status: 'RESPONDIENDO' } });
+}
+
+/** Primer valor de una respuesta como texto plano, o null si no hay. */
+function answerText(answers: FormAnswers, order: string): string | null {
+  const v = answers[order]?.value;
+  if (v == null || v === '') return null;
+  const s = Array.isArray(v) ? v.join(', ') : String(v);
+  return s.trim() === '' ? null : s;
+}
+
+/**
+ * Procedimiento y fecha del caso desde el formulario (P9 y P10). El panel los lee de
+ * `Case`, no del documento, así que sin esto las columnas salen vacías.
+ * Sólo se rellenan si están vacíos: lo que escribió el anestesiólogo al crear el caso manda.
+ */
+function procedureFromAnswers(
+  answers: FormAnswers,
+  kase: { procedure: string | null; procedureDate: Date | null },
+): { procedure?: string; procedureDate?: Date } {
+  const out: { procedure?: string; procedureDate?: Date } = {};
+
+  if (!kase.procedure) {
+    // Mismo término médico que usa el documento ('lipo' → 'Liposucción'), para que el
+    // panel y el PDF no muestren textos distintos del mismo procedimiento.
+    const p = medicalTerm(answerText(answers, '9'));
+    if (p) out.procedure = p;
+  }
+
+  if (!kase.procedureDate) {
+    const raw = answerText(answers, '10');
+    const d = raw ? new Date(raw) : null;
+    if (d && !isNaN(d.getTime())) out.procedureDate = d;
+  }
+
+  return out;
 }
 
 /**
@@ -103,18 +139,26 @@ export async function submitForm(caseId: string, rawAnswers: unknown): Promise<{
     const patientId = await upsertFromForm(anesthesiologistId, answers, tx);
     await tx.case.update({
       where: { id: caseId },
-      data: { status: 'RESPUESTAS_RECIBIDAS', ...(patientId ? { patientId } : {}) },
+      data: {
+        status: 'RESPUESTAS_RECIBIDAS',
+        ...(patientId ? { patientId } : {}),
+        ...procedureFromAnswers(answers, kase),
+      },
     });
   });
 
   await logAudit({ action: 'form.submitted', entity: 'Case', entityId: caseId });
 
-  // Emitir el evento del pipeline DESPUÉS del commit. Si falla el publish, el caso quedó
-  // en RESPUESTAS_RECIBIDAS con datos completos: reconcilePendingSubmissions() lo re-emite.
+  // Emitir el evento del pipeline DESPUÉS del commit.
+  //
+  // PENDIENTE (riesgo conocido): si el publish falla, el caso queda en RESPUESTAS_RECIBIDAS
+  // con datos completos pero el pipeline nunca arranca, y `submittedAt` impide que un
+  // reenvío del paciente lo re-emita. Hoy sólo se recupera re-publicando a mano. Falta un
+  // reconciliador que, al arrancar el worker, busque los casos con formResponse.submittedAt
+  // y sin assessment, y les re-emita `form.submitted`.
   try {
     await publish('form.submitted', { caseId });
   } catch (err) {
-    // No perdemos el envío: el reconciliador (worker) reintentará. Log fuerte, no silencioso.
     await logAudit({
       action: 'form.submitted.publish_failed',
       entity: 'Case',

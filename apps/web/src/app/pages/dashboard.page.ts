@@ -25,6 +25,7 @@ function badgeClass(status: string): string {
   standalone: true,
   imports: [RouterLink],
   styles: [`
+    .pending-links { font-size:12px; color:var(--muted); padding:10px 14px; border-top:1px solid var(--border, #e6edee); }
     .head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:6px; gap:16px; flex-wrap:wrap; }
     .head h2 { font-size:22px; }
     .head p { font-size:13px; color:var(--muted); margin-top:2px; }
@@ -107,6 +108,15 @@ function badgeClass(status: string): string {
             }
           </tbody>
         </table>
+        <!-- Los enlaces que el paciente aún no respondió no son casos: se cuentan aparte
+             en vez de llenar la tabla de filas en blanco. -->
+        @if (data()?.indicadores?.enlacesPendientes) {
+          <p class="pending-links" data-testid="pending-links">
+            {{ data().indicadores.enlacesPendientes }}
+            {{ data().indicadores.enlacesPendientes === 1 ? 'enlace enviado sigue' : 'enlaces enviados siguen' }}
+            sin responder. Aparecerán aquí cuando el paciente complete el formulario.
+          </p>
+        }
       </div>
     </div>
   `,
