@@ -3,7 +3,7 @@ import { prisma } from '../prisma';
 import { getAIProvider, type FileRef } from '../ai';
 import { logAudit } from '../audit';
 import { logger } from '../logger';
-import { flagLab, detectGLP1, type FormAnswers } from '@anestia/shared';
+import { flagLab, detectGLP1, normalizeGrupo, type FormAnswers } from '@anestia/shared';
 
 /**
  * Borde de validación de la extracción (CS2/CS6). Un lab sin `sourceRef` no es
@@ -14,13 +14,137 @@ const extractedLabSchema = z.object({
   value: z.string().min(1),
   unit: z.string().nullish(),
   refRange: z.string().nullish(),
+  // Tipo de estudio leído del informe. Ausente → el render lo agrupa en "otros".
+  grupo: z.string().nullish(),
+  reportDate: z.string().nullish(),
   sourceRef: z.string().min(1),
+  // Lo pone el adaptador (no el modelo): la capa que produjo este lab.
+  extractionLayer: z.enum(['texto', 'vision']).nullish(),
 });
 
 /**
- * lab.extract: extrae valores de los adjuntos del caso (AIProvider) y persiste
+ * Fecha del informe → Date, o null. Sólo acepta AAAA-MM-DD real y descarta lo absurdo
+ * (futuro, o anterior a 1900): una fecha inventada es peor que ninguna — el médico
+ * la usa para decidir si el examen sigue vigente (CS2).
+ */
+function parseReportDate(raw: string | null | undefined, now: Date): Date | null {
+  const s = (raw ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00Z`);
+  if (isNaN(d.getTime())) return null;
+  if (d.getTime() > now.getTime() || d.getUTCFullYear() < 1900) return null;
+  return d;
+}
+
+/** Normaliza el nombre del analito para comparar entre métodos (mayúsculas, espacios). */
+function normAnalyte(s: string): string {
+  return s.trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+/** Primer número de un valor, o null. Para comparar valores tolerando texto/unidad. */
+function numOf(v: string | null | undefined): number | null {
+  const m = String(v ?? '').match(/-?\d+(?:[.,]\d+)?/);
+  return m ? parseFloat(m[0].replace(',', '.')) : null;
+}
+
+/**
+ * Compara dos extracciones del mismo caso y clasifica las diferencias para el audit log.
+ *
+ * Distingue lo que decide tu condición de salida:
+ *  - DISCREPANCIA (clínica): mismo analito con valor numérico distinto, o analito presente en
+ *    un método y ausente en el otro. Es lo que cuenta para el umbral del 1%.
+ *  - solo ETIQUETA: el analito coincide en valor pero difiere el nombre (p. ej. "CRISTALES" vs
+ *    "CRISTALES DE OXALATO"). No es discrepancia clínica; se registra aparte.
+ *
+ * `base` = método de referencia (visión); `alt` = el candidato (capas).
+ */
+export function diffExtractions(
+  base: { analyte: string; value: string | null }[],
+  alt: { analyte: string; value: string | null }[],
+): {
+  discrepancia: boolean;
+  soloEnVision: string[];
+  soloEnCapas: string[];
+  valorDistinto: { analyte: string; vision: string | null; capas: string | null }[];
+  coincidentes: number;
+} {
+  const mapBase = new Map(base.map((l) => [normAnalyte(l.analyte), l]));
+  const mapAlt = new Map(alt.map((l) => [normAnalyte(l.analyte), l]));
+
+  const soloEnVision = [...mapBase.keys()].filter((k) => !mapAlt.has(k));
+  const soloEnCapas = [...mapAlt.keys()].filter((k) => !mapBase.has(k));
+
+  const valorDistinto: { analyte: string; vision: string | null; capas: string | null }[] = [];
+  let coincidentes = 0;
+  for (const [k, b] of mapBase) {
+    const a = mapAlt.get(k);
+    if (!a) continue;
+    const nb = numOf(b.value);
+    const na = numOf(a.value);
+    const igual = nb !== null && na !== null ? Math.abs(nb - na) < 0.001 : String(b.value).trim() === String(a.value).trim();
+    if (igual) coincidentes++;
+    else valorDistinto.push({ analyte: k, vision: b.value, capas: a.value });
+  }
+
+  const discrepancia = soloEnVision.length > 0 || soloEnCapas.length > 0 || valorDistinto.length > 0;
+  return { discrepancia, soloEnVision, soloEnCapas, valorDistinto, coincidentes };
+}
+
+/** Modo de extracción de labs (env LAB_EXTRACTION_MODE). */
+type LabExtractionMode = 'capas' | 'vision' | 'comparativo';
+
+function extractionMode(): LabExtractionMode {
+  const v = (process.env.LAB_EXTRACTION_MODE ?? 'capas').toLowerCase();
+  return v === 'vision' || v === 'comparativo' ? v : 'capas';
+}
+
+/**
+ * Persiste un lab candidato; descarta lo no trazable (CS2/CS6). Devuelve 1 si persistió.
+ * `forceMethod` fija el método (modo comparativo persiste todo como 'vision'); si no, se toma
+ * la capa que produjo cada lab (`extractionLayer`), así el método queda fiel por analito.
+ */
+async function persistLab(
+  caseId: string,
+  candidate: unknown,
+  now: Date,
+  forceMethod?: 'texto' | 'vision',
+): Promise<number> {
+  const parsed = extractedLabSchema.safeParse(candidate);
+  if (!parsed.success) {
+    logger.warn({ caseId, analyte: (candidate as { analyte?: string })?.analyte }, 'lab_extract_discarded_untraceable');
+    return 0;
+  }
+  const lab = parsed.data;
+  const method = forceMethod ?? lab.extractionLayer ?? 'vision';
+  await prisma.extractedLabResult.create({
+    data: {
+      caseId,
+      analyte: lab.analyte,
+      value: lab.value,
+      unit: lab.unit ?? null,
+      refRange: lab.refRange ?? null,
+      grupo: normalizeGrupo(lab.grupo),
+      reportDate: parseReportDate(lab.reportDate, now),
+      sourceRef: lab.sourceRef,
+      extractionMethod: method,
+      flag: 'NORMAL',
+    },
+  });
+  return 1;
+}
+
+/**
+ * lab.extract: extrae los labs de los adjuntos del caso (AIProvider) y persiste
  * ExtractedLabResult con sourceRef. Idempotente. NUNCA fabrica valores ausentes (CS2).
- * También detecta GLP-1 declarado (P14) y lo registra en audit.
+ *
+ * Modo (LAB_EXTRACTION_MODE):
+ *  - 'capas' (por defecto): cascada texto → visión de fallback. Persiste ese resultado.
+ *  - 'vision': fuerza visión. Persiste ese resultado.
+ *  - 'comparativo': corre AMBOS métodos, persiste SÓLO el de visión (el conocido) y registra
+ *    en audit el diff — cuántas discrepancias clínicas y en qué analitos — para decidir la
+ *    migración con datos. Nunca persiste los dos: duplicaría los labs del documento.
+ *
+ * También detecta GLP-1 declarado (P15) y lo registra en audit.
  */
 export async function extractForCase(caseId: string): Promise<void> {
   const existing = await prisma.extractedLabResult.count({ where: { caseId } });
@@ -28,38 +152,58 @@ export async function extractForCase(caseId: string): Promise<void> {
 
   const attachments = await prisma.attachment.findMany({ where: { caseId } });
   const files: FileRef[] = attachments.map((a) => ({ key: a.url, type: a.type, filename: a.url }));
+  const provider = getAIProvider();
+  const mode = extractionMode();
+  const now = new Date();
 
-  const raw = await getAIProvider().extractLabs(files);
+  if (mode === 'comparativo') {
+    // Corre ambos; persiste visión; audita el diff. Si una capa falla, se registra pero no
+    // se cae el pipeline: el método a persistir (visión) manda.
+    const [capasRes, visionRes] = await Promise.all([
+      provider.extractLabs(files, 'capas').catch((e) => ({ error: e instanceof Error ? e.message : String(e) })),
+      provider.extractLabs(files, 'vision'),
+    ]);
 
-  // CS2/CS6: sólo se persiste lo trazable. Un lab sin sourceRef se descarta y se registra.
-  for (const candidate of raw) {
-    const parsed = extractedLabSchema.safeParse(candidate);
-    if (!parsed.success) {
-      logger.warn(
-        { caseId, analyte: (candidate as { analyte?: string })?.analyte },
-        'lab_extract_discarded_untraceable',
-      );
-      continue;
-    }
-    const lab = parsed.data;
-    await prisma.extractedLabResult.create({
-      data: {
-        caseId,
-        analyte: lab.analyte,
-        value: lab.value,
-        unit: lab.unit ?? null,
-        refRange: lab.refRange ?? null,
-        sourceRef: lab.sourceRef,
-        flag: 'NORMAL',
+    let persisted = 0;
+    for (const c of visionRes.labs) persisted += await persistLab(caseId, c, now, 'vision');
+
+    const diff =
+      'error' in capasRes
+        ? { error: (capasRes as { error: string }).error }
+        : diffExtractions(visionRes.labs, capasRes.labs);
+    await logAudit({
+      action: 'extraction.compared',
+      entity: 'Case',
+      entityId: caseId,
+      meta: {
+        vision: { labs: visionRes.labs.length, perFile: visionRes.perFile },
+        capas: 'error' in capasRes ? { error: (capasRes as { error: string }).error } : { labs: capasRes.labs.length, perFile: capasRes.perFile },
+        discrepancia: 'discrepancia' in diff ? diff.discrepancia : false,
+        ...diff,
       },
+    });
+    logger.info({ caseId, mode, persisted, discrepancia: 'discrepancia' in diff ? diff.discrepancia : 'error' }, 'lab_extract_compared');
+  } else {
+    // 'capas' o 'vision'. Cada lab ya trae su capa de origen (extractionLayer), así que el
+    // método persistido es fiel por analito, no una aproximación del caso.
+    const res = await provider.extractLabs(files, mode);
+    let persisted = 0;
+    for (const c of res.labs) persisted += await persistLab(caseId, c, now);
+    await logAudit({
+      action: 'extraction.done',
+      entity: 'Case',
+      entityId: caseId,
+      meta: { mode, persisted, perFile: res.perFile },
     });
   }
 
-  // Detección GLP-1 desde la respuesta P14.
+  // GLP-1: se detecta del DETALLE de medicamentos (P15 "¿cuáles?"), no de P14, que es el
+  // sí/no. Leyendo P14 el detector recibía la cadena "si" y no encontraba un fármaco nunca:
+  // la alerta de vaciamiento gástrico jamás llegaba al audit log (CS8).
   const fr = await prisma.formResponse.findUnique({ where: { caseId } });
   const answers = (fr?.answers as FormAnswers) ?? {};
-  const p14 = answers['14']?.value;
-  const glp1 = detectGLP1(typeof p14 === 'string' ? p14 : Array.isArray(p14) ? p14.join(' ') : '');
+  const p15 = answers['15']?.value;
+  const glp1 = detectGLP1(typeof p15 === 'string' ? p15 : Array.isArray(p15) ? p15.join(' ') : '');
   if (glp1.declared) {
     await logAudit({ action: 'glp1.detected', entity: 'Case', entityId: caseId, meta: { drug: glp1.drug } });
   }

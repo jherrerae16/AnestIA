@@ -2,10 +2,19 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { documentSchema, type DocumentJSON } from '@anestia/shared';
+import { documentSchema, LAB_GRUPOS, type DocumentJSON } from '@anestia/shared';
 import { logger } from '../logger';
+import { mimeFor } from '../mime';
+import { readPdfText } from './pdf-text';
 import { getStorageProvider } from '../storage';
-import type { AIProvider, ClinicalInput, ExtractedLab, FileRef } from './index';
+import type {
+  AIProvider,
+  ClinicalInput,
+  ExtractedLab,
+  ExtractionMethod,
+  ExtractLabsResult,
+  FileRef,
+} from './index';
 
 /**
  * Proveedor Anthropic (Claude) — el único punto donde el sistema depende de la key.
@@ -17,7 +26,27 @@ import type { AIProvider, ClinicalInput, ExtractedLab, FileRef } from './index';
  *  - CS5/CS6: salida estructurada + validación Zod en el borde. Lo malformado se rechaza.
  */
 
-const MODEL = 'claude-opus-4-8';
+/**
+ * Motor clínico: Opus. Es juicio médico (ASA, riesgo, plan) y lo firma el anestesiólogo.
+ * Extracción de labs: Sonnet. Leer "15.9 g/dL" de una tabla es visión, no razonamiento —
+ * y es la llamada cara (los PDFs pesan miles de tokens de imagen) y la que más se repite.
+ */
+const CLINICAL_MODEL_ID = 'claude-opus-4-8';
+// Extracción por texto (Capa 3): Haiku basta para leer una tabla ya en texto plano, y es la
+// palanca de ahorro real. La visión (Capa 4, fallback) usa un modelo con mejor lectura de
+// imagen para los escaneados; Sonnet lee tablas de imagen de sobra.
+const TEXT_EXTRACTION_MODEL_ID = 'claude-haiku-4-5';
+const VISION_EXTRACTION_MODEL_ID = 'claude-sonnet-5';
+
+/**
+ * Techo de salida de la extracción. Un perfil completo real (hemograma + bioquímica +
+ * uroanálisis + hormonal ≈ 70 analitos) ronda los 12k tokens de JSON; 8000 lo cortaba a
+ * media respuesta. Con streaming el margen no cuesta latencia si no se usa.
+ */
+const EXTRACTION_MAX_TOKENS = 32000;
+
+/** Techo de salida del motor clínico (el documento + el pensamiento adaptativo). */
+const CLINICAL_MAX_TOKENS = 32000;
 
 /** Campos permitidos por sección. Un esquema cerrado impide poblar campos prohibidos (CS5). */
 const ID_FIELDS = [
@@ -87,9 +116,12 @@ const extractionJsonSchema = {
           // Cadena vacía cuando el documento no reporta unidad/rango (evita uniones nullable).
           unit: { type: 'string' },
           refRange: { type: 'string' },
+          grupo: { type: 'string', enum: [...LAB_GRUPOS] },
+          // Cadena vacía si el informe no la reporta (evita uniones nullable).
+          reportDate: { type: 'string' },
           sourceRef: { type: 'string' },
         },
-        required: ['analyte', 'value', 'unit', 'refRange', 'sourceRef'],
+        required: ['analyte', 'value', 'unit', 'refRange', 'grupo', 'reportDate', 'sourceRef'],
         additionalProperties: false,
       },
     },
@@ -106,6 +138,8 @@ const extractionSchema = z.object({
       value: z.string().min(1),
       unit: z.string().nullish(),
       refRange: z.string().nullish(),
+      grupo: z.string().nullish(),
+      reportDate: z.string().nullish(),
       sourceRef: z.string().min(1),
     }),
   ),
@@ -149,21 +183,6 @@ function toDocFields(section: Record<string, { valor: string; estado: string; fu
   return out;
 }
 
-const MIME_BY_EXT: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.pdf': 'application/pdf',
-};
-
-function mimeFor(filename: string): string | null {
-  const i = filename.lastIndexOf('.');
-  if (i < 0) return null;
-  return MIME_BY_EXT[filename.slice(i).toLowerCase()] ?? null;
-}
-
 /** Carga el prompt maestro (system prompt del motor clínico, docs/prompt-maestro-v2.md). */
 async function loadPromptMaestro(): Promise<string> {
   const path = join(process.cwd(), '..', '..', 'docs', 'prompt-maestro-v2.md');
@@ -179,7 +198,21 @@ REGLA DE ORO — NUNCA FABRICAR:
 - Cada valor lleva sourceRef indicando dónde se leyó (p. ej. "hemograma:hemoglobina", "coagulacion:INR").
 
 Extrae los analitos de laboratorio con su valor, unidad y rango de referencia si aparecen.
-Si el documento no es un laboratorio (p. ej. un ECG o un ecocardiograma), devuelve una lista vacía.`;
+Si el documento no es un laboratorio (p. ej. un ECG o un ecocardiograma), devuelve una lista vacía.
+
+TIPO DE ESTUDIO (campo "grupo"):
+- Asigna cada analito al estudio bajo el cual aparece en el informe, usando los encabezados
+  de sección del propio documento ("HEMOGRAMA", "PRUEBAS DE COAGULACIÓN", "PARCIAL DE ORINA"…).
+- Valores permitidos: ${LAB_GRUPOS.join(' | ')}.
+- Si el informe no indica bajo qué estudio está el analito, usa "otros". No lo deduzcas por
+  el nombre del analito: el encabezado del informe manda.
+
+FECHA DEL INFORME (campo "reportDate"):
+- Fecha en que se TOMÓ o PROCESÓ la muestra, tal como aparece impresa en el informe
+  ("Fecha de toma", "Fecha de proceso", "Fecha de impresión" — en ese orden de preferencia).
+- Formato AAAA-MM-DD. Ojo con el formato colombiano DD/MM/AAAA: "07/11/2025" es 2025-11-07.
+- Si el informe no la trae o no es legible, devuelve cadena vacía. NUNCA la inventes ni uses
+  la fecha de hoy: un examen sin fecha es un dato ausente, no un examen reciente.`;
 
 export class AnthropicAIProvider implements AIProvider {
   private client: Anthropic;
@@ -190,15 +223,88 @@ export class AnthropicAIProvider implements AIProvider {
   }
 
   /**
-   * Extracción de laboratorios por visión, sobre el archivo real del paciente.
-   * Un documento ilegible produce lista vacía — nunca valores inventados.
+   * Extracción de laboratorios en CASCADA sobre los archivos reales del paciente.
+   *
+   *  - method 'capas' (por defecto): por cada archivo, intenta leer el texto embebido (Capa 1,
+   *    cero tokens) y extraer con Haiku sobre texto (Capa 3). Si el texto no sirve — escaneado,
+   *    foto, formato ilegible — ese archivo escala automáticamente a visión (Capa 4). El
+   *    fallback es por archivo y queda registrado en `perFile` para el audit log.
+   *  - method 'vision': fuerza visión sobre todos los archivos (método conocido, base del modo
+   *    comparativo).
+   *
+   * Un documento ilegible produce lista vacía — nunca valores inventados (CS2).
    */
-  async extractLabs(files: FileRef[]): Promise<ExtractedLab[]> {
-    if (!files || files.length === 0) return [];
+  async extractLabs(files: FileRef[], method: ExtractionMethod = 'capas'): Promise<ExtractLabsResult> {
+    if (!files || files.length === 0) return { labs: [], perFile: [] };
 
+    if (method === 'vision') {
+      const raw = await this.extractByVision(files);
+      const labs = raw.map((l) => ({ ...l, extractionLayer: 'vision' as const }));
+      return { labs, perFile: files.map((f) => ({ file: f.filename, layer: 'vision' })) };
+    }
+
+    // Modo capas: decidir capa archivo por archivo.
+    const storage = getStorageProvider();
+    const textFiles: FileRef[] = [];
+    const visionFiles: FileRef[] = [];
+    const perFile: ExtractLabsResult['perFile'] = [];
+
+    for (const f of files) {
+      const bytes = await storage.get(f.key);
+      // El texto embebido sólo aplica a PDF; una imagen va directa a visión.
+      const isPdf = mimeFor(f.filename) === 'application/pdf';
+      const text = isPdf ? await readPdfText(bytes, f.filename) : { usable: false, text: '', reason: 'sin_texto' as const };
+      if (text.usable) {
+        textFiles.push(f);
+        perFile.push({ file: f.filename, layer: 'texto' });
+      } else {
+        visionFiles.push(f);
+        perFile.push({ file: f.filename, layer: 'vision', fallbackReason: text.reason });
+      }
+    }
+
+    const labs: ExtractedLab[] = [];
+    // Capa 3: los archivos con texto usable, extraídos por Haiku (uno por archivo para no
+    // mezclar sourceRef entre informes distintos). Cada lab lleva su método de origen.
+    for (const f of textFiles) {
+      const t = await readPdfText(await storage.get(f.key), f.filename);
+      const fromText = await this.extractFromText(t.text, f.filename);
+      labs.push(...fromText.map((l) => ({ ...l, extractionLayer: 'texto' as const })));
+    }
+    // Capa 4: fallback a visión para lo que el texto no resolvió.
+    if (visionFiles.length > 0) {
+      const byVision = await this.extractByVision(visionFiles);
+      labs.push(...byVision.map((l) => ({ ...l, extractionLayer: 'vision' as const })));
+    }
+    return { labs, perFile };
+  }
+
+  /** Capa 3 — extracción a JSON con Haiku sobre el TEXTO ya extraído (cero imagen). */
+  private async extractFromText(text: string, label: string): Promise<ExtractedLab[]> {
+    // Sin thinking: Haiku 4.5 no soporta adaptive thinking, y transcribir una tabla ya en
+    // texto plano a JSON no lo necesita — es lectura estructurada, no razonamiento.
+    const stream = this.client.messages.stream({
+      model: TEXT_EXTRACTION_MODEL_ID,
+      max_tokens: EXTRACTION_MAX_TOKENS,
+      system: EXTRACTION_SYSTEM,
+      output_config: { format: { type: 'json_schema', schema: extractionJsonSchema as never } },
+      messages: [{ role: 'user', content: `Extrae los laboratorios de este informe:\n\n${text}` }],
+    });
+    const response = await stream.finalMessage();
+    this.guardResponse(response, `texto:${label}`);
+    const parsed = extractionSchema.parse(parseJson(firstText(response)));
+    logger.info(
+      { label, layer: 'texto', model: TEXT_EXTRACTION_MODEL_ID, labs: parsed.labs.length,
+        inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+      'anthropic_extract_done',
+    );
+    return parsed.labs;
+  }
+
+  /** Capa 4 — extracción por visión sobre los archivos (PDF como documento, imagen como imagen). */
+  private async extractByVision(files: FileRef[]): Promise<ExtractedLab[]> {
     const storage = getStorageProvider();
     const content: Anthropic.ContentBlockParam[] = [];
-
     for (const f of files) {
       const mime = mimeFor(f.filename);
       if (!mime) {
@@ -207,37 +313,45 @@ export class AnthropicAIProvider implements AIProvider {
       }
       const data = (await storage.get(f.key)).toString('base64');
       if (mime === 'application/pdf') {
-        content.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data },
-        });
+        content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data } });
       } else {
-        content.push({
-          type: 'image',
-          source: { type: 'base64', media_type: mime as 'image/png', data },
-        });
+        content.push({ type: 'image', source: { type: 'base64', media_type: mime as 'image/png', data } });
       }
     }
     if (content.length === 0) return [];
     content.push({ type: 'text', text: 'Extrae los laboratorios de estos documentos.' });
 
-    const response = await this.client.messages.create({
-      model: MODEL,
-      max_tokens: 8000,
+    // Streaming + max_tokens alto: por encima de ~16k una petición no-streaming se cae por
+    // timeout HTTP del SDK, y con poco margen el JSON se corta a medias (CS2).
+    const stream = this.client.messages.stream({
+      model: VISION_EXTRACTION_MODEL_ID,
+      max_tokens: EXTRACTION_MAX_TOKENS,
       thinking: { type: 'adaptive' },
       system: EXTRACTION_SYSTEM,
       output_config: { format: { type: 'json_schema', schema: extractionJsonSchema as never } },
       messages: [{ role: 'user', content }],
     });
+    const response = await stream.finalMessage();
+    this.guardResponse(response, 'vision');
+    const parsed = extractionSchema.parse(parseJson(firstText(response)));
+    logger.info(
+      { files: files.length, layer: 'vision', model: VISION_EXTRACTION_MODEL_ID, labs: parsed.labs.length,
+        inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
+      'anthropic_extract_done',
+    );
+    return parsed.labs;
+  }
 
+  /** Rechazo o truncamiento: se falla explícito. Un JSON a medias no se parsea (CS2). */
+  private guardResponse(response: Anthropic.Message, ctx: string): void {
     if (response.stop_reason === 'refusal') {
-      logger.error({ stopDetails: response.stop_details }, 'anthropic_extract_refused');
+      logger.error({ ctx, stopDetails: response.stop_details }, 'anthropic_extract_refused');
       throw new Error('El extractor de laboratorios rechazó el documento.');
     }
-
-    const parsed = extractionSchema.parse(parseJson(firstText(response)));
-    logger.info({ files: files.length, labs: parsed.labs.length, model: MODEL }, 'anthropic_extract_done');
-    return parsed.labs;
+    if (response.stop_reason === 'max_tokens') {
+      logger.error({ ctx, maxTokens: EXTRACTION_MAX_TOKENS, outputTokens: response.usage.output_tokens }, 'anthropic_extract_truncated');
+      throw new Error(`La extracción excedió el límite de ${EXTRACTION_MAX_TOKENS} tokens de salida.`);
+    }
   }
 
   /**
@@ -268,9 +382,14 @@ export class AnthropicAIProvider implements AIProvider {
       '- peso_talla_imc: "95 kg / 1.70 m / 32.9 kg/m²" (talla en metros).',
       '- fecha_procedimiento: dd-mm-aaaa.',
       '- fecha_valoracion: déjalo en no_reportado; lo pone el sistema al renderizar.',
-      '- capacidad_funcional: derívala si los datos la sustentan; si no, no_reportado.',
-      '- condicion_actual: "Asintomático" sólo si el paciente niega enfermedad y síntomas;',
-      '  si refiere patologías, descríbela brevemente; si no hay sustento, no_reportado.',
+      '- capacidad_funcional: el formulario NO la pregunta. Déjala en no_reportado salvo que',
+      '  una respuesta la sustente explícitamente; la evalúa el anestesiólogo.',
+      '- tipo_cirugia: sólo si se deduce del procedimiento declarado; si no, no_reportado.',
+      '- condicion_actual: si refiere patologías, descríbelas brevemente. NO escribas',
+      '  "Asintomático" porque niegue enfermedad: no tener diagnóstico no es estar sin',
+      '  síntomas, y nadie lo ha examinado. Sin sustento → no_reportado.',
+      '- concepto: no declares al paciente apto ni cites capacidad funcional en METs. El',
+      '  concepto de aptitud es del anestesiólogo, tras el examen presencial.',
       '',
       contractSpec(),
       '',
@@ -278,25 +397,42 @@ export class AnthropicAIProvider implements AIProvider {
       JSON.stringify(datos, null, 2),
     ].join('\n');
 
-    const response = await this.client.messages.create({
-      model: MODEL,
-      max_tokens: 16000,
+    // Streaming: con effort alto el pensamiento adaptativo consume parte del presupuesto y
+    // una petición no-streaming a este tamaño arriesga timeout HTTP del SDK.
+    const stream = this.client.messages.stream({
+      model: CLINICAL_MODEL_ID,
+      max_tokens: CLINICAL_MAX_TOKENS,
       thinking: { type: 'adaptive' },
       output_config: { effort: 'high' },
       system,
       messages: [{ role: 'user', content: prompt }],
     });
+    const response = await stream.finalMessage();
 
     if (response.stop_reason === 'refusal') {
       logger.error({ stopDetails: response.stop_details }, 'anthropic_clinical_refused');
       throw new Error('El motor clínico rechazó la solicitud.');
     }
 
+    // Igual que en la extracción: un documento truncado se rechaza, no se parsea a medias.
+    if (response.stop_reason === 'max_tokens') {
+      logger.error(
+        { caseId: input.caseId, maxTokens: CLINICAL_MAX_TOKENS, outputTokens: response.usage.output_tokens },
+        'anthropic_clinical_truncated',
+      );
+      throw new Error(`El motor clínico excedió el límite de ${CLINICAL_MAX_TOKENS} tokens de salida.`);
+    }
+
     // CS5/CS6: el contrato se valida aquí. Un campo fuera del esquema hace fallar el parse
     // (.strict()) y el documento se rechaza. Los guardarraíles (CS2/CS3/CS4) corren después.
     const generated = clinicalOutputSchema.parse(parseJson(firstText(response)));
     logger.info(
-      { caseId: input.caseId, model: MODEL, outputTokens: response.usage.output_tokens },
+      {
+        caseId: input.caseId,
+        model: CLINICAL_MODEL_ID,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+      },
       'anthropic_clinical_done',
     );
 

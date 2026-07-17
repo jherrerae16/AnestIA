@@ -19,12 +19,35 @@ export interface ExtractedLab {
   value: string;
   unit?: string | null;
   refRange?: string | null;
+  /** Tipo de estudio leído del informe (hemograma, coagulación…). Lo asigna el extractor. */
+  grupo?: string | null;
+  /** Fecha del informe (AAAA-MM-DD) leída del examen, no la de carga. Vacía si no la trae. */
+  reportDate?: string | null;
   sourceRef?: string | null;
+  /** Capa que produjo este lab en la cascada ('texto'|'vision'). La pone el adaptador. */
+  extractionLayer?: 'texto' | 'vision';
 }
 
 /** Lab con flag ya aplicado (entrada al motor clínico). */
 export interface FlaggedLab extends ExtractedLab {
   flag: string;
+}
+
+/** Método de extracción: 'capas' (texto+fallback visión) o 'vision' (forzado). */
+export type ExtractionMethod = 'capas' | 'vision';
+
+/** Qué capa resolvió cada archivo — para el audit log (fallback nunca silencioso). */
+export interface FileExtractionInfo {
+  file: string;
+  layer: 'texto' | 'vision';
+  /** Motivo del fallback a visión cuando el texto no sirvió. */
+  fallbackReason?: 'sin_texto' | 'ilegible' | 'no_parece_lab' | 'error';
+}
+
+/** Resultado de extractLabs: los labs + cómo se resolvió cada archivo. */
+export interface ExtractLabsResult {
+  labs: ExtractedLab[];
+  perFile: FileExtractionInfo[];
 }
 
 export interface ClinicalInput {
@@ -36,25 +59,28 @@ export interface ClinicalInput {
 }
 
 export interface AIProvider {
-  extractLabs(files: FileRef[]): Promise<ExtractedLab[]>;
+  extractLabs(files: FileRef[], method?: ExtractionMethod): Promise<ExtractLabsResult>;
   generateAssessment(input: ClinicalInput): Promise<DocumentJSON>;
 }
 
 /** Stub: valores de ejemplo del Anexo C. Sólo para desarrollo sin key. */
 class StubAIProvider implements AIProvider {
-  async extractLabs(files: FileRef[]): Promise<ExtractedLab[]> {
+  async extractLabs(files: FileRef[], method: ExtractionMethod = 'capas'): Promise<ExtractLabsResult> {
     // Sin adjuntos → no hay nada que extraer (CS2: nunca fabricar).
-    if (!files || files.length === 0) return [];
+    if (!files || files.length === 0) return { labs: [], perFile: [] };
     // Caso de referencia (Anexo C, Uribe): hemograma + coagulación en rango.
-    return [
-      { analyte: 'Hemoglobina', value: '15.9', unit: 'g/dL', refRange: '13-17', sourceRef: 'stub:hemograma:hb' },
-      { analyte: 'Hematocrito', value: '48.2', unit: '%', refRange: '40-52', sourceRef: 'stub:hemograma:hto' },
-      { analyte: 'Plaquetas', value: '244000', unit: '/uL', refRange: '150000-450000', sourceRef: 'stub:hemograma:plt' },
-      { analyte: 'Leucocitos', value: '7200', unit: '/uL', refRange: '4000-11000', sourceRef: 'stub:hemograma:wbc' },
-      { analyte: 'TP', value: '10.4', unit: 's', refRange: '10-13', sourceRef: 'stub:coagulacion:tp' },
-      { analyte: 'INR', value: '0.97', unit: '', refRange: '0.9-1.2', sourceRef: 'stub:coagulacion:inr' },
-      { analyte: 'TPT', value: '29.5', unit: 's', refRange: '25-35', sourceRef: 'stub:coagulacion:tpt' },
-    ];
+    // El stub no lee archivos: se etiqueta como 'texto' en modo capas, 'vision' en modo visión.
+    const layer = method === 'vision' ? 'vision' : ('texto' as const);
+    const labs: ExtractedLab[] = [
+      { analyte: 'Hemoglobina', value: '15.9', unit: 'g/dL', refRange: '13-17', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:hb' },
+      { analyte: 'Hematocrito', value: '48.2', unit: '%', refRange: '40-52', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:hto' },
+      { analyte: 'Plaquetas', value: '244000', unit: '/uL', refRange: '150000-450000', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:plt' },
+      { analyte: 'Leucocitos', value: '7200', unit: '/uL', refRange: '4000-11000', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:wbc' },
+      { analyte: 'TP', value: '10.4', unit: 's', refRange: '10-13', grupo: 'coagulacion', reportDate: '2026-07-10', sourceRef: 'stub:coagulacion:tp' },
+      { analyte: 'INR', value: '0.97', unit: '', refRange: '0.9-1.2', grupo: 'coagulacion', reportDate: '2026-07-10', sourceRef: 'stub:coagulacion:inr' },
+      { analyte: 'TPT', value: '29.5', unit: 's', refRange: '25-35', grupo: 'coagulacion', reportDate: '2026-07-10', sourceRef: 'stub:coagulacion:tpt' },
+    ].map((l) => ({ ...l, extractionLayer: layer }));
+    return { labs, perFile: files.map((f) => ({ file: f.filename, layer })) };
   }
 
   async generateAssessment(input: ClinicalInput): Promise<DocumentJSON> {
@@ -70,11 +96,26 @@ class StubAIProvider implements AIProvider {
       if (v == null || v === '') return null;
       return Array.isArray(v) ? v.join(', ') : String(v);
     };
-    /** ¿La respuesta Sí/No es afirmativa? Normaliza 'sí'→'si'. */
+    /** Respuesta Sí/No normalizada ('sí'→'si'), o '' si no respondió. */
+    const yesNo = (order: string): string =>
+      (val(order) ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    /** ¿La respuesta Sí/No es afirmativa? */
     const isYes = (order: string): boolean => {
-      const v = (val(order) ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const v = yesNo(order);
       return v === 'si' || v === 'true';
     };
+    /**
+     * ¿El paciente NEGÓ explícitamente? Distinto de "no respondió" (CS2): escribir
+     * "Niega alergias" porque la pregunta quedó en blanco pone en un documento firmado una
+     * negación que el paciente nunca hizo — y las alergias son justo lo que no se supone.
+     */
+    const isNo = (order: string): boolean => {
+      const v = yesNo(order);
+      return v === 'no' || v === 'false';
+    };
+    /** Negación atestada por el paciente; si no respondió, el campo queda sin reportar. */
+    const negado = (order: string, texto: string, fuente: string): DocField =>
+      isNo(order) ? { valor: texto, estado: 'ok', fuente } : { valor: null, estado: 'no_reportado', fuente: null };
     const ok = (valor: string | null, fuente: string): DocField =>
       valor != null ? { valor, estado: 'ok', fuente } : { valor: null, estado: 'no_reportado', fuente: null };
     const derived = (valor: string, fuente = 'derivado:IA'): DocField => ({ valor, estado: 'ok', fuente });
@@ -140,20 +181,20 @@ class StubAIProvider implements AIProvider {
         ? ok(`Refiere ${lista.toLocaleLowerCase('es')}.`, 'formulario:P12-13')
         : ok('Refiere antecedentes patológicos (sin especificar).', 'formulario:P12');
     } else {
-      patologicos = derived('Niega antecedentes patológicos conocidos.', 'formulario:P12');
+      patologicos = negado('12', 'Niega antecedentes patológicos conocidos.', 'formulario:P12');
     }
 
     // Medicamentos: P14 ¿toma? → P15 ¿cuáles? si Sí.
     const medsDetalle = val('15');
     const medicamentos = isYes('14')
       ? ok(medsDetalle ? `Refiere ${medsDetalle.toLocaleLowerCase('es')}.` : 'Refiere consumo actual de medicamentos (sin especificar).', 'formulario:P14-15')
-      : derived('Niega consumo de medicamentos.', 'formulario:P14');
+      : negado('14', 'Niega consumo de medicamentos.', 'formulario:P14');
 
     // Alergias: P16 ¿alérgico? → P17 ¿a qué? si Sí.
     const alergiaDetalle = val('17');
     const alergias = isYes('16')
       ? ok(alergiaDetalle ? `Refiere alergia a ${alergiaDetalle.toLocaleLowerCase('es')}.` : 'Refiere alergias medicamentosas o a otras sustancias (sin especificar).', 'formulario:P16-17')
-      : derived('Niega alergias medicamentosas o a otras sustancias.', 'formulario:P16');
+      : negado('16', 'Niega alergias medicamentosas o a otras sustancias.', 'formulario:P16');
 
     // Cirugías previas (P18): si Sí y hay detalle (P19), traduce a término médico.
     const quirurgicos = isYes('18')
@@ -163,15 +204,15 @@ class StubAIProvider implements AIProvider {
             ? ok(`Refiere ${detalle.toLocaleLowerCase('es')}.`, 'formulario:P18-19')
             : ok('Refiere procedimientos quirúrgicos o anestésicos previos.', 'formulario:P18');
         })()
-      : derived('Niega procedimientos quirúrgicos o anestésicos previos.', 'formulario:P18');
+      : negado('18', 'Niega procedimientos quirúrgicos o anestésicos previos.', 'formulario:P18');
 
     const transfusionales = isYes('20')
       ? ok('Refiere transfusión sanguínea previa.', 'formulario:P20')
-      : derived('Niega transfusiones previas.', 'formulario:P20');
+      : negado('20', 'Niega transfusiones previas.', 'formulario:P20');
 
     const protesis = isYes('21')
       ? ok('Refiere prótesis dental o diseño de sonrisa (relevante para el manejo de la vía aérea).', 'formulario:P21')
-      : derived('Niega prótesis dental o diseño de sonrisa.', 'formulario:P21');
+      : negado('21', 'Niega prótesis dental o diseño de sonrisa.', 'formulario:P21');
 
     // Hábitos: P22 tabaco/vapeo (+P23 cantidad), P24 alcohol, P25 psicoactivas.
     const habitos = ((): DocField => {
@@ -182,16 +223,22 @@ class StubAIProvider implements AIProvider {
       }
       if (isYes('24')) positivos.push('consumo de alcohol');
       if (isYes('25')) positivos.push('consumo de sustancias psicoactivas');
-      if (positivos.length === 0) {
-        return derived('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P22-25');
-      }
-      return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P22-25');
+      if (positivos.length > 0) return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P22-25');
+      // Sólo se escribe la negación si el paciente negó las tres; si dejó alguna en blanco,
+      // el campo queda sin reportar en vez de afirmar un "niega" que no dijo (CS2).
+      const negóTodas = isNo('22') && isNo('24') && isNo('25');
+      return negóTodas
+        ? ok('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P22-25')
+        : noRep();
     })();
 
-    // Condición actual: derivada del reporte de enfermedad (P12). El médico confirma.
-    const condicionActual: DocField = isYes('12')
-      ? derived('Sintomático / en estudio')
-      : derived('Asintomático');
+    // Condición actual: P12 pregunta si el paciente SUFRE una enfermedad, no si tiene
+    // síntomas hoy. "No tengo enfermedad diagnosticada" no es "Asintomático" — afirmarlo
+    // sería una observación clínica que nadie hizo (CS2). Sin enfermedad declarada se deja
+    // sin reportar; lo determina el médico en el examen.
+    const condicionActual: DocField = isYes('12') && val('13')
+      ? derived(`En seguimiento por ${val('13')!.toLocaleLowerCase('es')}`, 'formulario:P12-13')
+      : noRep();
 
     // ASA: sugerido desde comorbilidades declaradas (P13 patologías). Marcado como derivado
     // para que el anestesiólogo lo confirme (CS4).
@@ -213,8 +260,12 @@ class StubAIProvider implements AIProvider {
         procedimiento: ok(procedimiento, 'formulario:P9'),
         fecha_procedimiento: fechaProc,
         fecha_valoracion: noRep(), // la inyecta el renderer (opts.fechaValoracion)
-        capacidad_funcional: derived('≥4 METs'),
-        tipo_cirugia: derived('Electiva'),
+        // CS2/CS4: el formulario NO pregunta por capacidad funcional (METs) ni por el
+        // carácter de la cirugía. Afirmar "≥4 METs" es el umbral que exime de estudio
+        // cardiológico adicional — asegurarlo sin haberlo evaluado no es derivar, es
+        // inventar. Los pone el anestesiólogo en la revisión.
+        capacidad_funcional: noRep(),
+        tipo_cirugia: noRep(),
         condicion_actual: condicionActual,
         // Diagnóstico preoperatorio: nombre de la cirugía (término médico). El médico lo
         // reemplaza por el diagnóstico clínico real si aplica.
@@ -235,39 +286,26 @@ class StubAIProvider implements AIProvider {
         protesis_dental: protesis,
         habitos,
       },
-      paraclinicos: ((): Record<string, DocField> => {
-        const labs = input.labs ?? [];
-        const out: Record<string, DocField> = {};
-        for (const l of labs) {
-          out[l.analyte.toLowerCase().replace(/\s+/g, '_')] = {
-            valor: `${l.value}${l.unit ? ' ' + l.unit : ''}`,
-            estado: 'ok',
-            fuente: l.sourceRef ?? 'lab',
-            alerta: l.flag !== 'NORMAL',
-          };
-        }
-        // Observación resumen: menciona hallazgos alterados o normalidad global.
-        if (labs.length > 0) {
-          const alterados = labs.filter((l) => l.flag !== 'NORMAL');
-          out['observacion'] = alterados.length > 0
-            ? { valor: `Se observa alteración en: ${alterados.map((l) => `${l.analyte} (${l.flag.toLowerCase()})`).join(', ')}. Correlacionar clínicamente.`, estado: 'ok', fuente: 'derivado:IA', alerta: true }
-            : { valor: 'Sin alteraciones hematológicas ni de coagulación relevantes.', estado: 'ok', fuente: 'derivado:IA' };
-        }
-        return out;
-      })(),
+      paraclinicos: {}, // los arma el código desde los labs extraídos (clinical.service)
       examen_fisico: {}, // el guardarraíl lo llena todo como pendiente_examen
       valoracion_plan: {
         concepto: {
           valor: (() => {
+            // Cada frase debe sostenerse en un dato real. Nada de METs ni de "apto":
+            // la capacidad funcional no se pregunta, y declarar apto a alguien sin
+            // examinar es la conclusión que firma el médico, no el borrador (CS1/CS2).
             const partes: string[] = [];
             const edadTxt = edadStr ? `Paciente de ${edadStr}` : 'Paciente';
-            partes.push(`${edadTxt} con capacidad funcional estimada ≥4 METs.`);
-            if (!isYes('12')) partes.push('Sin comorbilidades sistémicas documentadas.');
+            partes.push(`${edadTxt} para valoración preanestésica.`);
+            if (!isYes('12')) partes.push('No refiere comorbilidades sistémicas.');
             else if (val('13')) partes.push(`Antecedentes de ${val('13')!.toLocaleLowerCase('es')} a considerar en el manejo perioperatorio.`);
             if ((input.labs ?? []).some((l) => l.flag !== 'NORMAL')) partes.push('Hallazgos paraclínicos alterados a correlacionar (ver paraclínicos).');
-            else if ((input.labs ?? []).length > 0) partes.push('Hemograma y pruebas de coagulación dentro de rango.');
+            else if ((input.labs ?? []).length > 0) partes.push('Paraclínicos aportados dentro de los rangos reportados (ver detalle).');
             if (glp1) partes.push('Uso declarado de agonista GLP-1: manejar el riesgo de contenido gástrico residual (ver recomendaciones).');
-            partes.push(`Riesgo anestésico ${asaField.valor}. Apto para cirugía electiva, condicionado a la verificación del examen físico presencial y a los hallazgos paraclínicos disponibles.`);
+            partes.push(
+              `Riesgo anestésico sugerido ${asaField.valor}, a confirmar. Pendiente el examen físico presencial, ` +
+                'la capacidad funcional y el concepto de aptitud, que corresponden al anestesiólogo.',
+            );
             return partes.join(' ');
           })(),
           estado: 'ok',
@@ -282,6 +320,9 @@ class StubAIProvider implements AIProvider {
 
 /** Modelo del motor clínico cuando corre con la key (Opus para lo clínico). */
 export const CLINICAL_MODEL = 'claude-opus-4-8';
+
+/** Modelo de la extracción de labs por visión (Sonnet: leer tablas no necesita Opus). */
+export const EXTRACTION_MODEL = 'claude-sonnet-5';
 
 /**
  * Punto ÚNICO de cambio entre el stub y Claude. `AI_PROVIDER=anthropic` + ANTHROPIC_API_KEY
