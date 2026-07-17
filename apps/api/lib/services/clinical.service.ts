@@ -8,6 +8,7 @@ import {
   enforceGuardrails,
   documentSchema,
   detectGLP1,
+  groupLabsToProse,
   PROMPT_MAESTRO_VERSION,
   type DocField,
   type FormAnswers,
@@ -39,7 +40,15 @@ export async function assembleInput(caseId: string): Promise<ClinicalInput> {
   return {
     caseId,
     answers,
-    labs: labs.map((l) => ({ analyte: l.analyte, value: l.value, unit: l.unit, flag: l.flag, sourceRef: l.sourceRef })),
+    labs: labs.map((l) => ({
+      analyte: l.analyte,
+      value: l.value,
+      unit: l.unit,
+      grupo: l.grupo,
+      reportDate: l.reportDate ? l.reportDate.toISOString().slice(0, 10) : null,
+      flag: l.flag,
+      sourceRef: l.sourceRef,
+    })),
     glp1,
     imc,
   };
@@ -51,37 +60,25 @@ export async function assembleInput(caseId: string): Promise<ClinicalInput> {
  */
 /**
  * Arma la sección de paraclínicos desde los labs realmente extraídos (código, no IA).
- * Incluye una observación resumen: alteraciones detectadas o normalidad global.
- * Si el proveedor ya devolvió paraclínicos (stub), se respetan.
+ * Una fila por TIPO DE ESTUDIO (hemograma, coagulación…) con los analitos en prosa, en vez
+ * de una fila por analito: así el documento no crece sin control. El tipo lo trae el
+ * extractor desde el informe; lo no reconocido cae en "otros" (CS2).
+ * Si el proveedor ya devolvió paraclínicos, se respetan.
  */
 function buildParaclinicos(
   labs: ClinicalInput['labs'],
-  provided?: Record<string, DocField>,
+  provided: Record<string, DocField> | undefined,
+  hoy: string,
 ): Record<string, DocField> {
   if (provided && Object.keys(provided).length > 0) return provided;
   const out: Record<string, DocField> = {};
-  for (const l of labs ?? []) {
-    out[l.analyte.toLowerCase().replace(/\s+/g, '_')] = {
-      valor: `${l.value}${l.unit ? ' ' + l.unit : ''}`,
+  for (const g of groupLabsToProse(labs ?? [], hoy)) {
+    out[g.grupo] = {
+      valor: g.texto,
       estado: 'ok',
-      fuente: l.sourceRef ?? 'lab',
-      alerta: l.flag !== 'NORMAL',
+      fuente: g.fuentes.length ? g.fuentes.join(', ') : 'lab',
+      alerta: g.alerta,
     };
-  }
-  if ((labs ?? []).length > 0) {
-    const alterados = labs.filter((l) => l.flag !== 'NORMAL');
-    out['observacion'] = alterados.length
-      ? {
-          valor: `Se observa alteración en: ${alterados.map((l) => `${l.analyte} (${l.flag.toLowerCase()})`).join(', ')}. Correlacionar clínicamente.`,
-          estado: 'ok',
-          fuente: 'derivado:IA',
-          alerta: true,
-        }
-      : {
-          valor: 'Sin alteraciones hematológicas ni de coagulación relevantes.',
-          estado: 'ok',
-          fuente: 'derivado:IA',
-        };
   }
   return out;
 }
@@ -97,7 +94,7 @@ export async function generateForCase(caseId: string): Promise<void> {
   // Así los valores del documento son los del laboratorio, no los que el modelo recuerde (CS2).
   const withParaclinicos = {
     ...raw,
-    paraclinicos: buildParaclinicos(input.labs, raw.paraclinicos),
+    paraclinicos: buildParaclinicos(input.labs, raw.paraclinicos, new Date().toISOString().slice(0, 10)),
   };
 
   // Validación de contrato (rechaza malformado / campos prohibidos) — CS5.

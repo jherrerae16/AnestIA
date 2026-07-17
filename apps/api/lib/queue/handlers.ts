@@ -10,13 +10,37 @@ import { renderDraftForCase } from '../services/document.service';
 type Job = { data: { caseId: string } };
 
 /**
+ * Ejecuta una etapa del pipeline dejando rastro del fallo.
+ *
+ * Fail-closed (la excepción se propaga y pg-boss reintenta) pero NO silencioso: si la etapa
+ * revienta, se registra en el audit log. Sin esto, un job agotado deja el caso parado para
+ * siempre sin más señal que un estado que no avanza — que es justo lo que pasó con la
+ * extracción truncada.
+ */
+async function runStage(caseId: string, stage: string, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ caseId, stage, err: message }, 'pipeline_stage_failed');
+    await logAudit({
+      action: 'pipeline.stage_failed',
+      entity: 'Case',
+      entityId: caseId,
+      meta: { stage, error: message },
+    }).catch(() => {});
+    throw err;
+  }
+}
+
+/**
  * Handler form.submitted → lab.extract. Idempotente, fail-closed: si algo falla
  * la excepción se propaga (pg-boss reintenta) y el estado NO avanza.
  */
 export async function onLabExtract(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await extractForCase(caseId);
+    await runStage(caseId, 'lab.extract', () => extractForCase(caseId));
     await prisma.case.update({ where: { id: caseId }, data: { status: 'LABS_ANALIZADOS' } }).catch(() => {});
     await logAudit({ action: 'lab.extracted', entity: 'Case', entityId: caseId });
     logger.info({ caseId }, 'lab_extract_done');
@@ -28,7 +52,7 @@ export async function onLabExtract(jobs: Job[]): Promise<void> {
 export async function onLabFlag(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await flagForCase(caseId);
+    await runStage(caseId, 'lab.flag', () => flagForCase(caseId));
     await logAudit({ action: 'lab.flagged', entity: 'Case', entityId: caseId });
     logger.info({ caseId }, 'lab_flag_done');
     await publish('clinical.generate', { caseId });
@@ -42,7 +66,7 @@ export async function onLabFlag(jobs: Job[]): Promise<void> {
 export async function onClinicalGenerate(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await generateForCase(caseId);
+    await runStage(caseId, 'clinical.generate', () => generateForCase(caseId));
     await prisma.case.update({ where: { id: caseId }, data: { status: 'BORRADOR_GENERADO' } }).catch(() => {});
     logger.info({ caseId }, 'clinical_generate_done');
     // Eslabón nuevo: auditor independiente antes de renderizar (generador + crítico).
@@ -59,7 +83,7 @@ export async function onClinicalGenerate(jobs: Job[]): Promise<void> {
 export async function onClinicalAudit(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await auditForCase(caseId);
+    await runStage(caseId, 'clinical.audit', () => auditForCase(caseId));
     await publish('document.render', { caseId });
   }
 }
@@ -72,7 +96,7 @@ export async function onDocumentRender(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
     const fecha = new Date().toLocaleDateString('es-CO');
-    await renderDraftForCase(caseId, fecha);
+    await runStage(caseId, 'document.render', () => renderDraftForCase(caseId, fecha));
     await prisma.case.update({ where: { id: caseId }, data: { status: 'PENDIENTE_REVISION' } }).catch(() => {});
     logger.info({ caseId }, 'document_render_done');
   }
