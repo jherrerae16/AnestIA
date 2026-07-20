@@ -29,10 +29,15 @@ model Anesthesiologist {
   signatureUrl    String?  // imagen PNG/PDF de la firma visual
   footerText      String?
 
+  // Recordatorio matutino de cirugías (cero setup): ON por defecto. El médico lo apaga
+  // desde su perfil si no lo quiere. No hay más config (hora fija 7am Colombia en el cron).
+  dailyReminderOptOut Boolean @default(false)
+
   presets   QuestionnairePreset[]
   patients  Patient[]
   cases     Case[]
   contacts  DirectoryContact[]
+  patientNotes PatientNote[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -56,11 +61,32 @@ model Patient {
   bloodType   String?   // grupo sanguíneo (P11)
 
   cases     Case[]
+  notes     PatientNote[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([anesthesiologistId, documentId])
   @@index([documentId])
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// Nota privada del anestesiólogo sobre un paciente. NO es historia clínica oficial:
+/// es la libreta privada del médico (subjetiva, informal). Nunca entra al PDF, ni a la
+/// distribución, ni se muestra al paciente. Aislamiento estricto: sólo el dueño la ve/edita.
+/// Piloto: una nota única larga por paciente (no feed cronológico).
+/// ─────────────────────────────────────────────────────────────
+model PatientNote {
+  id                 String   @id @default(cuid())
+  patient            Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId          String
+  anesthesiologist   Anesthesiologist @relation(fields: [anesthesiologistId], references: [id])
+  anesthesiologistId String   // dueño de la nota
+
+  content    String   @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([patientId, anesthesiologistId]) // una nota por paciente por médico
 }
 
 /// ─────────────────────────────────────────────────────────────

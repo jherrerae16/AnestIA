@@ -1,24 +1,7 @@
-import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
-
-const STATUS_LABEL: Record<string, string> = {
-  BORRADOR: 'Borrador', ENVIADO_AL_PACIENTE: 'Enviado', RESPONDIENDO: 'Respondiendo',
-  RESPUESTAS_RECIBIDAS: 'Respuestas recibidas', LABS_ANALIZADOS: 'Labs analizados',
-  BORRADOR_GENERADO: 'Borrador generado', PENDIENTE_REVISION: 'Pendiente revisión',
-  APROBADO: 'Aprobado', ENTREGADO: 'Entregado',
-};
-
-/** Clase de badge por estado — reutiliza el design system. */
-function badgeClass(status: string): string {
-  switch (status) {
-    case 'PENDIENTE_REVISION': return 'badge-amber';
-    case 'APROBADO': return 'badge-green';
-    case 'ENTREGADO': return 'badge-blue';
-    case 'BORRADOR': case 'ENVIADO_AL_PACIENTE': case 'RESPONDIENDO': return 'badge-muted';
-    default: return 'badge-blue';
-  }
-}
+import { statusLabel, badgeClass } from '../core/case-status';
 
 @Component({
   selector: 'app-dashboard',
@@ -173,7 +156,7 @@ export class DashboardPage implements OnInit {
   data = signal<any>(null);
   exportMsg = signal('');
   async ngOnInit() { this.data.set(await this.api.dashboard()); }
-  label(s: string) { return STATUS_LABEL[s] ?? s; }
+  label(s: string) { return statusLabel(s); }
   badge(s: string) { return badgeClass(s); }
   async exportSheets() {
     this.exportMsg.set('Exportando…');

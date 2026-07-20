@@ -21,6 +21,10 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/dashboard.page').then((m) => m.DashboardPage),
       },
       {
+        path: 'calendar',
+        loadComponent: () => import('./pages/calendar.page').then((m) => m.CalendarPage),
+      },
+      {
         path: 'cases/new',
         loadComponent: () => import('./pages/case-creator.page').then((m) => m.CaseCreatorPage),
       },

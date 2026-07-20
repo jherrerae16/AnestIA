@@ -11,15 +11,21 @@ export function getProfile(anesthesiologistId: string) {
     where: { id: anesthesiologistId },
     select: {
       id: true, fullName: true, specialty: true, medicalRegistry: true, email: true,
-      clinicLogoUrl: true, signatureUrl: true, footerText: true,
+      clinicLogoUrl: true, signatureUrl: true, footerText: true, dailyReminderOptOut: true,
     },
   });
 }
 
-/** Actualiza los datos textuales del perfil (nombre, especialidad, registro, pie). */
+/** Actualiza los datos textuales del perfil (nombre, especialidad, registro, pie, recordatorio). */
 export function updateProfile(
   anesthesiologistId: string,
-  data: { fullName?: string; specialty?: string; medicalRegistry?: string; footerText?: string },
+  data: {
+    fullName?: string;
+    specialty?: string;
+    medicalRegistry?: string;
+    footerText?: string;
+    dailyReminderOptOut?: boolean;
+  },
 ) {
   return prisma.anesthesiologist.update({
     where: { id: anesthesiologistId },
@@ -28,8 +34,12 @@ export function updateProfile(
       ...(data.specialty !== undefined ? { specialty: data.specialty } : {}),
       ...(data.medicalRegistry !== undefined ? { medicalRegistry: data.medicalRegistry } : {}),
       ...(data.footerText !== undefined ? { footerText: data.footerText } : {}),
+      ...(data.dailyReminderOptOut !== undefined ? { dailyReminderOptOut: data.dailyReminderOptOut } : {}),
     },
-    select: { id: true, fullName: true, specialty: true, medicalRegistry: true, footerText: true },
+    select: {
+      id: true, fullName: true, specialty: true, medicalRegistry: true, footerText: true,
+      dailyReminderOptOut: true,
+    },
   });
 }
 

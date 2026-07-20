@@ -6,6 +6,7 @@ import { extractForCase, flagForCase } from '../services/lab.service';
 import { generateForCase } from '../services/clinical.service';
 import { auditForCase } from '../services/audit-clinical.service';
 import { renderDraftForCase } from '../services/document.service';
+import { sendDailyReminders } from '../services/reminder.service';
 
 type Job = { data: { caseId: string } };
 
@@ -99,5 +100,21 @@ export async function onDocumentRender(jobs: Job[]): Promise<void> {
     await runStage(caseId, 'document.render', () => renderDraftForCase(caseId, fecha));
     await prisma.case.update({ where: { id: caseId }, data: { status: 'PENDIENTE_REVISION' } }).catch(() => {});
     logger.info({ caseId }, 'document_render_done');
+  }
+}
+
+/**
+ * Handler reminder.daily (job programado, 7am Colombia). No pertenece al pipeline de un caso:
+ * recorre los perfiles suscritos y les manda el correo con las cirugías de hoy/mañana.
+ * pg-boss puede entregar el tick agrupado; un solo envío por corrida basta (idempotente por día).
+ */
+export async function onDailyReminder(_jobs: Job[]): Promise<void> {
+  try {
+    await sendDailyReminders(new Date());
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err: message }, 'daily_reminder_failed');
+    await logAudit({ action: 'reminder.failed', entity: 'Anesthesiologist', meta: { error: message } }).catch(() => {});
+    throw err;
   }
 }

@@ -98,12 +98,19 @@ export class ApiService {
   getPatient(id: string): Promise<any> {
     return firstValueFrom(this.http.get<any>(`/api/panel/patients/${id}`));
   }
+  // --- Notas privadas del médico por paciente ---
+  getPatientNote(patientId: string): Promise<{ note: PatientNoteDTO | null }> {
+    return firstValueFrom(this.http.get<{ note: PatientNoteDTO | null }>(`/api/panel/patients/${patientId}/note`));
+  }
+  savePatientNote(patientId: string, content: string): Promise<{ note: PatientNoteDTO | null }> {
+    return firstValueFrom(this.http.put<{ note: PatientNoteDTO | null }>(`/api/panel/patients/${patientId}/note`, { content }));
+  }
 
   // --- Perfil / branding ---
   getProfile(): Promise<any> {
     return firstValueFrom(this.http.get<any>('/api/panel/profile'));
   }
-  updateProfile(data: { fullName?: string; specialty?: string; medicalRegistry?: string; footerText?: string }): Promise<any> {
+  updateProfile(data: { fullName?: string; specialty?: string; medicalRegistry?: string; footerText?: string; dailyReminderOptOut?: boolean }): Promise<any> {
     return firstValueFrom(this.http.patch<any>('/api/panel/profile', data));
   }
   uploadBranding(kind: 'logo' | 'signature', file: File): Promise<{ ok: boolean; url?: string }> {
@@ -114,4 +121,29 @@ export class ApiService {
   exportSheets(): Promise<{ ok: boolean; url?: string; error?: string; count?: number }> {
     return firstValueFrom(this.http.post<{ ok: boolean; url?: string; error?: string; count?: number }>('/api/panel/export/sheets', {}));
   }
+
+  // --- Calendario de cirugías ---
+  calendar(view: 'month' | 'week', anchor: string): Promise<{ view: string; cases: CalendarCase[] }> {
+    const q = `?view=${view}&anchor=${anchor}`;
+    return firstValueFrom(this.http.get<{ view: string; cases: CalendarCase[] }>(`/api/panel/calendar${q}`));
+  }
+  /** URL de descarga del .ics de una cirugía (un tap; el dispositivo abre su app de calendario). */
+  calendarIcsUrl(caseId: string): string {
+    return `/api/panel/cases/${caseId}/calendar.ics`;
+  }
+}
+
+export interface PatientNoteDTO {
+  content: string;
+  updatedAt: string;
+}
+
+export interface CalendarCase {
+  caseId: string;
+  patientName: string | null;
+  procedure: string | null;
+  status: string;
+  date: string; // YYYY-MM-DD (día de Bogotá)
+  procedureDate: string;
+  alerta48h: boolean;
 }
