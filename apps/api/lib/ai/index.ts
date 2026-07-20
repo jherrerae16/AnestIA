@@ -1,4 +1,4 @@
-import { medicalTerm, suggestASA, formatDocumentId, type DocumentJSON, type DocField } from '@anestia/shared';
+import { medicalTerm, suggestASA, formatDocumentId, parseNumeric, type DocumentJSON, type DocField } from '@anestia/shared';
 
 /**
  * AIProvider — ÚNICO punto de dependencia de la key. Dos métodos:
@@ -56,6 +56,9 @@ export interface ClinicalInput {
   labs: FlaggedLab[];
   glp1?: { declared: boolean; drug?: string; lastDose?: string };
   imc?: number | null;
+  /** Peso/talla reales del paciente (P5/P6) — para forzar peso_talla_imc por código (CS2). */
+  pesoKg?: number | null;
+  tallaCm?: number | null;
 }
 
 export interface AIProvider {
@@ -64,32 +67,23 @@ export interface AIProvider {
 }
 
 /** Stub: valores de ejemplo del Anexo C. Sólo para desarrollo sin key. */
-class StubAIProvider implements AIProvider {
+export class StubAIProvider implements AIProvider {
   async extractLabs(files: FileRef[], method: ExtractionMethod = 'capas'): Promise<ExtractLabsResult> {
-    // Sin adjuntos → no hay nada que extraer (CS2: nunca fabricar).
-    if (!files || files.length === 0) return { labs: [], perFile: [] };
-    // Caso de referencia (Anexo C, Uribe): hemograma + coagulación en rango.
-    // El stub no lee archivos: se etiqueta como 'texto' en modo capas, 'vision' en modo visión.
+    // El stub NO lee archivos y NUNCA fabrica resultados de laboratorio (CS2). Aunque haya
+    // adjuntos, no puede inventar valores para el paciente real: devuelve labs vacíos. El caso
+    // de referencia (Anexo C, Uribe) vive como fixture de test explícito, no aquí — un
+    // documento firmado jamás debe llevar labs que nadie extrajo del examen del paciente.
     const layer = method === 'vision' ? 'vision' : ('texto' as const);
-    const labs: ExtractedLab[] = [
-      { analyte: 'Hemoglobina', value: '15.9', unit: 'g/dL', refRange: '13-17', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:hb' },
-      { analyte: 'Hematocrito', value: '48.2', unit: '%', refRange: '40-52', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:hto' },
-      { analyte: 'Plaquetas', value: '244000', unit: '/uL', refRange: '150000-450000', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:plt' },
-      { analyte: 'Leucocitos', value: '7200', unit: '/uL', refRange: '4000-11000', grupo: 'hemograma', reportDate: '2026-07-10', sourceRef: 'stub:hemograma:wbc' },
-      { analyte: 'TP', value: '10.4', unit: 's', refRange: '10-13', grupo: 'coagulacion', reportDate: '2026-07-10', sourceRef: 'stub:coagulacion:tp' },
-      { analyte: 'INR', value: '0.97', unit: '', refRange: '0.9-1.2', grupo: 'coagulacion', reportDate: '2026-07-10', sourceRef: 'stub:coagulacion:inr' },
-      { analyte: 'TPT', value: '29.5', unit: 's', refRange: '25-35', grupo: 'coagulacion', reportDate: '2026-07-10', sourceRef: 'stub:coagulacion:tpt' },
-    ].map((l) => ({ ...l, extractionLayer: layer }));
-    return { labs, perFile: files.map((f) => ({ file: f.filename, layer })) };
+    return { labs: [], perFile: (files ?? []).map((f) => ({ file: f.filename, layer })) };
   }
 
   async generateAssessment(input: ClinicalInput): Promise<DocumentJSON> {
     // Stub: documento construido SÓLO con datos reales del formulario del Dr. Luquetta.
     // Redacción clínica profesional para respuestas Sí/No. Examen físico = pendiente (CS3).
-    // Mapeo (Google Form real): P1 nombre, P2 doc, P3 nacimiento, P4 sexo, P5 tel, P6 aseguradora,
-    // P7 procedimiento, P8 fecha cirugía, P9 grupo sanguíneo, P10 ¿enfermedad?, P11 patologías,
-    // P12 ¿medicamentos?, P13 ¿alergias?, P14 ¿cirugía previa?, P15 ¿transfusión?, P16 ¿prótesis?,
-    // P17 ¿fuma?, P18 cigarrillos/día, P19 ¿alcohol?, P20 ¿psicoactivas?, P21 correo.
+    // Mapeo real (ver docs/form-mapping.md y prisma/seed.ts — NO cambiar sin cotejar ahí):
+    // P1 nombre, P2 doc, P3 nacimiento, P4 sexo, P5 PESO(kg), P6 TALLA(cm), P8 aseguradora,
+    // P9 procedimiento, P10 fecha cirugía, P11 grupo sanguíneo, P15 medicamentos.
+    // (Peso=P5 y Talla=P6: de aquí sale peso_talla_imc; leer las preguntas equivocadas fabrica cifras.)
     const a = input.answers ?? {};
     const val = (order: string): string | null => {
       const v = a[order]?.value;
@@ -147,21 +141,24 @@ class StubAIProvider implements AIProvider {
       : /^(mujer|feme|f$)/.test(sexoRaw) ? 'Femenino'
       : val('4') ? sentence(val('4')) : null;
     let edadSexo: DocField;
-    if (edadStr && sexo) edadSexo = derived(`${edadStr} / ${sexo}`);
+    // El sexo viene VERBATIM de P4 (no es derivado); la edad SÍ se deriva de P3 vs P10. La
+    // fuente lo refleja: compuesta cuando hay ambos, para no marcar como IA un dato del paciente.
+    if (edadStr && sexo) edadSexo = { valor: `${edadStr} / ${sexo}`, estado: 'ok', fuente: 'formulario:P4; derivado:IA (edad de P3-P10)' };
     else if (edadStr) edadSexo = derived(edadStr);
     else if (sexo) edadSexo = ok(sexo, 'formulario:P4');
     else edadSexo = noRep();
 
     // --- Peso / Talla / IMC (P5 kg, P6 cm) → combinado + IMC calculado ---
-    const pesoRaw = val('5');
-    const tallaRaw = val('6');
+    // parseNumeric normaliza la coma decimal en AMBOS (antes el peso salía verbatim con coma).
+    // Nota: enforceGuardrails vuelve a forzar este campo desde los datos reales; el stub lo
+    // arma bien igual para ser coherente con lo que persiste.
+    const pesoNum = parseNumeric(val('5') ?? '');
+    const tallaNum = parseNumeric(val('6') ?? '');
     let pesoTallaImc: DocField = noRep();
-    if (pesoRaw && tallaRaw) {
-      const cm = parseFloat(tallaRaw.replace(',', '.'));
-      const metros = !isNaN(cm) ? (cm > 3 ? cm / 100 : cm) : NaN;
-      const tallaStr = !isNaN(metros) ? `${metros.toFixed(2)} m` : tallaRaw;
+    if (pesoNum != null && tallaNum != null) {
+      const metros = tallaNum > 3 ? tallaNum / 100 : tallaNum;
       const imcStr = input.imc != null ? ` / ${input.imc.toFixed(1)} kg/m²` : '';
-      pesoTallaImc = derived(`${pesoRaw} kg / ${tallaStr}${imcStr}`, input.imc != null ? 'derivado:IA' : 'formulario:P5-6');
+      pesoTallaImc = derived(`${pesoNum} kg / ${metros.toFixed(2)} m${imcStr}`, input.imc != null ? 'derivado:IA' : 'formulario:P5-6');
     }
 
     // --- Fecha del procedimiento (P10) → formato dd-mm-aaaa ---
@@ -329,7 +326,14 @@ export const EXTRACTION_MODEL = 'claude-sonnet-5';
  * activa la lectura real de exámenes y el motor clínico; todo lo demás del sistema no cambia.
  */
 export function getAIProvider(): AIProvider {
-  const provider = process.env.AI_PROVIDER ?? 'stub';
+  // Fail-closed: en producción, AI_PROVIDER debe estar seteado explícitamente. Caer al stub por
+  // una env ausente/mal escrita produciría documentos con el motor de ejemplo sin que nadie lo
+  // note (CS2/CS5). En dev sí se permite el default 'stub' para trabajar sin key.
+  const raw = process.env.AI_PROVIDER;
+  if (!raw && process.env.NODE_ENV === 'production') {
+    throw new Error('AI_PROVIDER no está definido en producción. Setéalo a "anthropic" (o "stub" explícito en dev).');
+  }
+  const provider = raw ?? 'stub';
   switch (provider) {
     case 'anthropic': {
       if (!process.env.ANTHROPIC_API_KEY) {
@@ -340,8 +344,9 @@ export function getAIProvider(): AIProvider {
       return new AnthropicAIProvider();
     }
     case 'stub':
-    default:
       return new StubAIProvider();
+    default:
+      throw new Error(`AI_PROVIDER="${provider}" no reconocido. Usa "anthropic" o "stub".`);
   }
 }
 
