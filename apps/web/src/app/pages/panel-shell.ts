@@ -65,6 +65,7 @@ import { AuthService } from '../core/auth.service';
 
       <nav class="nav-pill">
         <a routerLink="/dashboard" routerLinkActive="on">Casos</a>
+        <a routerLink="/calendar" routerLinkActive="on" data-testid="nav-calendar">Calendario</a>
         <a routerLink="/cases/new" routerLinkActive="on" data-testid="nav-new-case">Nuevo caso</a>
         <a routerLink="/patients" routerLinkActive="on">Pacientes</a>
         <a routerLink="/directory" routerLinkActive="on">Directorio</a>

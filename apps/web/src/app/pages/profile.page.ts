@@ -24,6 +24,8 @@ import { ApiService } from '../core/api.service';
       padding:6px 12px; margin-right:10px; border-radius:7px; border:1px solid var(--border2);
       background:#fff; color:var(--text); cursor:pointer; transition:all 160ms; }
     input[type=file]::file-selector-button:hover { border-color:var(--primary); background:var(--it-50); }
+    .toggle-row { display:flex; align-items:center; gap:10px; font-size:14px; color:var(--text); cursor:pointer; }
+    .toggle-row input { width:18px; height:18px; cursor:pointer; }
   `],
   template: `
     <div class="page-head">
@@ -58,6 +60,19 @@ import { ApiService } from '../core/api.service';
     </div>
 
     <div class="card" style="margin-top:16px">
+      <div class="section-label">Recordatorio matutino</div>
+      <p class="page-sub" style="margin:2px 0 12px;">
+        Cada mañana (7:00, hora de Colombia) recibes un correo con tus cirugías de hoy y mañana,
+        resaltando las que son en menos de 48 horas y aún no están aprobadas. Está activado por defecto.
+      </p>
+      <label class="toggle-row">
+        <input type="checkbox" [checked]="reminderOn()" (change)="toggleReminder($event)" data-testid="profile-reminder-toggle" />
+        <span>Enviarme el recordatorio matutino de cirugías</span>
+      </label>
+      @if (reminderMsg()) { <span class="saved" style="display:block;margin-top:8px;">{{ reminderMsg() }}</span> }
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <div class="section-label">Branding</div>
       <div class="assets">
         <div class="asset">
@@ -84,12 +99,24 @@ export class ProfilePage implements OnInit {
   logoUrl = signal<string | null>(null);
   signatureUrl = signal<string | null>(null);
   savedMsg = signal('');
+  reminderOn = signal(true); // ON por defecto
+  reminderMsg = signal('');
 
   async ngOnInit() {
     const { profile } = await this.api.getProfile();
     this.p = { fullName: profile.fullName, specialty: profile.specialty ?? '', medicalRegistry: profile.medicalRegistry ?? '', footerText: profile.footerText ?? '' };
     this.logoUrl.set(profile.clinicLogoUrl ? `${profile.clinicLogoUrl}?t=${Date.now()}` : null);
     this.signatureUrl.set(profile.signatureUrl ? `${profile.signatureUrl}?t=${Date.now()}` : null);
+    this.reminderOn.set(!profile.dailyReminderOptOut);
+  }
+
+  async toggleReminder(ev: Event) {
+    const on = (ev.target as HTMLInputElement).checked;
+    this.reminderOn.set(on);
+    // optOut es el inverso del switch (switch ON = recibir = optOut false).
+    await this.api.updateProfile({ dailyReminderOptOut: !on });
+    this.reminderMsg.set(on ? '✔ Recordatorio activado' : '✔ Recordatorio desactivado');
+    setTimeout(() => this.reminderMsg.set(''), 2000);
   }
 
   async save() {

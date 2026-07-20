@@ -8,7 +8,7 @@ import { logger } from '../logger';
  */
 let boss: PgBoss | null = null;
 
-/** Colas del pipeline event-driven. */
+/** Colas del pipeline event-driven + el recordatorio matutino programado. */
 export const QUEUES = [
   'form.submitted',
   'lab.extract',
@@ -16,6 +16,7 @@ export const QUEUES = [
   'clinical.generate',
   'clinical.audit',
   'document.render',
+  'reminder.daily',
 ] as const;
 
 export async function getBoss(): Promise<PgBoss> {

@@ -1,10 +1,11 @@
 import { getBoss } from './index';
 import { logger } from '../logger';
-import { onLabExtract, onLabFlag, onClinicalGenerate, onClinicalAudit, onDocumentRender } from './handlers';
+import { onLabExtract, onLabFlag, onClinicalGenerate, onClinicalAudit, onDocumentRender, onDailyReminder } from './handlers';
 
 /**
  * Worker (npm run worker): arranca pg-boss y registra los handlers del pipeline COMPLETO.
  * form.submitted → lab.extract → lab.flag → clinical.generate → document.render → PENDIENTE_REVISION.
+ * Además programa el recordatorio matutino de cirugías (7am Colombia).
  */
 async function main() {
   const boss = await getBoss();
@@ -15,7 +16,12 @@ async function main() {
   await boss.work('clinical.audit', onClinicalAudit);
   await boss.work('document.render', onDocumentRender);
 
-  logger.info('worker_ready — pipeline completo hasta PENDIENTE_REVISION');
+  // Recordatorio matutino: cron 7:00 hora de Colombia. schedule() es idempotente por nombre
+  // de cola, así que reiniciar el worker no duplica la programación.
+  await boss.work('reminder.daily', onDailyReminder);
+  await boss.schedule('reminder.daily', '0 7 * * *', {}, { tz: 'America/Bogota' });
+
+  logger.info('worker_ready — pipeline + recordatorio matutino (7am America/Bogota)');
   process.stdin.resume();
 }
 

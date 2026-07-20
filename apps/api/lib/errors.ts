@@ -3,6 +3,7 @@ import { ZodError } from 'zod';
 import { logger } from './logger';
 import { SessionError } from './auth/session-helper';
 import { ApprovedLockError } from './services/approval.service';
+import { NoteOwnershipError } from './services/note.service';
 
 /**
  * Manejador global fail-closed (SECURITY-15). Envuelve handlers de rutas:
@@ -27,6 +28,10 @@ export function apiHandler<T extends unknown[]>(
       }
       if (err instanceof ApprovedLockError) {
         return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      // Nota sobre paciente ajeno: mismo 404 genérico, no revela existencia.
+      if (err instanceof NoteOwnershipError) {
+        return NextResponse.json({ error: 'No encontrado.' }, { status: 404 });
       }
       logger.error({ err: err instanceof Error ? err.message : 'unknown' }, 'unhandled_api_error');
       return NextResponse.json(

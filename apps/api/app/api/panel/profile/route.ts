@@ -15,6 +15,7 @@ const updateSchema = z.object({
   specialty: z.string().max(120).optional(),
   medicalRegistry: z.string().max(60).optional(),
   footerText: z.string().max(300).optional(),
+  dailyReminderOptOut: z.boolean().optional(),
 });
 
 export const PATCH = apiHandler(async (req: NextRequest) => {

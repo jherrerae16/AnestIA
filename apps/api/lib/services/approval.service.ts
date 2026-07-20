@@ -6,6 +6,7 @@ import { logAudit } from '../audit';
 import { brandingDataUri } from '../pdf/branding';
 import { filenameFromKey, isViewableInline, mimeFor } from '../mime';
 import { auditForCase } from './audit-clinical.service';
+import { getNoteForCase } from './note.service';
 import {
   canApprove,
   applyExamNormal,
@@ -72,6 +73,9 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
   });
   if (!kase) return null;
   const fields = (kase.assessment?.fields as DocumentJSON) ?? null;
+  // Nota privada del médico sobre este paciente: se muestra "sola" en la pantalla del caso.
+  // Nunca entra al PDF ni a la distribución — sólo viaja a la UI de revisión.
+  const patientNote = await getNoteForCase(anesthesiologistId, kase.patientId);
   return {
     caseId,
     status: kase.status,
@@ -119,6 +123,10 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
       uploadedAt: a.createdAt.toISOString(),
     })),
     approved: Boolean(kase.approval),
+    // Fecha de cirugía (P10) para el botón "Añadir a mi calendario". Null = sin fecha aún.
+    procedureDate: kase.procedureDate ? kase.procedureDate.toISOString() : null,
+    // Nota privada del médico (o null). Aparece sola en la pantalla del caso; nunca en el PDF.
+    patientNote,
     patient: kase.patient ? patientSummary(kase.patient) : null,
     // Reporte del auditor independiente (hallazgos para el anestesiólogo).
     audit: kase.assessment?.auditReport ?? null,

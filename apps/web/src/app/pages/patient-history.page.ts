@@ -41,6 +41,19 @@ import { ApiService } from '../core/api.service';
     .case-row:last-child { border-bottom: none; }
     .case-proc { font-size: 13px; color: var(--text); flex: 1; }
     .case-status { font-size: 12px; color: var(--muted); }
+
+    /* Notas privadas del médico. Fondo distinto para que se lean como "libreta aparte". */
+    .notes-block { margin-top: 18px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px; }
+    .notes-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .notes-title { font-size: 13px; font-weight: 600; color: var(--text); }
+    .notes-badge { font-size: 11px; font-weight: 600; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 100px; padding: 2px 9px; }
+    .notes-hint { font-size: 11.5px; color: #92400e; margin: 0 0 8px; }
+    .notes-ta { width: 100%; min-height: 90px; padding: 9px 11px; border: 1px solid #fcd34d; border-radius: 8px; font-family: var(--font-body); font-size: 13px; color: var(--text); resize: vertical; outline: none; background: #fff; }
+    .notes-ta:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(11,92,107,.12); }
+    .notes-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .notes-saved { font-size: 12px; color: var(--green); font-weight: 600; }
+    .notes-add-btn { font-size: 12px; color: var(--primary); background: none; border: none; cursor: pointer; padding: 0; }
+    .notes-add-btn:hover { text-decoration: underline; }
   `],
   template: `
     <div class="wrap">
@@ -128,6 +141,28 @@ import { ApiService } from '../core/api.service';
               }
             </div>
           }
+
+          <!-- Notas privadas: la sección sólo existe cuando hay contenido o el médico abre a escribir. -->
+          @if (noteVisible()) {
+            <div class="notes-block" data-testid="patient-notes">
+              <div class="notes-head">
+                <span class="notes-title">Notas privadas</span>
+                <span class="notes-badge">🔒 solo tú ves esto</span>
+              </div>
+              <p class="notes-hint">Tu libreta personal. No entra al documento, ni se comparte, ni la ve el paciente.</p>
+              <textarea class="notes-ta" [(ngModel)]="noteContent"
+                placeholder="Ej: vía difícil — usar videolaringoscopio; prefiere menos midazolam…"
+                data-testid="patient-notes-input"></textarea>
+              <div class="notes-actions">
+                <button class="btn btn-primary btn-sm" (click)="saveNote()" [disabled]="savingNote()" data-testid="patient-notes-save">
+                  {{ savingNote() ? 'Guardando…' : 'Guardar nota' }}
+                </button>
+                @if (noteSavedMsg()) { <span class="notes-saved">{{ noteSavedMsg() }}</span> }
+              </div>
+            </div>
+          } @else {
+            <button class="notes-add-btn" (click)="startNote()" data-testid="patient-notes-add">+ Añadir nota privada</button>
+          }
         }
       </div>
     </div>
@@ -138,11 +173,69 @@ export class PatientHistoryPage {
   q = '';
   results = signal<any[]>([]);
   selected = signal<any>(null);
+
+  // Notas privadas
+  noteContent = '';
+  private hasNote = signal(false);   // hay nota guardada
+  private editingNote = signal(false); // el médico abrió a escribir aunque no hubiera nota
+  savingNote = signal(false);
+  noteSavedMsg = signal('');
+  /** La sección de nota sólo aparece si hay nota o si el médico la abrió. */
+  noteVisible = () => this.hasNote() || this.editingNote();
+
   async search() {
     if (this.q.length < 2) { this.results.set([]); return; }
     this.results.set((await this.api.searchPatients(this.q)).patients);
   }
-  async open(id: string) { this.selected.set((await this.api.getPatient(id)).patient); }
+
+  async open(id: string) {
+    this.selected.set((await this.api.getPatient(id)).patient);
+    // Reset y carga de la nota del paciente seleccionado.
+    this.noteContent = '';
+    this.hasNote.set(false);
+    this.editingNote.set(false);
+    this.noteSavedMsg.set('');
+    const { note } = await this.api.getPatientNote(id);
+    if (note) {
+      this.noteContent = note.content;
+      this.hasNote.set(true);
+    }
+  }
+
+  /** Abre el editor de nota cuando aún no hay ninguna. */
+  startNote() {
+    this.editingNote.set(true);
+  }
+
+  async saveNote() {
+    const patientId = this.selected()?.id;
+    if (!patientId) return;
+    const content = this.noteContent.trim();
+
+    // Vaciar una nota existente = borrarla: confirmar antes (no borrado silencioso).
+    if (content.length === 0) {
+      if (this.hasNote()) {
+        const ok = confirm('¿Borrar la nota privada de este paciente? No se puede deshacer.');
+        if (!ok) return;
+      } else {
+        // Nada que guardar ni borrar: sólo cerrar el editor.
+        this.editingNote.set(false);
+        return;
+      }
+    }
+
+    this.savingNote.set(true);
+    try {
+      const { note } = await this.api.savePatientNote(patientId, content);
+      this.hasNote.set(!!note);
+      this.editingNote.set(false);
+      this.noteContent = note?.content ?? '';
+      this.noteSavedMsg.set(note ? '✔ Nota guardada' : '✔ Nota eliminada');
+      setTimeout(() => this.noteSavedMsg.set(''), 2000);
+    } finally {
+      this.savingNote.set(false);
+    }
+  }
 
   /** "54 años / Masculino". Omite lo que el paciente no reportó — nunca lo rellena (CS2). */
   edadSexo(p: { birthDate?: string | null; sex?: string | null }): string {

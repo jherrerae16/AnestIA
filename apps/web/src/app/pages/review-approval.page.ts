@@ -1,8 +1,10 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../core/api.service';
+import { addToCalendar } from '../core/add-to-calendar';
 
 const SECTION_LABELS: Record<string, string> = {
   paciente: 'Paciente', documento: 'Documento', edad: 'Edad', sexo: 'Sexo',
@@ -18,10 +20,16 @@ const SECTION_LABELS: Record<string, string> = {
   concepto: 'Concepto anestésico', plan: 'Plan anestésico', recomendaciones: 'Recomendaciones',
 };
 
+/** Preferencia de colapso del banner de notas — expandido por defecto. */
+const NOTE_COLLAPSED_KEY = 'anestia.caseNoteCollapsed';
+function readNoteCollapsedPref(): boolean {
+  try { return localStorage.getItem(NOTE_COLLAPSED_KEY) === '1'; } catch { return false; }
+}
+
 @Component({
   selector: 'app-review-approval',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
   styles: [`
     .page-head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; gap:16px; flex-wrap:wrap; }
     .page-head h2 { font-size:22px; }
@@ -94,13 +102,26 @@ const SECTION_LABELS: Record<string, string> = {
     .pdf-name { font-size:13px; color:var(--text); font-weight:500; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .pdf-tag { font-size:11px; color:var(--muted); font-family:var(--font-mono); }
     .comp-hint { font-size:11.5px; color:var(--muted2); margin:0; }
+
+    /* Banner de notas privadas — aparece solo arriba del caso cuando el paciente tiene notas. */
+    .note-banner { background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px 16px; margin-bottom:16px; }
+    .note-banner-head { display:flex; align-items:center; gap:8px; }
+    .note-banner-title { font-size:13px; font-weight:600; color:var(--text); }
+    .note-banner-badge { font-size:11px; font-weight:600; color:#92400e; background:#fef3c7; border:1px solid #fde68a; border-radius:100px; padding:2px 9px; }
+    .note-banner-toggle { margin-left:auto; font-size:12px; color:#92400e; background:none; border:none; cursor:pointer; padding:0; }
+    .note-banner-toggle:hover { text-decoration:underline; }
+    .note-banner-body { font-size:13px; color:var(--text); margin-top:8px; white-space:pre-wrap; overflow-wrap:anywhere; }
   `],
   template: `
     @if (loading()) { <div class="empty">Cargando…</div> }
 
     @else if (approved()) {
+      <ng-container [ngTemplateOutlet]="noteBanner" />
       <div class="page-head">
         <div><h2>Caso aprobado</h2><p>El documento final está firmado. Puedes reabrirlo para corregir un error.</p></div>
+        @if (procedureDate()) {
+          <button class="btn btn-sm" (click)="addToMyCalendar()" data-testid="review-add-calendar">📅 Añadir a mi calendario</button>
+        }
         <button class="btn btn-sm" (click)="reopen()" [disabled]="reopening()" data-testid="review-reopen-button">
           {{ reopening() ? 'Reabriendo…' : '↺ Reabrir para corregir' }}
         </button>
@@ -180,11 +201,17 @@ const SECTION_LABELS: Record<string, string> = {
     }
 
     @else {
+      <ng-container [ngTemplateOutlet]="noteBanner" />
       <div class="page-head">
         <div><h2>Revisión de valoración</h2><p>Verifica los datos antes de aprobar y firmar.</p></div>
-        <button class="btn btn-sm" (click)="togglePreview()" data-testid="review-preview-button">
-          {{ showPreview() ? 'Ocultar documento' : 'Previsualizar documento' }}
-        </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          @if (procedureDate()) {
+            <button class="btn btn-sm" (click)="addToMyCalendar()" data-testid="review-add-calendar">📅 Añadir a mi calendario</button>
+          }
+          <button class="btn btn-sm" (click)="togglePreview()" data-testid="review-preview-button">
+            {{ showPreview() ? 'Ocultar documento' : 'Previsualizar documento' }}
+          </button>
+        </div>
       </div>
 
       @if (showPreview()) {
@@ -341,6 +368,25 @@ const SECTION_LABELS: Record<string, string> = {
         </div>
       </div>
     }
+
+    <!-- Nota privada del médico sobre este paciente. Aparece sola (no hay que buscarla): arranca
+         expandida; el médico puede colapsarla y la preferencia se recuerda en localStorage. -->
+    <ng-template #noteBanner>
+      @if (patientNote(); as note) {
+        <div class="note-banner" data-testid="case-note-banner">
+          <div class="note-banner-head">
+            <span class="note-banner-title">Notas privadas de este paciente</span>
+            <span class="note-banner-badge">🔒 solo tú ves esto</span>
+            <button class="note-banner-toggle" (click)="toggleNote()" data-testid="case-note-toggle">
+              {{ noteCollapsed() ? 'Mostrar' : 'Ocultar' }}
+            </button>
+          </div>
+          @if (!noteCollapsed()) {
+            <div class="note-banner-body" data-testid="case-note-body">{{ note.content }}</div>
+          }
+        </div>
+      }
+    </ng-template>
   `,
 })
 export class ReviewApprovalPage implements OnInit {
@@ -366,6 +412,12 @@ export class ReviewApprovalPage implements OnInit {
   editValue = signal('');
   savingEdit = signal(false);
   reopening = signal(false);
+  /** Fecha de cirugía (P10). Habilita el botón "Añadir a mi calendario". */
+  procedureDate = signal<string | null>(null);
+  /** Nota privada del médico sobre este paciente (o null). Aparece sola en el caso. */
+  patientNote = signal<{ content: string; updatedAt: string } | null>(null);
+  /** Estado colapsado del banner de nota. Arranca expandido; se recuerda en localStorage. */
+  noteCollapsed = signal<boolean>(readNoteCollapsedPref());
   /** Hallazgos del auditor independiente, ordenados por severidad. */
   auditFindings = signal<{ level: string; category: string; message: string; field?: string }[]>([]);
   contacts = signal<any[]>([]);
@@ -416,6 +468,8 @@ export class ReviewApprovalPage implements OnInit {
     this.attachments.set(r.attachments ?? []);
     this.check.set(r.canApprove);
     this.patient.set(r.patient ?? null);
+    this.procedureDate.set(r.procedureDate ?? null);
+    this.patientNote.set(r.patientNote ?? null);
     // Hallazgos del auditor: primero lo más severo.
     const order: Record<string, number> = { bloqueante: 0, advertencia: 1, informativo: 2 };
     const findings = (r.audit?.findings ?? []) as { level: string; category: string; message: string }[];
@@ -427,6 +481,18 @@ export class ReviewApprovalPage implements OnInit {
       this.sendToPatient.set(Boolean(r.patient?.email)); // por defecto, marcar al paciente si tiene correo
       this.loadPreview(); // muestra el documento final automáticamente
     }
+  }
+
+  /** Añade la cirugía al calendario del dispositivo (un tap; el .ics abre la app nativa). */
+  addToMyCalendar() {
+    addToCalendar(this.api.calendarIcsUrl(this.caseId));
+  }
+
+  /** Colapsa/expande el banner de nota y recuerda la preferencia. */
+  toggleNote() {
+    const next = !this.noteCollapsed();
+    this.noteCollapsed.set(next);
+    try { localStorage.setItem(NOTE_COLLAPSED_KEY, next ? '1' : '0'); } catch { /* almacenamiento no disponible */ }
   }
 
   /** Abre/cierra el visor del examen original adjunto (PDF o imagen). */
