@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { bogotaDateStamp, bogotaISODate, bogotaDayRange, bogotaParts } from './tz';
+import { bogotaDateStamp, bogotaISODate, bogotaDayRange, bogotaParts, pureDateISO, pureDateStamp, pureDayUTC } from './tz';
 
 /**
  * Colombia es UTC-5 fijo (sin DST). Lo crítico: una cirugía guardada a las 00:00Z del día 22
@@ -35,5 +35,25 @@ describe('tz — hora de Bogotá (UTC-5)', () => {
     const { from, to } = bogotaDayRange(new Date('2026-07-22T15:00:00Z'), 2);
     expect(from.toISOString()).toBe('2026-07-22T05:00:00.000Z');
     expect(to.toISOString()).toBe('2026-07-24T05:00:00.000Z');
+  });
+});
+
+describe('fecha pura (procedureDate all-day) — NO se corre por zona', () => {
+  it('cirugía guardada a medianoche UTC del 1 sept sale como el 1, no el 31', () => {
+    const surgery = new Date('2026-09-01T00:00:00Z'); // así la guarda new Date('2026-09-01')
+    expect(pureDateISO(surgery)).toBe('2026-09-01');
+    expect(pureDateStamp(surgery)).toBe('20260901');
+  });
+
+  it('pureDayUTC arma límites de día UTC para el where del rango', () => {
+    const d = new Date('2026-09-01T00:00:00Z');
+    expect(pureDayUTC(d, 0).toISOString()).toBe('2026-09-01T00:00:00.000Z');
+    expect(pureDayUTC(d, 1).toISOString()).toBe('2026-09-02T00:00:00.000Z');
+  });
+
+  it('contraste: bogotaISODate SÍ correría la fecha pura (por eso NO se usa para cirugías)', () => {
+    const surgery = new Date('2026-09-01T00:00:00Z');
+    expect(bogotaISODate(surgery)).toBe('2026-08-31'); // corrido — el bug que evitamos
+    expect(pureDateISO(surgery)).toBe('2026-09-01');   // correcto
   });
 });

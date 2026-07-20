@@ -34,6 +34,25 @@ export function bogotaISODate(instant: Date): string {
 }
 
 /**
+ * La fecha de cirugía (procedureDate) es una FECHA PURA (día natural, sin hora real): se
+ * guarda como `new Date('YYYY-MM-DD')` = medianoche UTC. Por eso se lee por sus componentes
+ * UTC, NO desplazada a Bogotá — desplazarla la correría un día (la cirugía del 1 saldría el 31).
+ */
+export function pureDateISO(d: Date): string {
+  return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+}
+
+/** Igual que pureDateISO pero compacto YYYYMMDD (para DTSTART;VALUE=DATE del ICS). */
+export function pureDateStamp(d: Date): string {
+  return `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}`;
+}
+
+/** Medianoche UTC del día natural `daysOffset` a partir de una fecha pura (para rangos de where). */
+export function pureDayUTC(anchor: Date, daysOffset = 0): Date {
+  return new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth(), anchor.getUTCDate() + daysOffset));
+}
+
+/**
  * Instante UTC correspondiente a la medianoche (00:00) de un día de Bogotá.
  * `daysOffset` desplaza el día (0 = ese mismo día, 1 = el siguiente).
  * Con esto se arma el `where` de Prisma sobre `procedureDate` sin confusiones de zona.
