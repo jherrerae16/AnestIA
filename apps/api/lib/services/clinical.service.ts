@@ -9,6 +9,7 @@ import {
   documentSchema,
   detectGLP1,
   groupLabsToProse,
+  parseNumeric,
   PROMPT_MAESTRO_VERSION,
   type DocField,
   type FormAnswers,
@@ -33,13 +34,20 @@ export async function assembleInput(caseId: string): Promise<ClinicalInput> {
   const p15 = answers['15']?.value;
   const glp1 = detectGLP1(typeof p15 === 'string' ? p15 : Array.isArray(p15) ? p15.join(' ') : '');
 
-  const peso = Number(answers['5']?.value);
-  const talla = Number(answers['6']?.value);
-  const imc = isFinite(peso) && isFinite(talla) ? computeIMC(peso, talla) : null;
+  // parseNumeric normaliza la coma decimal ("78,5"→78.5) — un paciente que teclea coma no
+  // debe hacer que el IMC se caiga en silencio (C-3). Un solo helper compartido para todos
+  // los sitios de lectura de peso/talla.
+  const peso = answers['5']?.value != null ? parseNumeric(answers['5'].value as string | number) : null;
+  const talla = answers['6']?.value != null ? parseNumeric(answers['6'].value as string | number) : null;
+  const pesoKg = peso != null && peso > 0 ? peso : null;
+  const tallaCm = talla != null && talla > 0 ? talla : null;
+  const imc = pesoKg != null && tallaCm != null ? computeIMC(pesoKg, tallaCm) : null;
 
   return {
     caseId,
     answers,
+    pesoKg,
+    tallaCm,
     labs: labs.map((l) => ({
       analyte: l.analyte,
       value: l.value,
@@ -100,8 +108,9 @@ export async function generateForCase(caseId: string): Promise<void> {
   // Validación de contrato (rechaza malformado / campos prohibidos) — CS5.
   const parsed = documentSchema.parse(withParaclinicos);
 
-  // Guardarraíles (segunda línea) — CS2/CS3/CS4.
-  const doc = enforceGuardrails(parsed, input.imc ?? null);
+  // Guardarraíles (segunda línea) — CS2/CS3/CS4. peso/talla/IMC se fuerzan a los datos reales
+  // del paciente: el modelo no decide esos números (evita el 71/188 fabricado sobre 78/193).
+  const doc = enforceGuardrails(parsed, { imc: input.imc ?? null, pesoKg: input.pesoKg, tallaCm: input.tallaCm });
 
   // Trazabilidad: la etiqueta la da el propio adaptador (un solo punto de verdad).
   const modelUsed = activeModelLabel();

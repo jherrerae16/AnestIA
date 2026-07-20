@@ -37,8 +37,12 @@ interface Section {
 
 /**
  * Secciones del formulario preanestésico (piloto "Preanestésica general").
- * Agrupan preguntas por `order`; si el preset cambia, las preguntas fuera de
- * rango caen en "Otros datos".
+ * Agrupan preguntas por `order`. Cubren los 26 órdenes del preset base.
+ *
+ * TODO (C-2 / bloqueado por el editor de cuestionarios, C-6): NO hay catch-all "Otros datos".
+ * Una pregunta con `order` fuera de todo rango (p. ej. 27+ de un preset custom) se omite
+ * silenciosamente del formulario. Al implementar presets editables, agregar una sección
+ * catch-all que recoja los órdenes no cubiertos, o derivar los rangos del propio preset.
  */
 const SECTIONS: Section[] = [
   { title: 'Información personal', icon: '👤', from: 1, to: 6 },

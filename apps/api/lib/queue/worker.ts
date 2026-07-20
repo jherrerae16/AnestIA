@@ -1,6 +1,7 @@
 import { getBoss } from './index';
 import { logger } from '../logger';
 import { onLabExtract, onLabFlag, onClinicalGenerate, onClinicalAudit, onDocumentRender, onDailyReminder } from './handlers';
+import { reconcileStuckCases } from '../services/reconciler.service';
 
 /**
  * Worker (npm run worker): arranca pg-boss y registra los handlers del pipeline COMPLETO.
@@ -21,7 +22,13 @@ async function main() {
   await boss.work('reminder.daily', onDailyReminder);
   await boss.schedule('reminder.daily', '0 7 * * *', {}, { tz: 'America/Bogota' });
 
-  logger.info('worker_ready — pipeline + recordatorio matutino (7am America/Bogota)');
+  // Reconciliador (C-1): al arrancar, re-emite form.submitted para casos enviados que se
+  // quedaron sin pipeline (p. ej. un publish falló tras el commit). Idempotente.
+  await reconcileStuckCases().catch((err) =>
+    logger.error({ err: err instanceof Error ? err.message : 'unknown' }, 'reconciler_boot_failed'),
+  );
+
+  logger.info('worker_ready — pipeline + recordatorio matutino (7am America/Bogota) + reconciliador');
   process.stdin.resume();
 }
 
