@@ -1,3 +1,4 @@
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { publish } from '../queue';
 import { logAudit } from '../audit';
@@ -58,7 +59,7 @@ export async function savePartial(caseId: string, rawAnswers: unknown): Promise<
     update: { answers: answers as never, partial: true },
     create: { caseId, answers: answers as never, partial: true },
   });
-  await prisma.case.update({ where: { id: caseId }, data: { status: 'RESPONDIENDO' } });
+  await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.RESPONDIENDO } });
 }
 
 /** Primer valor de una respuesta como texto plano, o null si no hay. */
@@ -148,7 +149,7 @@ export async function submitForm(caseId: string, rawAnswers: unknown): Promise<{
     await tx.case.update({
       where: { id: caseId },
       data: {
-        status: 'RESPUESTAS_RECIBIDAS',
+        status: CaseStatus.RESPUESTAS_RECIBIDAS,
         ...(patientId ? { patientId } : {}),
         ...procedureFromAnswers(answers, kase),
       },
@@ -159,11 +160,10 @@ export async function submitForm(caseId: string, rawAnswers: unknown): Promise<{
 
   // Emitir el evento del pipeline DESPUÉS del commit.
   //
-  // PENDIENTE (riesgo conocido): si el publish falla, el caso queda en RESPUESTAS_RECIBIDAS
-  // con datos completos pero el pipeline nunca arranca, y `submittedAt` impide que un
-  // reenvío del paciente lo re-emita. Hoy sólo se recupera re-publicando a mano. Falta un
-  // reconciliador que, al arrancar el worker, busque los casos con formResponse.submittedAt
-  // y sin assessment, y les re-emita `form.submitted`.
+  // Si el publish falla, el caso queda en RESPUESTAS_RECIBIDAS con datos completos pero el
+  // pipeline no arranca, y `submittedAt` impide un re-envío del paciente. Red de seguridad:
+  // el reconciliador (reconciler.service.ts) corre al arrancar el worker, detecta estos casos
+  // (enviados, sin assessment, en estado intermedio) y les re-emite `form.submitted`.
   try {
     await publish('form.submitted', { caseId });
   } catch (err) {

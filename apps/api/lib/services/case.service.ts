@@ -1,3 +1,4 @@
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { generateCaseToken } from '../auth/token';
 import { logAudit } from '../audit';
@@ -19,7 +20,7 @@ export async function createCase(
       procedure: input.procedure,
       linkToken,
       linkExpiresAt,
-      status: 'ENVIADO_AL_PACIENTE',
+      status: CaseStatus.ENVIADO_AL_PACIENTE,
     },
   });
 

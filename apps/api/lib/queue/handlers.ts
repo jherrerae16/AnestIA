@@ -1,3 +1,4 @@
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { publish } from './index';
 import { logger } from '../logger';
@@ -42,7 +43,7 @@ export async function onLabExtract(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
     await runStage(caseId, 'lab.extract', () => extractForCase(caseId));
-    await prisma.case.update({ where: { id: caseId }, data: { status: 'LABS_ANALIZADOS' } }).catch(() => {});
+    await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.LABS_ANALIZADOS } }).catch(() => {});
     await logAudit({ action: 'lab.extracted', entity: 'Case', entityId: caseId });
     logger.info({ caseId }, 'lab_extract_done');
     await publish('lab.flag', { caseId });
@@ -68,7 +69,7 @@ export async function onClinicalGenerate(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
     await runStage(caseId, 'clinical.generate', () => generateForCase(caseId));
-    await prisma.case.update({ where: { id: caseId }, data: { status: 'BORRADOR_GENERADO' } }).catch(() => {});
+    await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.BORRADOR_GENERADO } }).catch(() => {});
     logger.info({ caseId }, 'clinical_generate_done');
     // Eslabón nuevo: auditor independiente antes de renderizar (generador + crítico).
     await publish('clinical.audit', { caseId });
@@ -98,7 +99,7 @@ export async function onDocumentRender(jobs: Job[]): Promise<void> {
     const { caseId } = job.data;
     const fecha = new Date().toLocaleDateString('es-CO');
     await runStage(caseId, 'document.render', () => renderDraftForCase(caseId, fecha));
-    await prisma.case.update({ where: { id: caseId }, data: { status: 'PENDIENTE_REVISION' } }).catch(() => {});
+    await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.PENDIENTE_REVISION } }).catch(() => {});
     logger.info({ caseId }, 'document_render_done');
   }
 }

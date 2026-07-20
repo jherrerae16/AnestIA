@@ -1,3 +1,4 @@
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
@@ -69,7 +70,7 @@ export async function previewPdfForCase(
   };
 
   // Borrador salvo que el caso ya esté aprobado/entregado (documento final).
-  const isFinal = kase.status === 'APROBADO' || kase.status === 'ENTREGADO';
+  const isFinal = kase.status === CaseStatus.APROBADO || kase.status === CaseStatus.ENTREGADO;
   const opts = { draft: !isFinal, fechaValoracion: new Date().toLocaleDateString('es-CO') };
   const html = buildDocumentHtml(assessment.fields as DocumentJSON, branding, opts);
   const pdf = await renderPdf(html, buildFooterTemplate(branding, opts));

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { getMailer } from '../mailer';
 import { getStorageProvider } from '../storage';
@@ -97,7 +98,7 @@ export async function distribute(
     deliveries.push({ contactId: `patient:${kase.patient.id}`, token, url });
   }
 
-  await prisma.case.update({ where: { id: caseId }, data: { status: 'ENTREGADO' } });
+  await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.ENTREGADO } });
   await logAudit({ action: 'document.delivered', entity: 'Case', entityId: caseId, meta: { count: deliveries.length, channel } });
   return { ok: true, deliveries };
 }

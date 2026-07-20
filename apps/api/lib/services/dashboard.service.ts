@@ -1,3 +1,4 @@
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 
 /**
@@ -28,7 +29,7 @@ export async function listCases(
   const pendientes = cases.filter((c) => c.patientId == null);
 
   const indicadores = {
-    pendienteRevision: reales.filter((c) => c.status === 'PENDIENTE_REVISION').length,
+    pendienteRevision: reales.filter((c) => c.status === CaseStatus.PENDIENTE_REVISION).length,
     conAlertas: reales.filter((c) => c.labResults.length > 0).length,
     total: reales.length,
     enlacesPendientes: pendientes.length,

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
@@ -240,7 +241,7 @@ export async function approve(caseId: string, anesthesiologistId: string): Promi
     prisma.approvalRecord.create({
       data: { caseId, approvedById: anesthesiologistId, lockedPdfUrl: key, edits: { hash, snapshot: fields } as never },
     }),
-    prisma.case.update({ where: { id: caseId }, data: { status: 'APROBADO' } }),
+    prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.APROBADO } }),
   ]);
 
   await logAudit({ action: 'assessment.approved', entity: 'Case', entityId: caseId, meta: { hash, lockedPdfUrl: key } });
@@ -260,7 +261,7 @@ export async function reject(caseId: string, anesthesiologistId: string, reason:
   await prisma.$transaction([
     prisma.generatedAssessment.deleteMany({ where: { caseId } }),
     prisma.extractedLabResult.deleteMany({ where: { caseId } }),
-    prisma.case.update({ where: { id: caseId }, data: { status: 'RESPONDIENDO' } }),
+    prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.RESPONDIENDO } }),
     prisma.formResponse.updateMany({ where: { caseId }, data: { partial: true, submittedAt: null } }),
   ]);
 
@@ -300,7 +301,7 @@ export async function reopenApproved(
   await prisma.$transaction([
     prisma.deliveryRecord.deleteMany({ where: { caseId } }),
     prisma.approvalRecord.delete({ where: { id: prev.id } }),
-    prisma.case.update({ where: { id: caseId }, data: { status: 'PENDIENTE_REVISION' } }),
+    prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.PENDIENTE_REVISION } }),
   ]);
 
   return true;

@@ -35,4 +35,30 @@ describe('documentSchema — round-trip (PBT-02)', () => {
     });
     expect(doc.examen_fisico.signos_vitales?.estado).toBe('pendiente_examen');
   });
+
+  describe('CS5 — claves restringidas por sección (A-A3)', () => {
+    const emptyDoc = { identificacion: {}, antecedentes: {}, paraclinicos: {}, examen_fisico: {}, valoracion_plan: {} };
+    const field = { valor: 'X', estado: 'ok' as const, fuente: 'llm' };
+
+    it('acepta las claves canónicas de identificacion (incluida imc)', () => {
+      const r = documentSchema.safeParse({ ...emptyDoc, identificacion: { paciente: field, imc: field, asa: field } });
+      expect(r.success).toBe(true);
+    });
+
+    it('RECHAZA una clave prohibida en identificacion', () => {
+      const r = documentSchema.safeParse({ ...emptyDoc, identificacion: { campo_inventado: field } });
+      expect(r.success).toBe(false);
+    });
+
+    it('RECHAZA una clave prohibida en antecedentes / examen_fisico / valoracion_plan', () => {
+      expect(documentSchema.safeParse({ ...emptyDoc, antecedentes: { x_raro: field } }).success).toBe(false);
+      expect(documentSchema.safeParse({ ...emptyDoc, examen_fisico: { x_raro: field } }).success).toBe(false);
+      expect(documentSchema.safeParse({ ...emptyDoc, valoracion_plan: { x_raro: field } }).success).toBe(false);
+    });
+
+    it('paraclinicos SÍ acepta claves dinámicas (tipos de estudio)', () => {
+      const r = documentSchema.safeParse({ ...emptyDoc, paraclinicos: { hemograma: field, coagulacion: field } });
+      expect(r.success).toBe(true);
+    });
+  });
 });

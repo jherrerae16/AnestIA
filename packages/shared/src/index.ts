@@ -13,3 +13,4 @@ export * from './distribution';
 export * from './medical-terms';
 export * from './format';
 export * from './auditor';
+export * from './case-status';
