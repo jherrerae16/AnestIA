@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { computeIMC, enforceGuardrails, EXAM_FIELDS } from './clinical';
+import { computeIMC, enforceGuardrails, pesoTallaImcText, EXAM_FIELDS } from './clinical';
 import type { DocumentJSON } from './document';
 
 describe('computeIMC — oracle + invariantes (PBT)', () => {
@@ -76,5 +76,42 @@ describe('enforceGuardrails — CS2/CS3/CS4 (PBT invariant)', () => {
     };
     const out = enforceGuardrails(doc, null);
     expect(out.identificacion['edad']?.valor).toBeNull();
+  });
+
+  it('CS2: peso_talla_imc se fuerza a los datos reales; el 71/188 fabricado del modelo se descarta', () => {
+    // El modelo devolvió peso/talla equivocados (71 kg / 1.88 m). El paciente puso 78/193.
+    const doc: DocumentJSON = {
+      identificacion: { peso_talla_imc: { valor: '71 kg / 1.88 m / 20.1 kg/m²', estado: 'ok', fuente: 'llm' } },
+      antecedentes: {}, paraclinicos: {}, examen_fisico: {}, valoracion_plan: {},
+    };
+    const out = enforceGuardrails(doc, { imc: computeIMC(78, 193), pesoKg: 78, tallaCm: 193 });
+    expect(out.identificacion['peso_talla_imc']?.valor).toBe('78 kg / 1.93 m / 20.9 kg/m²');
+    expect(out.identificacion['peso_talla_imc']?.fuente).toBe('paciente; sistema:calculo');
+    // El 71 y el 1.88 fabricados no sobreviven.
+    expect(out.identificacion['peso_talla_imc']?.valor).not.toContain('71');
+    expect(out.identificacion['peso_talla_imc']?.valor).not.toContain('1.88');
+  });
+
+  it('CS2: sin peso/talla reales, peso_talla_imc queda no_reportado (no se inventa)', () => {
+    const doc: DocumentJSON = {
+      identificacion: { peso_talla_imc: { valor: '90 kg / 1.80 m / 27.8 kg/m²', estado: 'ok', fuente: 'llm' } },
+      antecedentes: {}, paraclinicos: {}, examen_fisico: {}, valoracion_plan: {},
+    };
+    const out = enforceGuardrails(doc, { imc: null, pesoKg: null, tallaCm: null });
+    expect(out.identificacion['peso_talla_imc']?.valor).toBeNull();
+    expect(out.identificacion['peso_talla_imc']?.estado).toBe('no_reportado');
+  });
+});
+
+describe('pesoTallaImcText', () => {
+  it('arma el texto con talla en metros y IMC', () => {
+    expect(pesoTallaImcText(78, 193, 20.9)).toBe('78 kg / 1.93 m / 20.9 kg/m²');
+  });
+  it('sin IMC omite ese tramo', () => {
+    expect(pesoTallaImcText(80, 175, null)).toBe('80 kg / 1.75 m');
+  });
+  it('datos faltantes o inválidos → null', () => {
+    expect(pesoTallaImcText(null, 180, 25)).toBeNull();
+    expect(pesoTallaImcText(70, 0, 25)).toBeNull();
   });
 });

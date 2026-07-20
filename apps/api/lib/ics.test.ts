@@ -6,16 +6,18 @@ const base: SurgeryEvent = {
   patientName: 'Juan Pérez',
   procedure: 'Colecistectomía',
   insurer: 'Sura',
-  date: new Date('2026-07-22T12:00:00Z'), // 07:00 Bogotá → día 22
+  // procedureDate se guarda como fecha pura (medianoche UTC del día natural).
+  date: new Date('2026-07-22T00:00:00Z'),
   caseUrl: 'https://anestia.test/cases/c123/review',
   now: new Date('2026-07-20T13:00:00Z'),
 };
 
 describe('buildSurgeryIcs', () => {
-  it('genera un VEVENT all-day con la fecha de Bogotá', () => {
+  it('genera un VEVENT all-day con el día de la cirugía (sin corrimiento de zona)', () => {
     const ics = buildSurgeryIcs(base);
     expect(ics).toContain('BEGIN:VCALENDAR');
     expect(ics).toContain('BEGIN:VEVENT');
+    // La cirugía del 22 sale el 22, no el 21 — fecha pura leída por su día UTC.
     expect(ics).toContain('DTSTART;VALUE=DATE:20260722');
     expect(ics).toContain('DURATION:P1D');
     expect(ics).toContain('END:VCALENDAR');

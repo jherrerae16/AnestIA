@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '../../../../lib/errors';
 import { requireSession } from '../../../../lib/auth/session-helper';
-import { bogotaDayRange } from '../../../../lib/tz';
+import { pureDayUTC } from '../../../../lib/tz';
 import { listCasesForCalendar } from '../../../../lib/services/calendar.service';
-
-const DIA_MS = 24 * 60 * 60 * 1000;
 
 /**
  * GET /api/panel/calendar?view=month|week&anchor=YYYY-MM-DD
@@ -33,11 +31,20 @@ export const GET = apiHandler(async (req: NextRequest) => {
  * de más no molesta: el cliente sólo pinta lo que cae en la vista.
  */
 function rangeForView(view: 'month' | 'week', anchor: Date): { from: Date; to: Date } {
-  // Semana: ~9 días; mes: ~44 días. Se recorta el instante y luego se ancla al día de Bogotá.
-  const spanBefore = view === 'week' ? 1 : 7;
-  const spanAfter = view === 'week' ? 8 : 44;
+  // procedureDate es fecha pura (día UTC): el rango se ancla a límites de día UTC (no de
+  // Bogotá) para no correr las cirugías del borde.
+  const y = anchor.getUTCFullYear();
+  const m = anchor.getUTCMonth();
+  const d = anchor.getUTCDate();
+
+  if (view === 'week') {
+    // Semana con un día de colchón a cada lado, sin importar qué día del mes sea el ancla.
+    return { from: pureDayUTC(new Date(Date.UTC(y, m, d - 8)), 0), to: pureDayUTC(new Date(Date.UTC(y, m, d + 9)), 0) };
+  }
+  // Mes: desde una semana antes del día 1 del mes del ancla hasta una semana después del fin
+  // de mes. Cubre el mes completo aunque el ancla sea cualquier día (día 1 o día 28).
   return {
-    from: bogotaDayRange(new Date(anchor.getTime() - spanBefore * DIA_MS), 1).from,
-    to: bogotaDayRange(new Date(anchor.getTime() + spanAfter * DIA_MS), 1).from,
+    from: new Date(Date.UTC(y, m, 1 - 7)),
+    to: new Date(Date.UTC(y, m + 1, 1 + 7)),
   };
 }

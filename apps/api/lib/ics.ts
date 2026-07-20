@@ -1,4 +1,4 @@
-import { bogotaDateStamp } from './tz';
+import { pureDateStamp } from './tz';
 
 /**
  * Generador de archivos .ics (iCalendar, RFC 5545) para una sola cirugía. Sin librería:
@@ -28,7 +28,8 @@ const DISCLAIMER =
 
 /** Construye el contenido .ics de una cirugía. */
 export function buildSurgeryIcs(ev: SurgeryEvent): string {
-  const dtStart = bogotaDateStamp(ev.date);
+  // Fecha pura (all-day): se estampa por su día UTC tal cual, sin desplazar a Bogotá.
+  const dtStart = pureDateStamp(ev.date);
   const dtStamp = icsUtcStamp(ev.now);
   const summary = `Cirugía — ${ev.patientName} — ${ev.procedure ?? 'Procedimiento'}`;
 
