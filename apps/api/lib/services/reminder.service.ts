@@ -2,6 +2,7 @@ import { prisma } from '../prisma';
 import { getMailer } from '../mailer';
 import { logAudit } from '../audit';
 import { logger } from '../logger';
+import { caseStatusLabel } from '@anestia/shared';
 import { casesForDailyReminder, type CalendarCase } from './calendar.service';
 
 /**
@@ -103,28 +104,12 @@ function section(titulo: string, casos: CalendarCase[], origin: string): string 
       return `<li style="margin:0 0 8px;">
         <a href="${url}" style="color:#2563eb;text-decoration:none;font-weight:600;">${escapeHtml(c.patientName ?? 'Paciente')}</a>
         <span style="color:#4b5563;"> — ${escapeHtml(c.procedure ?? 'Procedimiento')}</span>${flag}
-        <div style="color:#9ca3af;font-size:12px;">${estadoLabel(c.status)}</div>
+        <div style="color:#9ca3af;font-size:12px;">${caseStatusLabel(c.status)}</div>
       </li>`;
     })
     .join('');
   return `<h3 style="font-size:14px;margin:16px 0 6px;">${titulo}</h3>
           <ul style="list-style:none;padding:0;margin:0;">${filas}</ul>`;
-}
-
-const ESTADO_LABEL: Record<string, string> = {
-  BORRADOR: 'Borrador',
-  ENVIADO_AL_PACIENTE: 'Enviado al paciente',
-  RESPONDIENDO: 'Respondiendo',
-  RESPUESTAS_RECIBIDAS: 'Respuestas recibidas',
-  LABS_ANALIZADOS: 'Labs analizados',
-  BORRADOR_GENERADO: 'Borrador generado',
-  PENDIENTE_REVISION: 'Pendiente revisión',
-  APROBADO: 'Aprobado',
-  ENTREGADO: 'Entregado',
-};
-
-function estadoLabel(s: string): string {
-  return ESTADO_LABEL[s] ?? s;
 }
 
 function escapeHtml(s: string): string {

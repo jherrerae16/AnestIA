@@ -1,5 +1,6 @@
+import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
-import { bogotaDayRange, bogotaISODate } from '../tz';
+import { bogotaParts, pureDateISO, pureDayUTC } from '../tz';
 import { buildSurgeryIcs, icsFilename } from '../ics';
 
 /**
@@ -13,7 +14,7 @@ import { buildSurgeryIcs, icsFilename } from '../ics';
 const HORAS_48 = 48 * 60 * 60 * 1000;
 
 /** Estados en los que la valoración ya no está "pendiente" para efectos de la alerta <48h. */
-const ESTADOS_LISTOS = new Set(['APROBADO', 'ENTREGADO']);
+const ESTADOS_LISTOS = new Set<string>([CaseStatus.APROBADO, CaseStatus.ENTREGADO]);
 
 export interface CalendarCase {
   caseId: string;
@@ -69,7 +70,9 @@ export async function listCasesForCalendar(
       patientName: c.patient?.fullName ?? null,
       procedure: c.procedure,
       status: c.status,
-      date: bogotaISODate(c.procedureDate),
+      // procedureDate es fecha pura (all-day): se agrupa por su día UTC tal cual, sin
+      // desplazar a Bogotá (desplazarla correría la cirugía un día).
+      date: pureDateISO(c.procedureDate),
       procedureDate: c.procedureDate.toISOString(),
       alerta48h: is48hAlert(c.procedureDate, c.status, now),
     }));
@@ -83,8 +86,13 @@ export async function casesForDailyReminder(
   anesthesiologistId: string,
   now: Date,
 ): Promise<{ hoy: CalendarCase[]; manana: CalendarCase[]; hayPendientes48h: boolean }> {
-  const hoyRange = bogotaDayRange(now, 1);
-  const mananaRange = { from: hoyRange.to, to: bogotaDayRange(now, 2).to };
+  // "Hoy" es el día natural del médico en Bogotá; la cirugía se guarda como fecha pura (día
+  // UTC). Se toma la fecha de Bogotá de `now` y se arma el rango sobre esos mismos números de
+  // día en UTC — así la cirugía del 1 aparece el 1, sin corrimiento de zona.
+  const b = bogotaParts(now);
+  const dia0 = new Date(Date.UTC(b.year, b.month - 1, b.day));
+  const hoyRange = { from: dia0, to: pureDayUTC(dia0, 1) };
+  const mananaRange = { from: pureDayUTC(dia0, 1), to: pureDayUTC(dia0, 2) };
 
   const [hoy, manana] = await Promise.all([
     listCasesForCalendar(anesthesiologistId, hoyRange, now),
