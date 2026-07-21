@@ -182,7 +182,17 @@ model ExtractedLabResult {
   grupo      String?  // tipo de estudio leído del informe: "hemograma", "coagulacion", ...
   reportDate DateTime? // fecha del informe leída del propio examen (NO la de carga): un
                        // examen viejo cambia la lectura clínica y el médico debe verla.
-  flag       LabFlag  @default(NORMAL)
+  flag       LabFlag  @default(NORMAL) // veredicto AUTOMÁTICO del sistema (se conserva siempre)
+  // El rango de referencia impreso no se pudo interpretar: el analito no se marca, pero se
+  // avisa al médico en la revisión para que verifique manualmente (nunca se inventa un rango).
+  rangeUnparsed Boolean @default(false)
+  // Veredicto MANUAL del anestesiólogo (HITL). null = no lo tocó → rige `flag`. Cuando existe,
+  // el flag EFECTIVO es `manualFlag`, pero `flag` (el del sistema) NO se pierde: queda como
+  // evidencia de ambos. `manualSource` distingue si verificó un ilegible o sobrescribió al sistema.
+  manualFlag   LabFlag?
+  manualSource String?  // 'anestesiologo:verificado-manualmente' | 'anestesiologo:sobrescribio-sistema'
+  manualBy     String?  // anesthesiologistId que marcó
+  manualAt     DateTime?
   sourceRef  String?  // referencia a la porción del documento fuente (para verificación)
   // Cómo se extrajo: "texto" (capas: unpdf + Haiku) o "vision" (fallback / modo visión).
   // Permite medir en el modo comparativo qué método produjo cada dato antes de migrar.

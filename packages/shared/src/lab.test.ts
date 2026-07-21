@@ -1,42 +1,71 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { flagLab, canonicalAnalyte, parseNumeric } from './lab';
+import { flagLab, parseRefRange, canonicalAnalyte, parseNumeric } from './lab';
 import { detectGLP1 } from './glp1';
 
-describe('flagLab — determinismo + monotonicidad (PBT)', () => {
-  it('DETERMINISTA: mismo input → mismo output', () => {
+describe('parseRefRange — formatos de laboratorios colombianos', () => {
+  it('rango con guion normal', () => {
+    expect(parseRefRange('12.0 - 17.0')).toEqual({ min: 12, max: 17, qualitative: false });
+  });
+  it('guion largo (–) y coma decimal', () => {
+    expect(parseRefRange('12,0 – 17,0')).toEqual({ min: 12, max: 17, qualitative: false });
+  });
+  it('unidades pegadas al rango', () => {
+    expect(parseRefRange('12.0-17.0 g/dL')).toEqual({ min: 12, max: 17, qualitative: false });
+  });
+  it('miles y decimales ("140 - 400")', () => {
+    expect(parseRefRange('140 - 400')).toEqual({ min: 140, max: 400, qualitative: false });
+  });
+  it('solo tope superior: "< 200" / "Hasta 200" / "menor a 200"', () => {
+    expect(parseRefRange('< 200')).toEqual({ min: null, max: 200, qualitative: false });
+    expect(parseRefRange('Hasta 200')).toEqual({ min: null, max: 200, qualitative: false });
+    expect(parseRefRange('menor a 200')).toEqual({ min: null, max: 200, qualitative: false });
+  });
+  it('solo piso inferior: "> 40" / "Mayor a 40"', () => {
+    expect(parseRefRange('> 40')).toEqual({ min: 40, max: null, qualitative: false });
+    expect(parseRefRange('Mayor a 40')).toEqual({ min: 40, max: null, qualitative: false });
+  });
+  it('cualitativo: "Negativo" / "No reactivo"', () => {
+    expect(parseRefRange('Negativo')?.qualitative).toBe(true);
+    expect(parseRefRange('No reactivo')?.qualitative).toBe(true);
+  });
+  it('ilegible o vacío → null (fail-visible, nunca umbral)', () => {
+    expect(parseRefRange('')).toBeNull();
+    expect(parseRefRange(null)).toBeNull();
+    expect(parseRefRange('ver observaciones')).toBeNull();
+  });
+});
+
+describe('flagLab — usa el rango impreso en el examen, sin umbrales hardcodeados', () => {
+  it('valor DENTRO del rango impreso → NORMAL', () => {
+    expect(flagLab('12.0 - 17.0', '15.9')).toEqual({ flag: 'NORMAL', rangeUnparsed: false });
+  });
+  it('valor BAJO el mínimo → ALERTA', () => {
+    expect(flagLab('12.0 - 17.0', '10.3')).toEqual({ flag: 'ALERTA', rangeUnparsed: false });
+  });
+  it('valor SOBRE el máximo → ALERTA (caso que el hardcode daba NORMAL: Eosinofilos)', () => {
+    expect(flagLab('0.70 - 5.80', '6.20')).toEqual({ flag: 'ALERTA', rangeUnparsed: false });
+  });
+  it('"< 200" con valor por debajo → NORMAL; por encima → ALERTA', () => {
+    expect(flagLab('< 200', '150').flag).toBe('NORMAL');
+    expect(flagLab('< 200', '260').flag).toBe('ALERTA');
+  });
+  it('rango cualitativo → NORMAL sin comparar', () => {
+    expect(flagLab('Negativo', 'Negativo')).toEqual({ flag: 'NORMAL', rangeUnparsed: false });
+  });
+  it('rango ilegible → NORMAL + rangeUnparsed (aviso visible, no umbral)', () => {
+    expect(flagLab('ver observaciones', '5.0')).toEqual({ flag: 'NORMAL', rangeUnparsed: true });
+    expect(flagLab(null, '5.0')).toEqual({ flag: 'NORMAL', rangeUnparsed: true });
+  });
+  it('valor no numérico con rango numérico → NORMAL', () => {
+    expect(flagLab('12 - 17', 'sin dato')).toEqual({ flag: 'NORMAL', rangeUnparsed: false });
+  });
+  it('DETERMINISTA (PBT): mismo input → mismo output', () => {
     fc.assert(
       fc.property(fc.float({ min: 0, max: 300, noNaN: true }), (v) => {
-        expect(flagLab('Glucemia', v, null)).toBe(flagLab('Glucemia', v, null));
+        expect(flagLab('50 - 100', v)).toEqual(flagLab('50 - 100', v));
       }),
     );
-  });
-
-  it('MONÓTONA (Glucemia): mayor valor ⇒ severidad ≥', () => {
-    const sev = { NORMAL: 0, ALERTA: 1, CRITICO: 2 } as const;
-    fc.assert(
-      fc.property(
-        fc.float({ min: 0, max: 400, noNaN: true }),
-        fc.float({ min: 0, max: 400, noNaN: true }),
-        (a, b) => {
-          const lo = Math.min(a, b), hi = Math.max(a, b);
-          expect(sev[flagLab('Glucemia', hi, null)]).toBeGreaterThanOrEqual(sev[flagLab('Glucemia', lo, null)]);
-        },
-      ),
-    );
-  });
-
-  it('analito desconocido → NORMAL (BR-2.5)', () => {
-    expect(flagLab('Vitamina Q', 999, null)).toBe('NORMAL');
-  });
-
-  it('ejemplos clínicos', () => {
-    expect(flagLab('Hemoglobina', 11.5, 'FEMENINO')).toBe('ALERTA'); // anemia ♀
-    expect(flagLab('Hemoglobina', 15.9, 'MASCULINO')).toBe('NORMAL');
-    expect(flagLab('Plaquetas', 90000, null)).toBe('CRITICO');
-    expect(flagLab('Plaquetas', 244000, null)).toBe('NORMAL');
-    expect(flagLab('Glucemia', 260, null)).toBe('CRITICO');
-    expect(flagLab('INR', 1.6, null)).toBe('ALERTA');
   });
 });
 
@@ -61,12 +90,6 @@ describe('canonicalAnalyte / parseNumeric', () => {
     expect(canonicalAnalyte('Leucocitos (sedimento)')).toBeNull(); // uroanálisis, no hemograma
     expect(canonicalAnalyte('LEUCOCITOS/ESTEARASA')).toBeNull();
     expect(canonicalAnalyte('HEMOGLOBINA CORPUSCULAR MEDIA (MCH)')).toBeNull();
-  });
-
-  it('un valor alterado con nombre largo SÍ dispara la alerta', () => {
-    expect(flagLab('RECUENTO TOTAL DE PLAQUETAS', '85', null)).toBe('CRITICO');
-    expect(flagLab('CREATININA EN SUERO (SERICA)', '2.4', null)).toBe('ALERTA');
-    expect(flagLab('GLICEMIA', '310', null)).toBe('CRITICO');
   });
 
   it('parseNumeric tolera unidades y miles', () => {

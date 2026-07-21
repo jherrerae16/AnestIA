@@ -210,17 +210,93 @@ export async function extractForCase(caseId: string): Promise<void> {
 }
 
 /**
- * lab.flag: aplica reglas determinísticas por sexo del paciente. Actualiza flags.
+ * lab.flag: marca cada laboratorio comparándolo contra el RANGO IMPRESO en el propio examen
+ * (refRange). Sin umbrales hardcodeados. Si el rango no se pudo interpretar, el analito queda
+ * sin marcar pero con `rangeUnparsed` para avisar al médico, y se registra el string original
+ * en el audit log (evidencia real de qué formatos aparecen, para ajustar el parser con datos).
  */
 export async function flagForCase(caseId: string): Promise<void> {
-  const kase = await prisma.case.findUnique({ where: { id: caseId }, include: { patient: true } });
-  const sex = kase?.patient?.sex ?? null;
-
   const results = await prisma.extractedLabResult.findMany({ where: { caseId } });
   for (const r of results) {
-    const flag = flagLab(r.analyte, r.value, sex as never);
-    if (flag !== r.flag) {
-      await prisma.extractedLabResult.update({ where: { id: r.id }, data: { flag } });
+    const { flag, rangeUnparsed } = flagLab(r.refRange, r.value);
+    if (flag !== r.flag || rangeUnparsed !== r.rangeUnparsed) {
+      await prisma.extractedLabResult.update({ where: { id: r.id }, data: { flag, rangeUnparsed } });
+    }
+    if (rangeUnparsed) {
+      await logAudit({
+        action: 'lab.range_unparsed',
+        entity: 'ExtractedLabResult',
+        entityId: r.id,
+        meta: { caseId, analyte: r.analyte, refRange: r.refRange, value: r.value },
+      });
     }
   }
+}
+
+export class LabNotFoundError extends Error {
+  constructor() { super('Laboratorio no encontrado.'); this.name = 'LabNotFoundError'; }
+}
+
+/**
+ * Veredicto MANUAL del anestesiólogo sobre un analito (HITL). `verdict = null` deshace.
+ *
+ * - Conserva SIEMPRE el veredicto automático del sistema (`flag`); solo escribe `manualFlag`.
+ * - `manualSource` distingue el caso: si el analito era ilegible (`rangeUnparsed`), es una
+ *   verificación; si el sistema ya había dado un veredicto, es una sobrescritura.
+ * - Aislamiento por perfil: el lab debe pertenecer a un caso de este anestesiólogo.
+ * - Audit con el veredicto ORIGINAL del sistema + el del médico (evidencia de ambos).
+ */
+export async function setLabVerdict(
+  anesthesiologistId: string,
+  caseId: string,
+  labId: string,
+  verdict: 'NORMAL' | 'ALERTA' | 'CRITICO' | null,
+): Promise<{ manualFlag: string | null; effectiveFlag: string }> {
+  const lab = await prisma.extractedLabResult.findFirst({
+    where: { id: labId, caseId, case: { anesthesiologistId } },
+  });
+  if (!lab) throw new LabNotFoundError();
+
+  if (verdict === null) {
+    // Deshacer: vuelve a regir el veredicto del sistema.
+    await prisma.extractedLabResult.update({
+      where: { id: lab.id },
+      data: { manualFlag: null, manualSource: null, manualBy: null, manualAt: null },
+    });
+    await logAudit({
+      actorId: anesthesiologistId,
+      action: 'lab.verdict_cleared',
+      entity: 'ExtractedLabResult',
+      entityId: lab.id,
+      meta: { caseId, analyte: lab.analyte, value: lab.value, sistemaFlag: lab.flag },
+    });
+    return { manualFlag: null, effectiveFlag: lab.flag };
+  }
+
+  // Fuente: verificación de ilegible vs sobrescritura de un veredicto del sistema.
+  const source = lab.rangeUnparsed
+    ? 'anestesiologo:verificado-manualmente'
+    : 'anestesiologo:sobrescribio-sistema';
+
+  await prisma.extractedLabResult.update({
+    where: { id: lab.id },
+    data: { manualFlag: verdict as never, manualSource: source, manualBy: anesthesiologistId, manualAt: new Date() },
+  });
+  await logAudit({
+    actorId: anesthesiologistId,
+    action: 'lab.verdict_manual',
+    entity: 'ExtractedLabResult',
+    entityId: lab.id,
+    meta: {
+      caseId,
+      analyte: lab.analyte,
+      value: lab.value,
+      source,
+      // Ambos veredictos quedan registrados: el del sistema NO se pierde al sobrescribir.
+      sistemaFlag: lab.flag,
+      rangeUnparsed: lab.rangeUnparsed,
+      medicoFlag: verdict,
+    },
+  });
+  return { manualFlag: verdict, effectiveFlag: verdict };
 }
