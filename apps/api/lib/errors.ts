@@ -4,6 +4,7 @@ import { logger } from './logger';
 import { SessionError } from './auth/session-helper';
 import { ApprovedLockError } from './services/approval.service';
 import { NoteOwnershipError } from './services/note.service';
+import { LabNotFoundError } from './services/lab.service';
 
 /**
  * Manejador global fail-closed (SECURITY-15). Envuelve handlers de rutas:
@@ -31,6 +32,10 @@ export function apiHandler<T extends unknown[]>(
       }
       // Nota sobre paciente ajeno: mismo 404 genérico, no revela existencia.
       if (err instanceof NoteOwnershipError) {
+        return NextResponse.json({ error: 'No encontrado.' }, { status: 404 });
+      }
+      // Lab ajeno/inexistente: mismo 404 genérico.
+      if (err instanceof LabNotFoundError) {
         return NextResponse.json({ error: 'No encontrado.' }, { status: 404 });
       }
       logger.error({ err: err instanceof Error ? err.message : 'unknown' }, 'unhandled_api_error');
