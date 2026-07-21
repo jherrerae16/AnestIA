@@ -127,3 +127,35 @@ export function medicalTerm(raw: string | null | undefined): string | null {
   if (!raw || !raw.trim()) return null;
   return toMedicalTerms(raw).text;
 }
+
+/**
+ * Partes del cuerpo que, dichas en coloquial ("operación de la nariz"), NO identifican un
+ * procedimiento único — cada una admite varias cirugías con manejo anestésico distinto. Cuando
+ * el paciente describe su cirugía como "operación/cirugía de <una de estas>", NO se debe elegir
+ * un procedimiento específico (guardarraíl determinístico, CS2/seguridad clínica): el modelo
+ * tiende a resolver "nariz"→rinoplastia por sesgo, y en anestesia eso es peligroso.
+ *
+ * Esta es una lista de PARTES ambiguas, no de procedimientos prohibidos. Un órgano unívoco
+ * (vesícula, apéndice) NO va aquí porque su cirugía sí es única.
+ */
+const PARTES_AMBIGUAS = [
+  'nariz', 'corazon', 'rodilla', 'ojo', 'ojos', 'espalda', 'columna', 'hombro', 'cadera',
+  'muñeca', 'muneca', 'tobillo', 'cuello', 'garganta', 'oido', 'oreja', 'pie', 'mano',
+  'estomago', 'cerebro', 'cabeza', 'pierna', 'brazo', 'pecho', 'senos', 'seno',
+];
+
+/**
+ * ¿El procedimiento declarado es una descripción ambigua del tipo "operación de <parte>"?
+ * Si lo es, el término del paciente debe conservarse tal cual (no elegir una cirugía específica).
+ * Determinístico y puro.
+ */
+export function isAmbiguousProcedure(raw: string | null | undefined): boolean {
+  if (!raw || !raw.trim()) return false;
+  const n = norm(raw); // minúsculas, sin tildes
+  // Patrón: "(operacion|cirugia|intervencion|procedimiento) [de/del/de la/en] <parte ambigua>"
+  const m = n.match(/^(operacion|cirugia|intervencion|procedimiento)\s+(de\s+la\s+|de\s+las\s+|del\s+|de\s+los\s+|de\s+|en\s+la\s+|en\s+el\s+|en\s+)?([a-z\s]+?)$/);
+  if (!m) return false;
+  const parte = (m[3] ?? '').trim();
+  // La parte (o su primera palabra) está en la lista de partes ambiguas.
+  return PARTES_AMBIGUAS.some((p) => parte === p || parte.startsWith(p + ' ') || parte.endsWith(' ' + p) || parte.split(/\s+/).includes(p));
+}

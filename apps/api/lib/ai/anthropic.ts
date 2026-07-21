@@ -169,6 +169,17 @@ const clinicalOutputSchema = z
   })
   .strict();
 
+/**
+ * Quita la fila `glp1` de antecedentes cuando el paciente NO declaró uso de GLP-1. El schema
+ * fijo del motor siempre incluye la clave; sin esto quedaría una fila vacía/no_reportado que no
+ * debería aparecer (simetría con el stub, que omite la clave). Pura para poder probarla.
+ */
+export function stripUndeclaredGlp1<T extends Record<string, unknown>>(antecedentes: T, declared: boolean): T {
+  if (declared) return antecedentes;
+  const { glp1: _omit, ...rest } = antecedentes as Record<string, unknown>;
+  return rest as T;
+}
+
 /** Normaliza al contrato interno: '' → null cuando el campo no tiene sustento (CS2). */
 function toDocFields(section: Record<string, { valor: string; estado: string; fuente: string }>) {
   const out: Record<string, { valor: string | null; estado: string; fuente: string | null }> = {};
@@ -439,9 +450,11 @@ export class AnthropicAIProvider implements AIProvider {
 
     // Secciones que NO vienen de la IA: el examen lo registra el médico; los paraclínicos,
     // el código desde los labs realmente extraídos.
+    // GLP-1: si el paciente NO declaró uso, la fila no debe aparecer (simetría con el stub).
+    const antecedentes = stripUndeclaredGlp1(toDocFields(generated.antecedentes), Boolean(input.glp1?.declared));
     return {
       identificacion: toDocFields(generated.identificacion),
-      antecedentes: toDocFields(generated.antecedentes),
+      antecedentes,
       valoracion_plan: toDocFields(generated.valoracion_plan),
       paraclinicos: {},
       examen_fisico: {},
