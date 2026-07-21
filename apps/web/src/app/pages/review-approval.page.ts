@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -24,6 +24,33 @@ const SECTION_LABELS: Record<string, string> = {
 const NOTE_COLLAPSED_KEY = 'anestia.caseNoteCollapsed';
 function readNoteCollapsedPref(): boolean {
   try { return localStorage.getItem(NOTE_COLLAPSED_KEY) === '1'; } catch { return false; }
+}
+
+/** Fecha de HOY en zona horaria de Colombia (America/Bogota), formato DD/MM/AAAA. */
+function hoyBogota(): string {
+  // Intl con timeZone da la fecha de Colombia sin importar el reloj del navegador/servidor.
+  const fmt = new Intl.DateTimeFormat('es-CO', { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' });
+  const parts = fmt.formatToParts(new Date());
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${g('day')}/${g('month')}/${g('year')}`;
+}
+
+/** Normaliza coma decimal ("1,83" → 1.83) y devuelve número, o null. Mismo criterio que C-3. */
+function parseDecimalLocal(raw: string): number | null {
+  const s = (raw ?? '').trim().replace(',', '.');
+  const m = s.match(/-?\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = parseFloat(m[0]);
+  return isFinite(n) && n > 0 ? n : null;
+}
+
+/** IMC = kg/(m^2), 1 decimal. talla en cm o m (autodetecta). null si datos inválidos. */
+function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null {
+  if (pesoKg == null || tallaRaw == null) return null;
+  const m = tallaRaw > 3 ? tallaRaw / 100 : tallaRaw; // 170 → 1.70; 1.70 → 1.70
+  if (m <= 0) return null;
+  const imc = pesoKg / (m * m);
+  return isFinite(imc) ? Math.round(imc * 10) / 10 : null;
 }
 
 @Component({
@@ -62,6 +89,52 @@ function readNoteCollapsedPref(): boolean {
     .v.alerta { color:var(--red); font-weight:700; }
     .v.pending { color:var(--amber); font-weight:600; }
     .lab-flag { font-family:var(--font-mono); font-size:11px; }
+    /* #2 capacidad funcional: hint de UX en pantalla (NO va al PDF). */
+    .hint-eval { color:var(--muted2); font-style:italic; }
+    /* #6 fecha con botón Hoy */
+    .fecha-edit { display:flex; gap:8px; align-items:center; }
+    .fecha-edit .edit-input { flex:1; }
+    /* #7 editor guiado peso/talla/IMC */
+    .pt-edit { display:flex; flex-direction:column; gap:6px; }
+    .pt-row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+    .pt-num { width:74px; text-align:right; }
+    .pt-u { color:var(--muted); font-size:12px; }
+    .pt-sep { color:var(--muted2); margin:0 2px; }
+    .pt-imc { font-size:12.5px; color:var(--text); }
+    .pt-imc b { color:var(--primary); }
+
+    /* Labs por severidad (Bloque 2). Los ojos van primero a los rojos; lo "por revisar" es discreto. */
+    .lab-summary { font-size:12px; color:var(--muted); background:var(--bg3); border:1px solid var(--border);
+      border-radius:8px; padding:8px 11px; margin-bottom:12px; line-height:1.5; }
+    .lab-summary b { color:var(--text); font-weight:700; }
+    .lab-summary .pend { color:#8a6d3b; font-weight:600; }
+    .lab-summary .done { color:var(--green); font-weight:600; }
+    .lab-row { display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:7px; margin-bottom:3px;
+      font-size:13px; border-left:3px solid transparent; transition:background .15s, border-color .15s; }
+    .lab-row .lr-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+    .lab-row .lr-analyte { font-weight:500; color:var(--text); overflow:hidden; text-overflow:ellipsis; }
+    .lab-row .lr-meta { font-size:11px; color:var(--muted2); }
+    .lab-row .lr-value { font-weight:600; white-space:nowrap; }
+    /* Severidad efectiva */
+    .lab-row.sev-critico { background:#fdecea; border-left-color:#b3261e; }
+    .lab-row.sev-critico .lr-value { color:#b3261e; }
+    .lab-row.sev-alerta  { background:#fff7e8; border-left-color:#d99100; }
+    .lab-row.sev-alerta  .lr-value { color:#a86a00; }
+    .lab-row.sev-normal  { background:transparent; }
+    .lab-row.sev-normal  .lr-value { color:var(--text); }
+    /* rangeUnparsed sin verdicto: gris discreto, NO compite con alerta real. Sin fondo de color. */
+    .lab-row.sev-pendiente { background:transparent; border-left-color:var(--border2); }
+    .lab-row.sev-pendiente .lr-value { color:var(--muted); }
+    .lr-unparsed { font-size:11px; color:var(--muted2); cursor:help; margin-left:3px; }
+    /* Marca de verdicto manual del médico */
+    .lr-manual { font-size:10px; color:var(--primary); background:var(--it-50); border-radius:100px; padding:1px 7px; white-space:nowrap; }
+    /* Botones ✓/✗ — pequeños y discretos por defecto. Un tap marca; otro deshace. */
+    .lr-verdict { display:flex; gap:4px; flex-shrink:0; }
+    .lr-btn { width:24px; height:24px; border-radius:6px; border:1px solid var(--border2); background:#fff; cursor:pointer;
+      font-size:12px; line-height:1; display:flex; align-items:center; justify-content:center; padding:0; transition:all .12s; color:var(--muted); }
+    .lr-btn:hover { border-color:var(--muted2); }
+    .lr-btn.ok.on { background:var(--green); border-color:var(--green); color:#fff; }
+    .lr-btn.bad.on { background:#b3261e; border-color:#b3261e; color:#fff; }
 
     /* PREVIEW */
     .preview-card { padding:0; overflow:hidden; }
@@ -253,7 +326,35 @@ function readNoteCollapsedPref(): boolean {
                   <span class="k">{{ labelFor(f.k) }}</span>
                   @if (editingKey() === sec.key + '.' + f.k) {
                     <span class="v-edit">
-                      <textarea class="edit-input" [ngModel]="editValue()" (ngModelChange)="editValue.set($event)" (keydown.enter)="$event.preventDefault(); saveEdit(sec.key, f.k)" rows="2" [attr.data-testid]="'edit-' + f.k"></textarea>
+                      @switch (f.k) {
+                        @case ('fecha_valoracion') {
+                          <!-- #6: fecha con botón "Hoy" (zona Colombia) + placeholder DD/MM/AAAA. -->
+                          <span class="fecha-edit">
+                            <input class="edit-input" [ngModel]="editValue()" (ngModelChange)="editValue.set($event)"
+                              (keydown.enter)="$event.preventDefault(); saveEdit(sec.key, f.k)"
+                              placeholder="DD/MM/AAAA" [attr.data-testid]="'edit-' + f.k" />
+                            <button class="btn btn-sm" (click)="editValue.set(hoyBogota())" data-testid="fecha-hoy">Hoy</button>
+                          </span>
+                        }
+                        @case ('peso_talla_imc') {
+                          <!-- #7: peso y talla aparte; el IMC se calcula solo, silencioso. -->
+                          <span class="pt-edit">
+                            <span class="pt-row">
+                              <input class="edit-input pt-num" [ngModel]="ptPeso()" (ngModelChange)="ptPeso.set($event)"
+                                inputmode="decimal" placeholder="Peso" [attr.data-testid]="'edit-peso'" /> <span class="pt-u">kg</span>
+                              <span class="pt-sep">/</span>
+                              <input class="edit-input pt-num" [ngModel]="ptTalla()" (ngModelChange)="ptTalla.set($event)"
+                                inputmode="decimal" placeholder="Talla" [attr.data-testid]="'edit-talla'" /> <span class="pt-u">m</span>
+                            </span>
+                            <span class="pt-imc" data-testid="pt-imc">
+                              @if (ptImc() != null) { IMC = <b>{{ ptImc() }}</b> kg/m² } @else { <span class="muted">IMC — ingresa peso y talla</span> }
+                            </span>
+                          </span>
+                        }
+                        @default {
+                          <textarea class="edit-input" [ngModel]="editValue()" (ngModelChange)="editValue.set($event)" (keydown.enter)="$event.preventDefault(); saveEdit(sec.key, f.k)" rows="2" [attr.data-testid]="'edit-' + f.k"></textarea>
+                        }
+                      }
                       <span class="edit-actions">
                         <button class="btn btn-sm btn-primary" (click)="saveEdit(sec.key, f.k)" [disabled]="savingEdit()">Guardar</button>
                         <button class="btn btn-sm" (click)="cancelEdit()">Cancelar</button>
@@ -262,7 +363,10 @@ function readNoteCollapsedPref(): boolean {
                   } @else {
                     <span class="v editable" [class.alerta]="f.v?.alerta" [class.pending]="f.v?.estado==='pendiente_examen'"
                       (click)="startEdit(sec.key, f.k, f.v)" [attr.data-testid]="'field-' + f.k" title="Clic para editar">
-                      {{ f.v?.estado==='pendiente_examen' ? 'PENDIENTE DE EXAMEN' : (f.v?.valor ?? '—') }}
+                      @if (f.v?.estado==='pendiente_examen') { PENDIENTE DE EXAMEN }
+                      @else if (f.v?.valor) { {{ f.v.valor }} }
+                      @else if (f.k === 'capacidad_funcional') { <span class="hint-eval">Evaluar en examen</span> }
+                      @else { — }
                       <span class="edit-pencil">✎</span>
                     </span>
                   }
@@ -315,32 +419,46 @@ function readNoteCollapsedPref(): boolean {
           </div>
 
           <div class="card">
-            <div class="card-title" style="margin-bottom:14px">Fuente · Laboratorios</div>
-            @for (g of labGroups(); track g.grupo) {
-              <div class="sec-block">
-                <div class="section-label">
-                  {{ g.label }}
-                  @if (g.fecha) {
-                    <span class="lab-date" [class.alerta]="g.desactualizado"
-                      [title]="g.desactualizado ? 'Examen de hace 3 meses o más — verificar vigencia' : ''">
-                      · {{ g.fecha }}{{ g.desactualizado ? ' ⚠' : '' }}
-                    </span>
-                  } @else {
-                    <span class="lab-date muted" title="El informe no traía fecha impresa">· sin fecha</span>
-                  }
-                </div>
-                @for (l of g.labs; track l.analyte) {
-                  <div class="field">
-                    <span class="k">{{ l.analyte }}</span>
-                    <span class="v">
-                      <span [class.alerta]="l.flag!=='NORMAL'">{{ l.value }} {{ l.unit }}</span>
-                      <span class="lab-flag muted"> · {{ l.flag }}</span>
-                    </span>
-                  </div>
+            <div class="card-title" style="margin-bottom:12px">Fuente · Laboratorios</div>
+
+            @if (labs().length) {
+              <!-- Resumen agregado, en vivo. Le dice al médico qué esperar de un vistazo. -->
+              <div class="lab-summary">
+                Interpretados automáticamente <b>{{ labSummary().auto }}</b>@if (labSummary().manual) { + verificados por ti <b>{{ labSummary().manual }}</b> } = <b>{{ labSummary().resueltos }}</b> de <b>{{ labSummary().total }}</b>.
+                @if (labSummary().pendientes) {
+                  <span class="pend">Quedan {{ labSummary().pendientes }} por revisar.</span>
+                } @else {
+                  <span class="done">Todos los rangos evaluados.</span>
                 }
               </div>
+
+              <!-- Analitos ordenados peor-primero; los "por revisar" al final. -->
+              @for (l of sortedLabs(); track l.id) {
+                <div class="lab-row" [class]="'lab-row sev-' + sevClass(l)" [attr.data-testid]="'lab-row'">
+                  <div class="lr-main">
+                    <span class="lr-analyte">
+                      {{ l.analyte }}
+                      @if (isPending(l)) {
+                        <span class="lr-unparsed" title="Rango de referencia no interpretado — verifica manualmente">?</span>
+                      }
+                    </span>
+                    <span class="lr-meta">
+                      {{ grupoLabel(l.grupo) }}@if (l.refRange) { · ref {{ l.refRange }} }
+                    </span>
+                  </div>
+                  <span class="lr-value">{{ l.value }} {{ l.unit }}</span>
+                  @if (l.manualFlag) { <span class="lr-manual" [title]="manualTitle(l)">tu veredicto</span> }
+                  <div class="lr-verdict">
+                    <button class="lr-btn ok" [class.on]="effFlag(l)==='NORMAL' && l.manualFlag==='NORMAL'"
+                      (click)="setVerdict(l, 'NORMAL')" title="Marcar normal" data-testid="lab-ok">✓</button>
+                    <button class="lr-btn bad" [class.on]="l.manualFlag && l.manualFlag!=='NORMAL'"
+                      (click)="setVerdict(l, 'ALERTA')" title="Marcar fuera de rango" data-testid="lab-bad">✗</button>
+                  </div>
+                </div>
+              }
+            } @else {
+              <div class="empty">Sin laboratorios cargados.</div>
             }
-            @if (!labs().length) { <div class="empty">Sin laboratorios cargados.</div> }
           </div>
         </div>
       </div>
@@ -410,6 +528,10 @@ export class ReviewApprovalPage implements OnInit {
   check = signal<{ ok: boolean; blockers: string[] } | null>(null);
   editingKey = signal<string | null>(null);
   editValue = signal('');
+  // Editor guiado de peso/talla/IMC (#7): peso y talla se escriben aparte, el IMC se calcula solo.
+  ptPeso = signal('');
+  ptTalla = signal('');
+  ptImc = computed(() => imcLocal(parseDecimalLocal(this.ptPeso()), parseDecimalLocal(this.ptTalla())));
   savingEdit = signal(false);
   reopening = signal(false);
   /** Fecha de cirugía (P10). Habilita el botón "Añadir a mi calendario". */
@@ -458,6 +580,84 @@ export class ReviewApprovalPage implements OnInit {
     this.rawPreview.set(this.api.previewUrl(this.caseId));
     await this.reload();
     this.loading.set(false);
+  }
+
+  /** Etiqueta legible del grupo de estudio (para el subtítulo de cada analito). */
+  private static GRUPO_LABEL: Record<string, string> = {
+    hemograma: 'Hemograma', coagulacion: 'Coagulación', bioquimica: 'Bioquímica',
+    uroanalisis: 'Uroanálisis', endocrinologia: 'Perfil hormonal', inmunologia: 'Inmunología',
+    microbiologia: 'Microbiología', otros: 'Otros',
+  };
+  grupoLabel(g: string | null): string {
+    return g ? (ReviewApprovalPage.GRUPO_LABEL[g] ?? g) : 'Otros';
+  }
+
+  /** Flag efectivo de un analito: veredicto del médico si marcó, si no el del sistema. */
+  effFlag(l: any): string {
+    return l.manualFlag ?? l.flag ?? 'NORMAL';
+  }
+  /** ¿Analito por revisar? Rango ilegible y el médico aún no lo marcó. */
+  isPending(l: any): boolean {
+    return !!l.rangeUnparsed && !l.manualFlag;
+  }
+  /** Clase de severidad efectiva (peor-primero, pendiente al final). */
+  sevClass(l: any): string {
+    if (this.isPending(l)) return 'pendiente';
+    const f = this.effFlag(l);
+    if (f === 'CRITICO') return 'critico';
+    if (f === 'ALERTA') return 'alerta';
+    return 'normal';
+  }
+  private sevRank(l: any): number {
+    const c = this.sevClass(l);
+    return c === 'critico' ? 0 : c === 'alerta' ? 1 : c === 'normal' ? 2 : 3; // pendiente último
+  }
+  manualTitle(l: any): string {
+    return l.manualSource === 'anestesiologo:sobrescribio-sistema'
+      ? `Sobrescribiste el veredicto del sistema (${l.flag})`
+      : 'Verificado por ti';
+  }
+
+  /** Analitos ordenados peor-primero; los "por revisar" al final. Estable dentro de categoría. */
+  sortedLabs = computed(() => {
+    return [...this.labs()]
+      .map((l, i) => ({ l, i }))
+      .sort((a, b) => this.sevRank(a.l) - this.sevRank(b.l) || a.i - b.i)
+      .map((x) => x.l);
+  });
+
+  /** Resumen agregado, en vivo. auto = rango leído sin marca; manual = marcados; pendientes = ilegibles sin marcar. */
+  labSummary = computed(() => {
+    const labs = this.labs();
+    const manual = labs.filter((l) => l.manualFlag).length;
+    const pendientes = labs.filter((l) => l.rangeUnparsed && !l.manualFlag).length;
+    const auto = labs.length - manual - pendientes;
+    return { total: labs.length, auto, manual, pendientes, resueltos: auto + manual };
+  });
+
+  /**
+   * Marca (o deshace) el veredicto de un analito. Un tap marca; otro tap sobre el mismo botón
+   * deshace. Actualiza el signal en vivo (sin recargar todo) para que la fila y el resumen
+   * cambien al instante y el reordenamiento se aplique.
+   */
+  async setVerdict(l: any, verdict: 'NORMAL' | 'ALERTA' | 'CRITICO') {
+    // Toggle: si ya está en ese veredicto, deshacer.
+    const next = l.manualFlag === verdict ? null : verdict;
+    // Optimista: actualiza en memoria de inmediato (feedback instantáneo).
+    const prev = { manualFlag: l.manualFlag, manualSource: l.manualSource };
+    this.labs.update((arr) =>
+      arr.map((x) =>
+        x.id === l.id
+          ? { ...x, manualFlag: next, manualSource: next ? (x.rangeUnparsed ? 'anestesiologo:verificado-manualmente' : 'anestesiologo:sobrescribio-sistema') : null }
+          : x,
+      ),
+    );
+    try {
+      await this.api.setLabVerdict(this.caseId, l.id, next);
+    } catch {
+      // Falló el guardado: revertir el cambio optimista.
+      this.labs.update((arr) => arr.map((x) => (x.id === l.id ? { ...x, ...prev } : x)));
+    }
   }
 
   async reload() {
@@ -591,16 +791,34 @@ export class ReviewApprovalPage implements OnInit {
   }
 
   // ── Edición en línea del borrador ──
+  hoyBogota() { return hoyBogota(); }
+
   startEdit(section: string, key: string, v: any) {
     const cur = v?.estado === 'pendiente_examen' ? '' : (v?.valor ?? '');
     this.editValue.set(String(cur));
+    // #7: al abrir peso/talla, separa el valor actual "63 kg / 1.70 m / …" en peso y talla.
+    if (key === 'peso_talla_imc') {
+      const nums = String(cur).match(/-?\d+(?:[.,]\d+)?/g) ?? [];
+      this.ptPeso.set(nums[0] ?? '');
+      this.ptTalla.set(nums[1] ?? '');
+    }
     this.editingKey.set(`${section}.${key}`);
   }
   cancelEdit() { this.editingKey.set(null); }
   async saveEdit(section: string, key: string) {
     this.savingEdit.set(true);
     try {
-      await this.api.editField(this.caseId, section, key, this.editValue().trim());
+      let value = this.editValue().trim();
+      // #7: peso/talla/IMC se compone desde los campos guiados; el IMC es el calculado.
+      if (key === 'peso_talla_imc') {
+        const peso = parseDecimalLocal(this.ptPeso());
+        const tallaRaw = parseDecimalLocal(this.ptTalla());
+        const imc = this.ptImc();
+        if (peso == null || tallaRaw == null) { this.savingEdit.set(false); return; } // faltan datos
+        const m = tallaRaw > 3 ? tallaRaw / 100 : tallaRaw;
+        value = `${peso} kg / ${m.toFixed(2)} m${imc != null ? ` / ${imc} kg/m²` : ''}`;
+      }
+      await this.api.editField(this.caseId, section, key, value);
       this.editingKey.set(null);
       await this.reload();
       if (this.showPreview()) this.loadPreview();

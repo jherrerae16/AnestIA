@@ -8,6 +8,7 @@ import { brandingDataUri } from '../pdf/branding';
 import { filenameFromKey, isViewableInline, mimeFor } from '../mime';
 import { auditForCase } from './audit-clinical.service';
 import { getNoteForCase } from './note.service';
+import { regenerateParaclinicos } from './clinical.service';
 import {
   canApprove,
   applyExamNormal,
@@ -83,12 +84,20 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
     fields,
     answers: kase.formResponse?.answers ?? {},
     labs: kase.labResults.map((l) => ({
+      id: l.id,
       analyte: l.analyte,
       value: l.value,
       unit: l.unit,
       grupo: l.grupo,
+      refRange: l.refRange,
       reportDate: l.reportDate ? l.reportDate.toISOString().slice(0, 10) : null,
-      flag: l.flag,
+      flag: l.flag,                 // veredicto del sistema
+      manualFlag: l.manualFlag,     // veredicto del médico (null si no marcó)
+      manualSource: l.manualSource,
+      // Flag EFECTIVO que rige en la UI y el documento: manual ?? sistema.
+      effectiveFlag: l.manualFlag ?? l.flag,
+      // true = el rango impreso no se pudo leer; la UI avisa "verifica manualmente".
+      rangeUnparsed: l.rangeUnparsed,
       sourceRef: l.sourceRef,
     })),
     // Agrupado por estudio con fecha y vigencia ya resueltas: la regla de antigüedad vive
@@ -111,7 +120,7 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
       desactualizado: g.desactualizado,
       labs: kase.labResults
         .filter((l) => normalizeGrupo(l.grupo) === g.grupo)
-        .map((l) => ({ analyte: l.analyte, value: l.value, unit: l.unit, flag: l.flag })),
+        .map((l) => ({ analyte: l.analyte, value: l.value, unit: l.unit, refRange: l.refRange, flag: l.flag, rangeUnparsed: l.rangeUnparsed })),
     })),
     // Archivos originales del paciente: el médico debe poder leer el examen, no sólo lo
     // que la IA extrajo de él. La URL apunta a /api/download (exige sesión y propiedad).
@@ -209,6 +218,11 @@ export async function approve(caseId: string, anesthesiologistId: string): Promi
   const fields = kase.assessment.fields as DocumentJSON;
   const check = canApprove(fields);
   if (!check.ok) return { ok: false, blockers: check.blockers };
+
+  // Congela la prosa de paraclínicos con los veredictos EFECTIVOS (manual del médico ?? sistema)
+  // al momento de aprobar: el documento firmado no puede contradecir lo que el médico marcó en
+  // los labs. Sólo paraclínicos (determinístico); concepto/plan/recomendaciones NO se regeneran.
+  fields.paraclinicos = await regenerateParaclinicos(caseId, new Date().toISOString().slice(0, 10));
 
   // Auditor: los hallazgos BLOQUEANTES (seguridad dura: campo sin fuente, valor inventado
   // en el examen físico) no pueden llegar a un documento firmado. El resto son advertencias
