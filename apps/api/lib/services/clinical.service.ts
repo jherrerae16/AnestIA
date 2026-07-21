@@ -10,6 +10,7 @@ import {
   detectGLP1,
   groupLabsToProse,
   parseNumeric,
+  isAmbiguousProcedure,
   PROMPT_MAESTRO_VERSION,
   type DocField,
   type FormAnswers,
@@ -91,6 +92,59 @@ function buildParaclinicos(
   return out;
 }
 
+/**
+ * Flag EFECTIVO de un lab para la prosa del documento (Opción 1 — se congela al aprobar):
+ *  - el médico marcó (`manualFlag`) → manda su veredicto.
+ *  - no marcó y el sistema pudo leer el rango → manda el veredicto del sistema (`flag`).
+ *  - no marcó y el rango era ilegible (`rangeUnparsed`) → se EXCLUYE de la prosa: no es normal
+ *    ni alteración confirmada; si el médico no lo revisó, no lo declaramos alterado ni en rango.
+ * Devuelve el flag efectivo, o null si el lab debe excluirse de la prosa.
+ */
+export function effectiveFlagForProse(l: { flag: string; manualFlag: string | null; rangeUnparsed: boolean }): string | null {
+  if (l.manualFlag != null) return l.manualFlag;
+  if (l.rangeUnparsed) return null; // no revisado + rango ilegible → fuera de la prosa
+  return l.flag;
+}
+
+/**
+ * Regenera SÓLO la sección paraclínicos con los flags EFECTIVOS (manual ?? sistema), para
+ * congelarla en el documento al aprobar. Prosa determinística (groupLabsToProse), sin IA. NO
+ * toca concepto/plan/recomendaciones (prosa clínica que el médico ya revisó con contexto).
+ */
+export async function regenerateParaclinicos(caseId: string, hoy: string): Promise<Record<string, DocField>> {
+  const labs = await prisma.extractedLabResult.findMany({ where: { caseId } });
+  const groupable = labs
+    .map((l) => ({ lab: l, eff: effectiveFlagForProse(l) }))
+    .filter((x) => x.eff !== null) // excluye los ilegibles sin revisar
+    .map(({ lab, eff }) => ({
+      analyte: lab.analyte,
+      value: lab.value,
+      unit: lab.unit,
+      grupo: lab.grupo,
+      reportDate: lab.reportDate ? lab.reportDate.toISOString().slice(0, 10) : null,
+      flag: eff, // flag efectivo, no el crudo del sistema
+      sourceRef: lab.sourceRef,
+    }));
+
+  const out: Record<string, DocField> = {};
+  for (const g of groupLabsToProse(groupable, hoy)) {
+    out[g.grupo] = {
+      valor: g.texto,
+      estado: 'ok',
+      fuente: g.fuentes.length ? g.fuentes.join(', ') : 'lab',
+      alerta: g.alerta,
+    };
+  }
+  return out;
+}
+
+/** Texto plano de una respuesta del formulario (string, o array unido). null si vacía. */
+function valorTexto(v: unknown): string | null {
+  if (v == null) return null;
+  const s = Array.isArray(v) ? v.join(', ') : String(v);
+  return s.trim() || null;
+}
+
 export async function generateForCase(caseId: string): Promise<void> {
   const existing = await prisma.generatedAssessment.findUnique({ where: { caseId } });
   if (existing) return;
@@ -111,6 +165,19 @@ export async function generateForCase(caseId: string): Promise<void> {
   // Guardarraíles (segunda línea) — CS2/CS3/CS4. peso/talla/IMC se fuerzan a los datos reales
   // del paciente: el modelo no decide esos números (evita el 71/188 fabricado sobre 78/193).
   const doc = enforceGuardrails(parsed, { imc: input.imc ?? null, pesoKg: input.pesoKg, tallaCm: input.tallaCm });
+
+  // Procedimiento ambiguo ("operación de la nariz"): el modelo tiende a elegir una cirugía
+  // específica (rinoplastia) por sesgo, pero eso es inventar el procedimiento — en anestesia el
+  // manejo depende de cuál sea. Guardarraíl determinístico: si el P9 del paciente es ambiguo, se
+  // conserva su texto original en procedimiento y diagnóstico, sin importar lo que puso el modelo.
+  const procOriginal = valorTexto(input.answers['9']?.value);
+  if (procOriginal && isAmbiguousProcedure(procOriginal)) {
+    const fuente = 'formulario:P9';
+    doc.identificacion['procedimiento'] = { valor: procOriginal, estado: 'ok', fuente };
+    if (doc.identificacion['diagnostico_preoperatorio']) {
+      doc.identificacion['diagnostico_preoperatorio'] = { valor: procOriginal, estado: 'ok', fuente };
+    }
+  }
 
   // Trazabilidad: la etiqueta la da el propio adaptador (un solo punto de verdad).
   const modelUsed = activeModelLabel();

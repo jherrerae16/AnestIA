@@ -60,6 +60,10 @@ export class ApiService {
   editField(caseId: string, section: string, key: string, value: string): Promise<unknown> {
     return firstValueFrom(this.http.patch(`/api/panel/cases/${caseId}/assessment`, { section, key, value }));
   }
+  /** Veredicto manual del médico sobre un analito (HITL). verdict=null deshace. */
+  setLabVerdict(caseId: string, labId: string, verdict: 'NORMAL' | 'ALERTA' | 'CRITICO' | null): Promise<{ manualFlag: string | null; effectiveFlag: string }> {
+    return firstValueFrom(this.http.put<{ manualFlag: string | null; effectiveFlag: string }>(`/api/panel/cases/${caseId}/labs/${labId}/verdict`, { verdict }));
+  }
   loadExamNormal(caseId: string): Promise<unknown> {
     // attested=true: atestación explícita del médico (CS3). El botón sólo se habilita tras confirmar.
     return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/exam`, { mode: 'normal', attested: true }));
