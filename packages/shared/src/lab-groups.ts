@@ -176,16 +176,11 @@ export function groupLabsToProse(
     const meses = fecha && hoy ? mesesDesde(fecha, hoy) : null;
     const desactualizado = meses != null && meses >= LAB_VIGENCIA_MESES;
 
+    // La prosa del DOCUMENTO no incluye la fecha del informe: al receptor final no le incumbe.
+    // La fecha y la vigencia viajan como metadato estructurado (`fecha`/`desactualizado`) para
+    // que la UI de revisión avise SÓLO al médico si el examen está viejo. No se pierde el dato,
+    // se saca del texto que llega al PDF.
     const partes = [`${valores}.`, closingSentence(items)];
-    if (fecha) {
-      partes.push(
-        desactualizado
-          ? `Informe del ${formatReportDate(fecha)} (${meses} meses): verificar vigencia.`
-          : `Informe del ${formatReportDate(fecha)}.`,
-      );
-    } else {
-      partes.push('El informe no reporta fecha: confirmar con el paciente.');
-    }
 
     return {
       grupo,
