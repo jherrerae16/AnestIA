@@ -62,30 +62,39 @@ function firmaSub(branding: Branding): string {
   return parts.length ? `<div class="sub">${parts.join(' · ')}</div>` : '';
 }
 
+/**
+ * El realce rojo de alerta y la marca ° de derivado son HERRAMIENTAS DE TRABAJO del borrador:
+ * ayudan al médico a revisar. En el documento FINAL aprobado no van — el médico ya dio su visto
+ * bueno consciente y los hallazgos ya están explicados en su concepto/recomendaciones; los rojos
+ * en un entregable formal generan alarma innecesaria y se ven poco profesionales. Por eso ambos
+ * se condicionan a `draft`.
+ */
+
 /** Celda del encabezado con el nombre normalizado a Title-Case. */
-function nameCell(section: Record<string, DocField>, key: string, label: string): string {
+function nameCell(section: Record<string, DocField>, key: string, label: string, draft: boolean): string {
   const f = section[key];
   const display: DocField | undefined =
     f && f.valor != null && f.estado === 'ok'
       ? { ...f, valor: toTitleCase(String(f.valor)) }
       : f;
-  return `<div class="cell"><span class="k">${escapeHtml(label)}</span><span class="v${f?.alerta ? ' alerta' : ''}">${fieldVal(display)}</span></div>`;
+  return `<div class="cell"><span class="k">${escapeHtml(label)}</span><span class="v${draft && f?.alerta ? ' alerta' : ''}">${fieldVal(display)}</span></div>`;
 }
 
-function alertClass(f: DocField | undefined): string {
-  return f?.alerta ? ' class="alerta"' : '';
+/** Clase de alerta (rojo) — solo en el borrador. */
+function alertClass(f: DocField | undefined, draft: boolean): string {
+  return draft && f?.alerta ? ' class="alerta"' : '';
 }
 
 /** Renderiza una celda etiqueta/valor del encabezado de identificación. */
-function idCell(section: Record<string, DocField>, key: string, label: string): string {
+function idCell(section: Record<string, DocField>, key: string, label: string, draft: boolean): string {
   const f = section[key];
-  return `<div class="cell"><span class="k">${escapeHtml(label)}</span><span class="v${f?.alerta ? ' alerta' : ''}">${fieldVal(f)}</span></div>`;
+  return `<div class="cell"><span class="k">${escapeHtml(label)}</span><span class="v${draft && f?.alerta ? ' alerta' : ''}">${fieldVal(f)}</span></div>`;
 }
 
 /** Bloque de 12 campos del encabezado (3 columnas × 4 filas), fiel a la referencia. */
-function idGrid(section: Record<string, DocField>, cells: [string, string][]): string {
+function idGrid(section: Record<string, DocField>, cells: [string, string][], draft: boolean): string {
   return `<div class="idgrid">${cells
-    .map(([key, label]) => (key === 'paciente' ? nameCell(section, key, label) : idCell(section, key, label)))
+    .map(([key, label]) => (key === 'paciente' ? nameCell(section, key, label, draft) : idCell(section, key, label, draft)))
     .join('')}</div>`;
 }
 
@@ -104,14 +113,15 @@ function isDerived(f: DocField | undefined): boolean {
  * si no se declaró). Etiquetas en negrita terminadas en ":". Los campos derivados por IA
  * se marcan con ° (dato inferido — verificar).
  */
-function rows(section: Record<string, DocField>, labels: [string, string][], skipAbsent = false): string {
+function rows(section: Record<string, DocField>, labels: [string, string][], draft: boolean, skipAbsent = false): string {
   const visible = labels.filter(([key]) => !skipAbsent || section[key] !== undefined);
   return visible
     .map(([key, label], i) => {
       const f = section[key];
       const shade = i % 2 === 1 ? ' class="alt"' : '';
-      const mark = isDerived(f) ? '<span class="der-mark" title="Dato inferido — verificar">°</span>' : '';
-      return `<tr${shade}><th>${escapeHtml(label)}:</th><td${alertClass(f)}>${fieldVal(f)}${mark}</td></tr>`;
+      // La marca ° de derivado solo en el borrador (herramienta de revisión, no del entregable).
+      const mark = draft && isDerived(f) ? '<span class="der-mark" title="Dato inferido — verificar">°</span>' : '';
+      return `<tr${shade}><th>${escapeHtml(label)}:</th><td${alertClass(f, draft)}>${fieldVal(f)}${mark}</td></tr>`;
     })
     .join('');
 }
@@ -137,7 +147,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     .map(([k, f], i) => {
       const shade = i % 2 === 1 ? ' class="alt"' : '';
       const label = isLabGrupo(k) ? grupoLabel(k) : sentenceCase(k.replace(/_/g, ' '));
-      return `<tr${shade}><th class="estudio">${escapeHtml(label)}</th><td${alertClass(f)}>${fieldVal(f)}</td></tr>`;
+      return `<tr${shade}><th class="estudio">${escapeHtml(label)}</th><td${alertClass(f, draft)}>${fieldVal(f)}</td></tr>`;
     })
     .join('') || '<tr><td colspan="2">No se cargaron paraclínicos.</td></tr>';
 
@@ -193,7 +203,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ['peso_talla_imc','Peso / Talla / IMC'],['diagnostico_preoperatorio','Diagnóstico preoperatorio'],['procedimiento','Procedimiento'],
     ['fecha_valoracion','Fecha de valoración'],['fecha_procedimiento','Fecha del procedimiento'],['capacidad_funcional','Capacidad funcional'],
     ['asa','Clasificación ASA'],['tipo_cirugia','Tipo de cirugía'],['condicion_actual','Condición actual'],
-  ])}
+  ], draft)}
 
   <h2 class="band">Antecedentes y medicación</h2>
   <table>${rows(ant, [
@@ -201,7 +211,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ['glp1','Uso de agonistas GLP-1'],['alergias','Alergias'],['transfusionales','Transfusionales'],
     ['protesis_dental','Prótesis dental / diseño de sonrisa'],['habitos','Hábitos'],
     ['grupo_sanguineo','Grupo sanguíneo'],
-  ], true)}</table>
+  ], draft, true)}</table>
 
   <h2 class="band">Paraclínicos disponibles</h2>
   <table>${paraclinicos}</table>
@@ -212,11 +222,11 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ['signos_vitales','Signos vitales'],['via_aerea','Vía aérea'],['cuello','Cuello'],
     ['cardiovascular_respiratorio','Cardiovascular / respiratorio'],['abdomen','Abdomen'],
     ['extremidades','Extremidades'],['snc','Sistema nervioso central'],
-  ])}</table>
+  ], draft)}</table>
   <p class="nota">Los datos inferidos del examen físico y los signos vitales deben corroborarse antes del procedimiento.</p>
 
   <h2 class="band">Valoración y plan</h2>
-  <table class="narrativo">${rows(vp, [['concepto','Concepto anestésico'],['plan','Plan anestésico'],['recomendaciones','Recomendaciones']])}</table>
+  <table class="narrativo">${rows(vp, [['concepto','Concepto anestésico'],['plan','Plan anestésico'],['recomendaciones','Recomendaciones']], draft)}</table>
 
   ${draft ? '<div class="legend">Los datos marcados con <b>°</b> son inferidos por el sistema a partir de las respuestas del paciente y <b>deben ser verificados</b> por el anestesiólogo antes de aprobar el documento.</div>' : ''}
 

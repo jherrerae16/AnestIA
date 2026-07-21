@@ -35,6 +35,39 @@ describe('buildDocumentHtml', () => {
     expect(html).toContain('Examen físico');
     expect(html).toContain('Dr. Jorge A. Luquetta');
   });
+
+  describe('marca ° de derivado y rojo de alerta — solo en borrador (Tanda B, #4/#5)', () => {
+    // Documento final (examen NO pendiente): un campo derivado + una alerta.
+    const finalDoc: DocumentJSON = {
+      identificacion: { asa: { valor: 'II', estado: 'ok', fuente: 'formulario:P13' } },
+      antecedentes: {
+        patologicos: { valor: 'Anemia', estado: 'ok', fuente: 'formulario:P13', alerta: true }, // alerta → rojo en borrador
+      },
+      paraclinicos: { hemograma: { valor: 'Hb 10.3', estado: 'ok', fuente: 'lab', alerta: true } },
+      examen_fisico: { signos_vitales: { valor: 'TA 120/80', estado: 'ok', fuente: 'anestesiologo' } },
+      // concepto derivado → ° en borrador (valoracion_plan se renderiza con rows()).
+      valoracion_plan: { concepto: { valor: 'Riesgo moderado', estado: 'ok', fuente: 'derivado:IA' } },
+    };
+
+    // Se busca el SPAN real del ° (class="der-mark"), no la definición CSS `.der-mark {…}`.
+    const DER_SPAN = '<span class="der-mark"';
+    const ALERTA_CELL = '<td class="alerta">';
+
+    it('BORRADOR (draft:true) → SÍ muestra ° y celda de alerta', () => {
+      const html = buildDocumentHtml(finalDoc, branding, { draft: true });
+      expect(html).toContain(DER_SPAN); // °
+      expect(html).toContain(ALERTA_CELL);
+      expect(html).toContain('BORRADOR');
+    });
+
+    it('FINAL (draft:false, examen no pendiente) → NO ° ni rojo, ni watermark, ni leyenda', () => {
+      const html = buildDocumentHtml(finalDoc, branding, { draft: false });
+      expect(html).not.toContain(DER_SPAN);   // sin punticos naranjas
+      expect(html).not.toContain(ALERTA_CELL); // sin rojo de alerta
+      expect(html).not.toContain('BORRADOR');   // sin marca de agua
+      expect(html).not.toContain('deben ser verificados'); // sin leyenda del °
+    });
+  });
 });
 
 describe('paraclínicos — seccionados por tipo de estudio', () => {
