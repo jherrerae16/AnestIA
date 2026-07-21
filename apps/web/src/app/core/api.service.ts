@@ -64,6 +64,10 @@ export class ApiService {
   setLabVerdict(caseId: string, labId: string, verdict: 'NORMAL' | 'ALERTA' | 'CRITICO' | null): Promise<{ manualFlag: string | null; effectiveFlag: string }> {
     return firstValueFrom(this.http.put<{ manualFlag: string | null; effectiveFlag: string }>(`/api/panel/cases/${caseId}/labs/${labId}/verdict`, { verdict }));
   }
+  /** Re-corre el auditor determinístico sobre el borrador actual. Cero tokens. */
+  reaudit(caseId: string): Promise<{ audit: { findings: { level: string; category: string; message: string }[] } | null }> {
+    return firstValueFrom(this.http.post<{ audit: { findings: { level: string; category: string; message: string }[] } | null }>(`/api/panel/cases/${caseId}/reaudit`, {}));
+  }
   loadExamNormal(caseId: string): Promise<unknown> {
     // attested=true: atestación explícita del médico (CS3). El botón sólo se habilita tras confirmar.
     return firstValueFrom(this.http.post(`/api/panel/cases/${caseId}/exam`, { mode: 'normal', attested: true }));
