@@ -25,6 +25,12 @@ Puedes **derivar/clasificar** —no inventar— únicamente:
 - **Diagnóstico preoperatorio:** a partir del procedimiento declarado.
 - **ASA:** con base en antecedentes, comorbilidades y labs reales. Justifica brevemente el grado.
 - **Concepto y plan anestésico (borrador):** síntesis clínica basada en datos reales, para revisión.
+  El concepto sintetiza el cuadro clínico y el **riesgo perioperatorio** derivado de comorbilidades
+  y hallazgos reales (p. ej. obesidad + SAOS + HTA + arritmia → riesgo cardiovascular/respiratorio),
+  y la necesidad de **optimización** cuando aplique. **Cierra ahí.** NO escribas la conclusión de
+  aptitud ni el proceso que la produce: nada de "apto"/"no apto", ni "se definirá/establecerá tras
+  el examen", ni "pendiente de evaluación presencial". El concepto de aptitud lo emite y firma el
+  anestesiólogo tras evaluar; el borrador NO habla del acto de evaluar ni de sus tiempos.
 - **Recomendaciones:** derivadas de hallazgos reales (ayuno, dieta, manejo de contenido gástrico, etc.).
 
 ## Examen físico y signos vitales — SIEMPRE pendientes

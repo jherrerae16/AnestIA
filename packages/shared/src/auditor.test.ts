@@ -161,6 +161,31 @@ describe('auditor — redacción (lenguaje de IA prohibido)', () => {
     const r = auditDocument({ doc: baseDoc(), answers: sanoAnswers });
     expect(r.findings.some((f) => f.category === 'redaccion')).toBe(false);
   });
+
+  it('marca el concepto que habla de aptitud/proceso ("se establecerá tras el examen")', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok(
+      'Paciente con riesgo cardiovascular por obesidad e hipertensión. La definición de aptitud se establecerá tras el examen físico presencial y la evaluación complementaria.',
+      'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion' && f.field === 'valoracion_plan.concepto' && /aptitud/.test(f.message))).toBe(true);
+  });
+
+  it('marca "pendiente de evaluación presencial" en el concepto', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok('Riesgo respiratorio; pendiente de evaluación presencial.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion' && /aptitud|evaluar/.test(f.message))).toBe(true);
+  });
+
+  it('concepto que cierra en riesgo (sin hablar de aptitud) → sin hallazgo', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok(
+      'Paciente con obesidad, SAOS e hipertensión arterial que condicionan riesgo cardiovascular y respiratorio perioperatorio; requiere optimización previa.',
+      'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion')).toBe(false);
+  });
 });
 
 describe('auditor — terminología (coloquialismo sin traducir)', () => {
