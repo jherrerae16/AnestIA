@@ -11,6 +11,7 @@ import {
   groupLabsToProse,
   parseNumeric,
   isAmbiguousProcedure,
+  autoCorrectTerm,
   PROMPT_MAESTRO_VERSION,
   type DocField,
   type FormAnswers,
@@ -179,6 +180,23 @@ export async function generateForCase(caseId: string): Promise<void> {
     }
   }
 
+  // Auto-corrección de terminología ANTES del auditor: aplica la traducción médica cuando es
+  // SEGURA y sin pérdida (coloquialismo unívoco, sin calificadores). Así el borrador que ve el
+  // médico ya trae el término correcto y el auditor no lo molesta con algo que el sistema puede
+  // arreglar solo. Los casos con contexto ("candidato a…") o ambiguos NO se tocan: autoCorrectTerm
+  // devuelve null y el auditor los deja como advertencia para el criterio del médico.
+  const correcciones: { campo: string; de: string; a: string }[] = [];
+  for (const clave of ['procedimiento', 'diagnostico_preoperatorio'] as const) {
+    const f = doc.identificacion[clave];
+    if (f?.estado !== 'ok' || f.valor == null) continue;
+    const original = String(f.valor);
+    const corregido = autoCorrectTerm(original);
+    if (corregido && corregido !== original) {
+      doc.identificacion[clave] = { ...f, valor: corregido, nota: 'terminología normalizada por el sistema' };
+      correcciones.push({ campo: clave, de: original, a: corregido });
+    }
+  }
+
   // Trazabilidad: la etiqueta la da el propio adaptador (un solo punto de verdad).
   const modelUsed = activeModelLabel();
 
@@ -191,5 +209,10 @@ export async function generateForCase(caseId: string): Promise<void> {
     },
   });
 
-  await logAudit({ action: 'clinical.generated', entity: 'Case', entityId: caseId, meta: { modelUsed } });
+  await logAudit({
+    action: 'clinical.generated',
+    entity: 'Case',
+    entityId: caseId,
+    meta: { modelUsed, ...(correcciones.length ? { terminologiaCorregida: correcciones } : {}) },
+  });
 }
