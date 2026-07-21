@@ -97,6 +97,14 @@ describe('canonicalAnalyte / parseNumeric', () => {
     expect(parseNumeric('244.000')).toBe(244000);
     expect(parseNumeric('sin dato')).toBeNull();
   });
+  it('parseNumeric NO confunde decimales chicos con miles (0.020 ≠ 20)', () => {
+    // Un grupo de miles nunca arranca en 0: "0.020" es 0.02, no veinte mil. Sin la guarda,
+    // valores decimales pequeños disparaban falsas alertas (CELULAS INMADURAS 0.020 vs 0-0.3).
+    expect(parseNumeric('0.020')).toBe(0.02);
+    expect(parseNumeric('0.300')).toBe(0.3);
+    expect(parseNumeric('0.000')).toBe(0);
+    expect(parseNumeric('1.234.567')).toBe(1234567); // miles legítimo intacto
+  });
 });
 
 describe('detectGLP1 (PBT invariant)', () => {

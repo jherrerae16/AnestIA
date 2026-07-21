@@ -8,6 +8,7 @@ import { brandingDataUri } from '../pdf/branding';
 import { filenameFromKey, isViewableInline, mimeFor } from '../mime';
 import { auditForCase } from './audit-clinical.service';
 import { getNoteForCase } from './note.service';
+import { reflagForCase } from './lab.service';
 import { regenerateParaclinicos } from './clinical.service';
 import {
   canApprove,
@@ -62,6 +63,10 @@ function patientSummary(p: {
 
 /** Carga los datos de revisión: assessment + respuestas fuente + labs + adjuntos originales. */
 export async function getReview(caseId: string, anesthesiologistId: string) {
+  // Red de seguridad: re-marca los labs contra su rango impreso antes de mostrarlos. Corrige
+  // casos cuyo veredicto quedó NORMAL por defecto (procesados por un worker viejo o antes de la
+  // regla de "marcar contra rango impreso"). Idempotente; no toca el veredicto manual del médico.
+  await reflagForCase(caseId).catch(() => {});
   const kase = await prisma.case.findFirst({
     where: { id: caseId, anesthesiologistId },
     include: {

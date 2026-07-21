@@ -56,8 +56,11 @@ export function canonicalAnalyte(name: string): string | null {
 export function parseNumeric(value: string | number): number | null {
   if (typeof value === 'number') return isFinite(value) ? value : null;
   const s = String(value).trim();
-  // Miles con punto: "244.000" → "244000" (3 dígitos tras el punto y sin decimales reales)
-  const thousands = s.match(/^-?\d{1,3}(?:\.\d{3})+$/);
+  // Miles con punto: "244.000" → "244000" (3 dígitos tras el punto y sin decimales reales).
+  // La parte entera NO puede ser 0: "0.020" es un decimal (0.02), no veinte mil — un grupo de
+  // miles nunca arranca en 0. Sin esta guarda, valores decimales chicos (0.020, 0.300) se
+  // multiplicaban por mil y disparaban falsas alertas.
+  const thousands = s.match(/^-?[1-9]\d{0,2}(?:\.\d{3})+$/);
   if (thousands) {
     const n = parseInt(s.replace(/\./g, ''), 10);
     return isFinite(n) ? n : null;

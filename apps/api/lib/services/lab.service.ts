@@ -233,6 +233,29 @@ export async function flagForCase(caseId: string): Promise<void> {
   }
 }
 
+/**
+ * Re-marca los labs de un caso contra el rango impreso, corrigiendo filas cuyo `flag` quedó
+ * obsoleto (p. ej. casos procesados antes de la regla "marcar contra rango impreso", o por un
+ * worker viejo). Idempotente y barato: sólo escribe donde el veredicto cambia y NUNCA toca el
+ * `manualFlag` del médico. Devuelve cuántas filas corrigió. Es la red de seguridad para que un
+ * caso ya extraído no se quede con veredictos NORMAL por defecto sin re-emitir el pipeline.
+ */
+export async function reflagForCase(caseId: string): Promise<number> {
+  const results = await prisma.extractedLabResult.findMany({ where: { caseId } });
+  let corrected = 0;
+  for (const r of results) {
+    const { flag, rangeUnparsed } = flagLab(r.refRange, r.value);
+    if (flag !== r.flag || rangeUnparsed !== r.rangeUnparsed) {
+      await prisma.extractedLabResult.update({ where: { id: r.id }, data: { flag, rangeUnparsed } });
+      corrected++;
+    }
+  }
+  if (corrected > 0) {
+    await logAudit({ action: 'lab.reflagged', entity: 'Case', entityId: caseId, meta: { corrected } });
+  }
+  return corrected;
+}
+
 export class LabNotFoundError extends Error {
   constructor() { super('Laboratorio no encontrado.'); this.name = 'LabNotFoundError'; }
 }
