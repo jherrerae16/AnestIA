@@ -82,6 +82,8 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
     caseId,
     status: kase.status,
     fields,
+    // patientId para poder crear/editar la nota privada desde la pantalla de revisión.
+    patientId: kase.patientId,
     answers: kase.formResponse?.answers ?? {},
     labs: kase.labResults.map((l) => ({
       id: l.id,
