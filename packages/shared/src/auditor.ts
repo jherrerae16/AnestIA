@@ -1,5 +1,6 @@
 import type { DocumentJSON, DocField } from './document';
 import { EXAM_FIELDS } from './clinical';
+import { toMedicalTerms } from './medical-terms';
 
 /**
  * Auditor independiente del documento clínico (patrón generador + crítico).
@@ -22,7 +23,10 @@ export interface AuditFinding {
     | 'contradiccion'
     | 'completitud'
     | 'seguridad'
-    | 'formato';
+    | 'formato'
+    | 'redaccion'
+    | 'terminologia'
+    | 'ortografia';
   /** Mensaje en lenguaje claro para el anestesiólogo. */
   message: string;
   /** Ruta del campo implicado (sección.clave), si aplica. */
@@ -37,7 +41,38 @@ export interface AuditReport {
   rulesVersion: string;
 }
 
-export const AUDITOR_RULES_VERSION = 'auditor-v1';
+export const AUDITOR_RULES_VERSION = 'auditor-v2';
+
+/**
+ * Frases prohibidas por el Prompt Maestro (lenguaje de IA / hedging). El documento debe
+ * transmitir criterio clínico, no incertidumbre de modelo. Se comparan sobre el texto
+ * normalizado (minúsculas, sin acentos) de los campos narrativos. `prompt-maestro-v2.md`.
+ */
+const FRASES_PROHIBIDAS: { patron: RegExp; etiqueta: string }[] = [
+  { patron: /segun la informacion (proporcionada|suministrada|disponible|brindada)/, etiqueta: 'según la información proporcionada' },
+  { patron: /\bse sugiere\b/, etiqueta: 'se sugiere' },
+  { patron: /\bparece que\b|\bpareciera\b|\baparenta\b/, etiqueta: 'parece' },
+  { patron: /\bpodria\b|\bpodrian\b|\bposiblemente\b|\bquizas\b|\btal vez\b/, etiqueta: 'podría / posiblemente' },
+  { patron: /como modelo de lenguaje|como (una |un )?ia\b|inteligencia artificial|no puedo (garantizar|asegurar|confirmar)/, etiqueta: 'referencia a IA / disculpa de modelo' },
+  { patron: /\ben base a los datos\b|\bde acuerdo a lo (indicado|reportado|informado)\b/, etiqueta: 'muletilla de fuente' },
+];
+
+/**
+ * Medicamentos con implicación anestésica directa (perioperatorio) que, si el paciente los
+ * declara (P15), deben quedar reflejados en el concepto o las recomendaciones — no basta con
+ * listarlos en antecedentes. Cada entrada agrupa sinónimos comerciales/genéricos comunes.
+ */
+const MEDICAMENTOS_RELEVANTES: { match: string[]; etiqueta: string }[] = [
+  { match: ['warfarina', 'coumadin', 'acenocumarol', 'sintrom'], etiqueta: 'anticoagulante cumarínico' },
+  { match: ['rivaroxaban', 'xarelto', 'apixaban', 'eliquis', 'dabigatran', 'pradaxa', 'edoxaban'], etiqueta: 'anticoagulante oral directo' },
+  { match: ['heparina', 'enoxaparina', 'clexane', 'fraxiparina'], etiqueta: 'heparina' },
+  { match: ['clopidogrel', 'plavix', 'prasugrel', 'ticagrelor', 'brilinta'], etiqueta: 'antiagregante plaquetario' },
+  { match: ['aspirina', 'asa', 'acido acetilsalicilico', 'aspirineta'], etiqueta: 'ácido acetilsalicílico' },
+  { match: ['metformina', 'glibenclamida', 'insulina', 'glargina', 'lantus'], etiqueta: 'antidiabético / insulina' },
+  { match: ['prednisona', 'prednisolona', 'dexametasona', 'corticoide', 'hidrocortisona'], etiqueta: 'corticoide sistémico' },
+  { match: ['losartan', 'enalapril', 'valsartan', 'lisinopril', 'captopril', 'ieca', 'ara ii'], etiqueta: 'IECA / ARA-II' },
+  { match: ['sertralina', 'fluoxetina', 'escitalopram', 'venlafaxina', 'imao', 'tranilcipromina'], etiqueta: 'antidepresivo (interacción anestésica)' },
+];
 
 /** Respuestas del formulario indexadas por order (string). */
 export type AuditAnswers = Record<string, { value: unknown; type?: string }>;
@@ -218,10 +253,120 @@ export function auditDocument(input: AuditInput): AuditReport {
   }
 
   // ── 7. Formato: riesgo de desbordar una página (INFORMATIVO) ────
+  // La página única es la meta; cuando el contenido clínico no cabe, no pasa nada — por eso
+  // se exige redacción concisa (Prompt Maestro). Este aviso empuja a acortar, no bloquea.
   const totalChars = JSON.stringify(doc).length;
   if (totalChars > 9000) {
     add('informativo', 'formato',
-      'El documento es extenso y podría no caber en una sola página; revisar el diseño antes de aprobar.');
+      'El documento es extenso y podría no caber en una sola página; priorizar redacción concisa antes de aprobar.');
+  }
+
+  // Campos narrativos donde vive la prosa que audita redacción/terminología/ortografía.
+  const NARRATIVA: { seccion: keyof DocumentJSON; clave: string; label: string }[] = [
+    { seccion: 'valoracion_plan', clave: 'concepto', label: 'concepto anestésico' },
+    { seccion: 'valoracion_plan', clave: 'plan', label: 'plan anestésico' },
+    { seccion: 'valoracion_plan', clave: 'recomendaciones', label: 'recomendaciones' },
+    { seccion: 'identificacion', clave: 'diagnostico_preoperatorio', label: 'diagnóstico preoperatorio' },
+    { seccion: 'identificacion', clave: 'procedimiento', label: 'procedimiento' },
+  ];
+  const narrativaText = (): { label: string; field: string; raw: string }[] =>
+    NARRATIVA
+      .map(({ seccion, clave, label }) => ({
+        label,
+        field: `${seccion}.${clave}`,
+        raw: text((doc[seccion] as Record<string, DocField> | undefined)?.[clave]),
+      }))
+      .filter((x) => x.raw.trim() !== '');
+
+  // ── 8. Redacción: lenguaje de IA / hedging prohibido (ADVERTENCIA) ──
+  for (const { label, field, raw } of narrativaText()) {
+    const n = norm(raw);
+    for (const { patron, etiqueta } of FRASES_PROHIBIDAS) {
+      if (patron.test(n)) {
+        add('advertencia', 'redaccion',
+          `El ${label} usa lenguaje de IA/incertidumbre prohibido por el Prompt Maestro ("${etiqueta}"). El texto debe transmitir criterio clínico.`,
+          field);
+      }
+    }
+  }
+
+  // ── 9. Terminología: coloquialismo sin traducir en la prosa (ADVERTENCIA) ──
+  // Reusa el diccionario clínico: si un término coloquial conocido aparece crudo en el
+  // procedimiento/diagnóstico, avisa para que se use el término médico.
+  for (const { label, field, raw } of narrativaText()) {
+    if (field === 'identificacion.procedimiento' || field === 'identificacion.diagnostico_preoperatorio') {
+      // Si el diccionario clínico traduce el texto a algo distinto, quedó un coloquialismo crudo
+      // en el documento firmado. Avisa para que se use el término médico.
+      const { text: traducido } = toMedicalTerms(raw);
+      if (norm(traducido) !== norm(raw) && !norm(raw).includes(norm(traducido))) {
+        add('advertencia', 'terminologia',
+          `El ${label} contiene lenguaje coloquial que debería ir en término médico ("${raw}" → "${traducido}").`,
+          field);
+      }
+    }
+  }
+
+  // ── 10. Ortografía: errores frecuentes es-CO en la prosa (INFORMATIVO) ──
+  // Chequeo conservador (sin diccionario completo): dobles espacios, mayúscula inicial, y
+  // typos clínicos frecuentes. Sólo informativo — el médico decide; nunca bloquea.
+  const TYPOS: [RegExp, string][] = [
+    [/\bhipertesion\b/, 'hipertensión'],
+    [/\bdiabetis\b/, 'diabetes'],
+    [/\banestecia\b/, 'anestesia'],
+    [/\bquirurjic/, 'quirúrgic-'],
+    [/\bpaciente esta\b/, 'paciente está'],
+    [/\bvia aerea\b/, 'vía aérea (sin tildes)'],
+  ];
+  for (const { label, field, raw } of narrativaText()) {
+    const n = norm(raw);
+    if (/ {2,}/.test(raw)) {
+      add('informativo', 'ortografia', `El ${label} tiene espacios dobles; revisar el formato.`, field);
+    }
+    const primera = raw.trim().charAt(0);
+    if (primera && primera !== primera.toLocaleUpperCase('es')) {
+      add('informativo', 'ortografia', `El ${label} no inicia con mayúscula.`, field);
+    }
+    for (const [re, sugerencia] of TYPOS) {
+      if (re.test(n)) {
+        add('informativo', 'ortografia', `El ${label} podría tener un error de escritura (revisar: "${sugerencia}").`, field);
+      }
+    }
+  }
+
+  // ── 11. ASA: coherencia con comorbilidades declaradas (ADVERTENCIA) ──
+  // No re-calcula el ASA (eso es juicio del anestesiólogo/motor); sólo levanta la mano cuando
+  // el nivel escrito choca de forma evidente con lo que el paciente declaró.
+  const asaRaw = text((doc.identificacion as Record<string, DocField> | undefined)?.['asa']);
+  const asaNum = (asaRaw.match(/\b([1-5])\b|\b(I{1,3}|IV|V)\b/) ? asaRaw : '').toUpperCase();
+  const asaEsUno = /\bASA\s*(1|I)\b/.test(asaNum) || /^\s*(1|I)\s*$/.test(asaNum);
+  if (asaRaw) {
+    const declaraComorbilidad =
+      isYes(a, '12') || answered(a, '13') || isYes(a, '14') || isYes(a, '22');
+    if (asaEsUno && declaraComorbilidad) {
+      add('advertencia', 'coherencia',
+        `El ASA registrado es I (paciente sano) pero el paciente declaró comorbilidades, medicación o tabaquismo. Revisar la clasificación ASA.`,
+        'identificacion.asa');
+    }
+  }
+
+  // ── 12. Interpretar medicamentos de riesgo anestésico (ADVERTENCIA) ──
+  // Si P15 declara un fármaco con manejo perioperatorio, debe reflejarse en concepto/recomendaciones.
+  if (answered(a, '15')) {
+    const declarados = norm(listOf(a, '15'));
+    const vp = (doc.valoracion_plan ?? {}) as Record<string, DocField>;
+    const proseVP = norm(text(vp['concepto']) + ' ' + text(vp['recomendaciones']) + ' ' + text(ant['medicamentos']));
+    for (const med of MEDICAMENTOS_RELEVANTES) {
+      const presente = med.match.some((m) => new RegExp(`(?<![a-z0-9])${m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![a-z0-9])`).test(declarados));
+      if (!presente) continue;
+      // ¿Se menciona esa clase de fármaco (o su manejo) en la valoración?
+      const reflejado = med.match.some((m) => proseVP.includes(m)) ||
+        norm(med.etiqueta).split(/[ /]/).some((w) => w.length > 4 && proseVP.includes(w));
+      if (!reflejado) {
+        add('advertencia', 'completitud',
+          `El paciente declaró un ${med.etiqueta} (P15) con implicación perioperatoria que no se refleja en el concepto ni en las recomendaciones.`,
+          'valoracion_plan.recomendaciones');
+      }
+    }
   }
 
   return {
