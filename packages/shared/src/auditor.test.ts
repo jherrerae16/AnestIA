@@ -133,3 +133,99 @@ describe('auditor — coherencia respuesta ↔ documento', () => {
     expect(r.findings.some((f) => f.category === 'coherencia' && /alergias/.test(f.message))).toBe(true);
   });
 });
+
+describe('auditor — redacción (lenguaje de IA prohibido)', () => {
+  it('detecta "se sugiere" en las recomendaciones', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['recomendaciones'] = ok('Se sugiere ayuno de 8 horas.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion' && f.field === 'valoracion_plan.recomendaciones')).toBe(true);
+    expect(r.blocked).toBe(false); // advertencia, no bloquea
+  });
+
+  it('detecta "podría" en el concepto', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok('El paciente podría tolerar la anestesia general.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion' && /podría/.test(f.message))).toBe(true);
+  });
+
+  it('detecta "según la información proporcionada"', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['plan'] = ok('Según la información proporcionada, se planea anestesia regional.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion')).toBe(true);
+  });
+
+  it('prosa clínica limpia → sin hallazgo de redacción', () => {
+    const r = auditDocument({ doc: baseDoc(), answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion')).toBe(false);
+  });
+});
+
+describe('auditor — terminología (coloquialismo sin traducir)', () => {
+  it('marca "operación de vesícula" crudo en el procedimiento', () => {
+    const doc = baseDoc();
+    (doc.identificacion as Record<string, DocField>)['procedimiento'] = ok('vesicula', 'formulario:P3');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'terminologia' && f.field === 'identificacion.procedimiento')).toBe(true);
+  });
+
+  it('no se queja si el procedimiento ya está en término médico', () => {
+    const doc = baseDoc();
+    (doc.identificacion as Record<string, DocField>)['procedimiento'] = ok('Colecistectomía', 'formulario:P3');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'terminologia')).toBe(false);
+  });
+});
+
+describe('auditor — ortografía', () => {
+  it('marca espacios dobles en la prosa', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok('Apto para  cirugía electiva.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'ortografia')).toBe(true);
+    expect(r.blocked).toBe(false);
+  });
+
+  it('marca minúscula inicial', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok('apto para cirugía electiva.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'ortografia' && /mayúscula/.test(f.message))).toBe(true);
+  });
+});
+
+describe('auditor — ASA vs comorbilidades', () => {
+  it('marca ASA I con comorbilidades declaradas', () => {
+    const doc = baseDoc();
+    (doc.identificacion as Record<string, DocField>)['asa'] = ok('ASA I', 'derivado:IA');
+    const answers: AuditAnswers = { ...sanoAnswers, '12': { value: 'si' }, '13': { value: ['Hipertensión arterial'] } };
+    const r = auditDocument({ doc, answers });
+    expect(r.findings.some((f) => f.category === 'coherencia' && /ASA/.test(f.message))).toBe(true);
+  });
+
+  it('no se queja si ASA I y paciente realmente sano', () => {
+    const doc = baseDoc();
+    (doc.identificacion as Record<string, DocField>)['asa'] = ok('ASA I', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => /Revisar la clasificación ASA/.test(f.message))).toBe(false);
+  });
+});
+
+describe('auditor — interpretación de medicamentos de riesgo', () => {
+  it('marca anticoagulante declarado no reflejado en la valoración', () => {
+    const doc = baseDoc();
+    const answers: AuditAnswers = { ...sanoAnswers, '14': { value: 'si' }, '15': { value: 'warfarina' } };
+    const r = auditDocument({ doc, answers });
+    expect(r.findings.some((f) => f.category === 'completitud' && /anticoagulante/.test(f.message))).toBe(true);
+  });
+
+  it('no se queja si el manejo del anticoagulante ya aparece', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['recomendaciones'] = ok('Suspender warfarina 5 días antes; puente con heparina según riesgo.', 'derivado:IA');
+    const answers: AuditAnswers = { ...sanoAnswers, '14': { value: 'si' }, '15': { value: 'warfarina' } };
+    const r = auditDocument({ doc, answers });
+    expect(r.findings.some((f) => /anticoagulante cumarínico/.test(f.message))).toBe(false);
+  });
+});
