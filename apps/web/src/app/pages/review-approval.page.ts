@@ -109,6 +109,9 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lab-summary b { color:var(--text); font-weight:700; }
     .lab-summary .pend { color:#8a6d3b; font-weight:600; }
     .lab-summary .done { color:var(--green); font-weight:600; }
+    .lab-stale { font-size:12px; color:#8a6d3b; background:#fdf6e8; border:1px solid #ecdcb8;
+      border-radius:8px; padding:8px 11px; margin-bottom:12px; }
+    .lab-stale b { color:#6b4f1d; font-weight:700; }
     .lab-row { display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:7px; margin-bottom:3px;
       font-size:13px; border-left:3px solid transparent; transition:background .15s, border-color .15s; }
     .lab-row .lr-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
@@ -158,8 +161,11 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
 
     /* Panel del auditor independiente */
     .audit-card { margin-bottom:16px; border-left:3px solid var(--gold); }
-    .audit-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-    .audit-count { font-family:var(--font-mono); font-size:11px; color:var(--muted); }
+    .audit-head { display:flex; align-items:center; gap:12px; }
+    .audit-count { font-family:var(--font-mono); font-size:11px; color:var(--muted); margin-left:auto; }
+    /* Si no hay count, el botón toma el margin-left:auto para irse a la derecha. */
+    .audit-reaudit { margin-left:auto; }
+    .audit-count + .audit-reaudit { margin-left:12px; }
     .audit-intro { font-size:12.5px; color:var(--muted); margin:6px 0 14px; max-width:70ch; }
     .finding { display:flex; gap:10px; align-items:flex-start; padding:9px 0; border-top:1px solid var(--border); font-size:13px; }
     .f-level { font-family:var(--font-mono); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
@@ -306,18 +312,27 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
         </div>
       }
 
-      @if (auditFindings().length) {
+      @if (fields()) {
         <div class="card audit-card" data-testid="audit-panel">
           <div class="audit-head">
             <span class="card-title">Revisión automática del borrador</span>
-            <span class="audit-count">{{ auditFindings().length }} hallazgo{{ auditFindings().length === 1 ? '' : 's' }}</span>
+            @if (auditFindings().length) {
+              <span class="audit-count">{{ auditFindings().length }} hallazgo{{ auditFindings().length === 1 ? '' : 's' }}</span>
+            }
+            <button class="btn btn-sm audit-reaudit" (click)="reaudit()" [disabled]="reauditing()" data-testid="reaudit-button">
+              {{ reauditing() ? 'Revisando…' : '↻ Re-auditar' }}
+            </button>
           </div>
-          <p class="audit-intro">Un auditor independiente revisó este borrador contra las respuestas del paciente. Estos puntos requieren tu criterio — el sistema no los corrige por su cuenta.</p>
-          @for (f of auditFindings(); track $index) {
-            <div class="finding" [class]="'finding ' + f.level" [attr.data-testid]="'finding-' + f.level">
-              <span class="f-level">{{ levelLabel(f.level) }}</span>
-              <span class="f-msg">{{ f.message }}</span>
-            </div>
+          @if (auditFindings().length) {
+            <p class="audit-intro">Un auditor independiente revisó este borrador contra las respuestas del paciente. Estos puntos requieren tu criterio — el sistema no los corrige por su cuenta.</p>
+            @for (f of auditFindings(); track $index) {
+              <div class="finding" [class]="'finding ' + f.level" [attr.data-testid]="'finding-' + f.level">
+                <span class="f-level">{{ levelLabel(f.level) }}</span>
+                <span class="f-msg">{{ f.message }}</span>
+              </div>
+            }
+          } @else {
+            <p class="audit-intro" data-testid="audit-clean">Sin hallazgos: el borrador pasó la revisión automática.</p>
           }
         </div>
       }
@@ -439,6 +454,18 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                   <span class="done">Todos los rangos evaluados.</span>
                 }
               </div>
+
+              <!-- Vigencia: alerta SÓLO para el médico (no va al documento). Si algún estudio es
+                   más viejo que la vigencia para cirugía electiva, se avisa con su fecha. -->
+              @if (staleGroups().length) {
+                <div class="lab-stale" data-testid="lab-stale">
+                  ⏳ Exámenes posiblemente vencidos para cirugía electiva:
+                  @for (g of staleGroups(); track g.grupo) {
+                    <b>{{ g.label }}</b> ({{ formatFecha(g.fecha) }}){{ $last ? '' : ', ' }}
+                  }
+                  — verificar vigencia con el paciente.
+                </div>
+              }
 
               <!-- Orden: primero los que necesitan decisión (ilegibles sin marcar), luego los
                    interpretados por severidad; los ilegibles ya marcados bajan a su categoría.
@@ -587,6 +614,8 @@ export class ReviewApprovalPage implements OnInit {
   noteCollapsed = signal<boolean>(readNoteCollapsedPref());
   /** Hallazgos del auditor independiente, ordenados por severidad. */
   auditFindings = signal<{ level: string; category: string; message: string; field?: string }[]>([]);
+  /** Re-auditoría en curso (el auditor es determinístico: cero tokens, sólo un instante). */
+  reauditing = signal(false);
   contacts = signal<any[]>([]);
   deliveries = signal<any[]>([]);
   patient = signal<{
@@ -604,6 +633,8 @@ export class ReviewApprovalPage implements OnInit {
   labGroups = signal<
     { grupo: string; label: string; fecha: string | null; desactualizado: boolean; labs: any[] }[]
   >([]);
+  /** Estudios cuya fecha excede la vigencia para cirugía electiva — alerta sólo para el médico. */
+  staleGroups = computed(() => this.labGroups().filter((g) => g.desactualizado));
   openAttachment = signal<string | null>(null);
   attachmentSrc = signal<SafeResourceUrl | null>(null);
   sendToPatient = signal(false);
@@ -635,6 +666,13 @@ export class ReviewApprovalPage implements OnInit {
   };
   grupoLabel(g: string | null): string {
     return g ? (ReviewApprovalPage.GRUPO_LABEL[g] ?? g) : 'Otros';
+  }
+
+  /** Fecha ISO (aaaa-mm-dd) → dd-mm-aaaa para mostrar; '' si no hay. */
+  formatFecha(iso: string | null): string {
+    if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return 'sin fecha';
+    const [y, m, d] = iso.split('-');
+    return `${d}-${m}-${y}`;
   }
 
   /** Flag efectivo de un analito: veredicto del médico si marcó, si no el del sistema. */
@@ -727,16 +765,30 @@ export class ReviewApprovalPage implements OnInit {
     this.procedureDate.set(r.procedureDate ?? null);
     this.patientNote.set(r.patientNote ?? null);
     this.notePatientId.set(r.patientId ?? null);
-    // Hallazgos del auditor: primero lo más severo.
-    const order: Record<string, number> = { bloqueante: 0, advertencia: 1, informativo: 2 };
-    const findings = (r.audit?.findings ?? []) as { level: string; category: string; message: string }[];
-    this.auditFindings.set([...findings].sort((x, y) => (order[x.level] ?? 9) - (order[y.level] ?? 9)));
+    this.setFindings(r.audit?.findings ?? []);
     const isApproved = r.approved || r.status === 'APROBADO' || r.status === 'ENTREGADO';
     this.approved.set(isApproved);
     if (isApproved) {
       this.contacts.set((await this.api.listContacts()).contacts);
       this.sendToPatient.set(Boolean(r.patient?.email)); // por defecto, marcar al paciente si tiene correo
       this.loadPreview(); // muestra el documento final automáticamente
+    }
+  }
+
+  /** Ordena los hallazgos por severidad (lo más severo primero) y los publica. */
+  private setFindings(findings: { level: string; category: string; message: string }[]) {
+    const order: Record<string, number> = { bloqueante: 0, advertencia: 1, informativo: 2 };
+    this.auditFindings.set([...findings].sort((x, y) => (order[x.level] ?? 9) - (order[y.level] ?? 9)));
+  }
+
+  /** Re-corre el auditor determinístico sobre el borrador actual. Cero tokens; útil tras editar. */
+  async reaudit() {
+    this.reauditing.set(true);
+    try {
+      const { audit } = await this.api.reaudit(this.caseId);
+      this.setFindings(audit?.findings ?? []);
+    } finally {
+      this.reauditing.set(false);
     }
   }
 

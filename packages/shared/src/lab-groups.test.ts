@@ -84,26 +84,30 @@ describe('groupLabsToProse — fecha del informe', () => {
     { analyte: 'Hemoglobina', value: '15.9', unit: 'g/dL', grupo: 'hemograma', flag: 'NORMAL', reportDate: fecha },
   ];
 
-  it('muestra la fecha del informe en formato del documento', () => {
+  it('la fecha viaja como metadato, NO en la prosa del documento', () => {
     const out = groupLabsToProse(conFecha('2026-07-10'), '2026-07-16');
-    expect(out[0]!.texto).toContain('Informe del 10-07-2026.');
+    // El receptor final del documento no ve la fecha del informe en la prosa.
+    expect(out[0]!.texto).not.toContain('Informe del');
+    expect(out[0]!.texto).not.toContain('10-07-2026');
+    // Pero el dato sigue disponible, estructurado, para la alerta al médico.
     expect(out[0]!.fecha).toBe('2026-07-10');
     expect(out[0]!.desactualizado).toBe(false);
   });
 
   // El caso que motivó todo: el paciente adjunta un examen viejo y el médico no lo nota.
+  // La vigencia ahora es alerta estructurada (para el médico), no texto en el documento.
   it('un examen antiguo se marca como desactualizado y en alerta', () => {
     const out = groupLabsToProse(conFecha('2025-11-07'), '2026-07-16');
     expect(out[0]!.desactualizado).toBe(true);
     expect(out[0]!.alerta).toBe(true);
-    expect(out[0]!.texto).toContain('verificar vigencia');
+    expect(out[0]!.texto).not.toContain('vigencia'); // no en la prosa del documento
   });
 
-  it('CS2: sin fecha en el informe se declara la ausencia, no se asume reciente', () => {
+  it('CS2: sin fecha en el informe, el dato queda null; la prosa no lo menciona', () => {
     const out = groupLabsToProse(conFecha(null), '2026-07-16');
     expect(out[0]!.fecha).toBeNull();
     expect(out[0]!.desactualizado).toBe(false);
-    expect(out[0]!.texto).toContain('no reporta fecha');
+    expect(out[0]!.texto).not.toContain('fecha');
   });
 
   it('la fecha del grupo es la del analito más antiguo', () => {
