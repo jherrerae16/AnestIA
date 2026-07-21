@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { toMedicalTerms, medicalTerm, isAmbiguousProcedure } from './medical-terms';
+import { toMedicalTerms, medicalTerm, isAmbiguousProcedure, autoCorrectTerm } from './medical-terms';
 
 describe('isAmbiguousProcedure — "operación de <parte>" no elige cirugía (guardarraíl)', () => {
   it('AMBIGUO: operación de una parte con varias cirugías posibles → true', () => {
@@ -78,5 +78,35 @@ describe('toMedicalTerms — coloquial → médico', () => {
     it('lo no reconocido se marca como unresolved en vez de adivinarse', () => {
       expect(toMedicalTerms('lipoma').unresolved).toContain('lipoma');
     });
+  });
+});
+
+describe('autoCorrectTerm — auto-corrección conservadora (sin pérdida)', () => {
+  it('corrige un coloquialismo unívoco y limpio', () => {
+    expect(autoCorrectTerm('vesícula')).toBe('Colecistectomía');
+    expect(autoCorrectTerm('lipo')).toBe('Liposucción');
+  });
+
+  it('preserva modificadores de abordaje conocidos', () => {
+    expect(autoCorrectTerm('apéndice laparoscópico')).toBe('Apendicectomía laparoscópica');
+  });
+
+  it('NO corrige cuando se perdería contexto ("candidato a…")', () => {
+    // El caso real de la prueba: traducir borraría "candidato a".
+    expect(autoCorrectTerm('candidato a cirugía bariátrica')).toBeNull();
+    expect(autoCorrectTerm('Obesidad, candidato a cirugía bariátrica')).toBeNull();
+  });
+
+  it('NO corrige términos ambiguos ("operación de la nariz")', () => {
+    expect(autoCorrectTerm('operación de la nariz')).toBeNull();
+  });
+
+  it('NO corrige un término ya médico (nada que cambiar)', () => {
+    expect(autoCorrectTerm('Colecistectomía')).toBeNull();
+  });
+
+  it('NO corrige texto sin ningún término de diccionario', () => {
+    expect(autoCorrectTerm('Obesidad mórbida')).toBeNull();
+    expect(autoCorrectTerm('')).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import type { DocumentJSON, DocField } from './document';
 import { EXAM_FIELDS } from './clinical';
-import { toMedicalTerms } from './medical-terms';
+import { toMedicalTerms, autoCorrectTerm } from './medical-terms';
 
 /**
  * Auditor independiente del documento clínico (patrón generador + crítico).
@@ -25,8 +25,7 @@ export interface AuditFinding {
     | 'seguridad'
     | 'formato'
     | 'redaccion'
-    | 'terminologia'
-    | 'ortografia';
+    | 'terminologia';
   /** Mensaje en lenguaje claro para el anestesiólogo. */
   message: string;
   /** Ruta del campo implicado (sección.clave), si aplica. */
@@ -311,45 +310,21 @@ export function auditDocument(input: AuditInput): AuditReport {
   }
 
   // ── 9. Terminología: coloquialismo sin traducir en la prosa (ADVERTENCIA) ──
-  // Reusa el diccionario clínico: si un término coloquial conocido aparece crudo en el
-  // procedimiento/diagnóstico, avisa para que se use el término médico.
+  // El pipeline ya AUTO-CORRIGE los coloquialismos seguros y sin pérdida (autoCorrectTerm) antes
+  // de que el médico vea el borrador. Aquí sólo queda advertir de lo que NO se puede corregir solo
+  // sin dañar el texto: coloquialismos con calificadores ("candidato a cirugía bariátrica") donde
+  // traducir borraría contexto. Se advierte SIN proponer un reemplazo (cualquier sugerencia
+  // automática sería lossy); la redacción final la decide el médico.
   for (const { label, field, raw } of narrativaText()) {
-    if (field === 'identificacion.procedimiento' || field === 'identificacion.diagnostico_preoperatorio') {
-      // Si el diccionario clínico traduce el texto a algo distinto, quedó un coloquialismo crudo
-      // en el documento firmado. Avisa para que se use el término médico.
-      const { text: traducido } = toMedicalTerms(raw);
-      if (norm(traducido) !== norm(raw) && !norm(raw).includes(norm(traducido))) {
-        add('advertencia', 'terminologia',
-          `El ${label} contiene lenguaje coloquial que debería ir en término médico ("${raw}" → "${traducido}").`,
-          field);
-      }
-    }
-  }
-
-  // ── 10. Ortografía: errores frecuentes es-CO en la prosa (INFORMATIVO) ──
-  // Chequeo conservador (sin diccionario completo): dobles espacios, mayúscula inicial, y
-  // typos clínicos frecuentes. Sólo informativo — el médico decide; nunca bloquea.
-  const TYPOS: [RegExp, string][] = [
-    [/\bhipertesion\b/, 'hipertensión'],
-    [/\bdiabetis\b/, 'diabetes'],
-    [/\banestecia\b/, 'anestesia'],
-    [/\bquirurjic/, 'quirúrgic-'],
-    [/\bpaciente esta\b/, 'paciente está'],
-    [/\bvia aerea\b/, 'vía aérea (sin tildes)'],
-  ];
-  for (const { label, field, raw } of narrativaText()) {
-    const n = norm(raw);
-    if (/ {2,}/.test(raw)) {
-      add('informativo', 'ortografia', `El ${label} tiene espacios dobles; revisar el formato.`, field);
-    }
-    const primera = raw.trim().charAt(0);
-    if (primera && primera !== primera.toLocaleUpperCase('es')) {
-      add('informativo', 'ortografia', `El ${label} no inicia con mayúscula.`, field);
-    }
-    for (const [re, sugerencia] of TYPOS) {
-      if (re.test(n)) {
-        add('informativo', 'ortografia', `El ${label} podría tener un error de escritura (revisar: "${sugerencia}").`, field);
-      }
+    if (field !== 'identificacion.procedimiento' && field !== 'identificacion.diagnostico_preoperatorio') continue;
+    // Si autoCorrectTerm devuelve algo, el pipeline ya lo corrigió → no hay coloquialismo crudo.
+    if (autoCorrectTerm(raw)) continue;
+    // ¿Hay un término de diccionario escondido con contexto alrededor? Entonces quedó crudo.
+    const { text: traducido } = toMedicalTerms(raw);
+    if (norm(traducido) !== norm(raw) && !norm(raw).includes(norm(traducido))) {
+      add('advertencia', 'terminologia',
+        `El ${label} mezcla lenguaje coloquial con calificadores ("${raw}"); conviene reescribirlo en término médico conservando el contexto clínico.`,
+        field);
     }
   }
 

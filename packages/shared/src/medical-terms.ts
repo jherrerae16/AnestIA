@@ -129,6 +129,58 @@ export function medicalTerm(raw: string | null | undefined): string | null {
 }
 
 /**
+ * Auto-corrección CONSERVADORA para el pipeline: sólo devuelve un texto corregido cuando la
+ * traducción es SEGURA y SIN PÉRDIDA — es decir, cuando el texto original, separado por comas/"y",
+ * está compuesto EXCLUSIVAMENTE de términos que el diccionario reconoce por completo. Si alguna
+ * parte lleva calificadores no reconocidos ("candidato a cirugía bariátrica", "obesidad mórbida"),
+ * devuelve null: en esos casos traducir borraría contexto clínico, así que se deja para el criterio
+ * del médico (el auditor lo señala como advertencia, no se auto-corrige).
+ *
+ * Ejemplos:
+ *  - "vesícula"                              → "Colecistectomía"   (seguro)
+ *  - "lipo, papada"                          → "Liposucción, …"    (todas reconocidas)
+ *  - "Obesidad, candidato a cirugía bariátrica" → null             (se perdería "candidato a")
+ *  - "operación de la nariz"                 → null                (ambiguo, no se elige)
+ */
+export function autoCorrectTerm(raw: string | null | undefined): string | null {
+  if (!raw || !raw.trim()) return null;
+  if (isAmbiguousProcedure(raw)) return null; // "operación de <parte>": nunca se elige
+  const parts = raw.split(/,|\by\b|;|\/|\+/i).map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const out: string[] = [];
+  let changed = false;
+  for (const part of parts) {
+    const n = norm(part);
+    const rule = TERMS.find((r) => r.match.some((m) => matchesTerm(n, m)));
+    if (!rule) {
+      // Parte no reconocida: sólo es SEGURA si NO contiene ningún término de diccionario oculto
+      // tras calificadores (p. ej. "candidato a cirugía bariátrica" contiene "cirugia bariatrica").
+      const oculto = TERMS.find((r) => r.match.some((m) => matchesTerm(n, m)));
+      if (oculto) return null; // hay un término dentro pero con contexto → no se puede sin perder
+      out.push(part);
+      continue;
+    }
+    // Parte reconocida: sólo es sin pérdida si la parte ES el término (más modificadores de
+    // abordaje/lateralidad conocidos), no si trae palabras extra ("candidato a …").
+    const mods = MODIFIERS.filter(([re]) => re.test(part)).map(([, label]) => label);
+    const matched = rule.match.find((m) => matchesTerm(n, m)) ?? '';
+    // Palabras de la parte que no son el término coloquial ni un modificador → contexto que se
+    // perdería. Si las hay, no auto-corregir.
+    const resto = n
+      .replace(new RegExp(escapeRe(matched), 'ig'), ' ')
+      .replace(/\b(laparosc[oó]pic[ao]|bilateral|derech[ao]|izquierd[ao])\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (resto !== '') return null; // había calificadores → dejar al médico
+    out.push(mods.length ? `${rule.medical} ${mods.join(' ')}` : rule.medical);
+    if (norm(rule.medical) !== n) changed = true;
+  }
+  const result = out.join(', ');
+  return changed && norm(result) !== norm(raw) ? result : null;
+}
+
+/**
  * Partes del cuerpo que, dichas en coloquial ("operación de la nariz"), NO identifican un
  * procedimiento único — cada una admite varias cirugías con manejo anestésico distinto. Cuando
  * el paciente describe su cirugía como "operación/cirugía de <una de estas>", NO se debe elegir

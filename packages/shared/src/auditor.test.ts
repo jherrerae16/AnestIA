@@ -188,12 +188,24 @@ describe('auditor — redacción (lenguaje de IA prohibido)', () => {
   });
 });
 
-describe('auditor — terminología (coloquialismo sin traducir)', () => {
-  it('marca "operación de vesícula" crudo en el procedimiento', () => {
+describe('auditor — terminología', () => {
+  it('NO advierte un coloquialismo auto-corregible ("vesícula") — lo arregla el pipeline', () => {
+    // El pipeline ya lo tradujo a Colecistectomía antes del borrador; el auditor no molesta.
     const doc = baseDoc();
     (doc.identificacion as Record<string, DocField>)['procedimiento'] = ok('vesicula', 'formulario:P3');
     const r = auditDocument({ doc, answers: sanoAnswers });
-    expect(r.findings.some((f) => f.category === 'terminologia' && f.field === 'identificacion.procedimiento')).toBe(true);
+    expect(r.findings.some((f) => f.category === 'terminologia')).toBe(false);
+  });
+
+  it('advierte un coloquialismo con calificadores que NO se puede corregir sin perder contexto', () => {
+    // "candidato a cirugía bariátrica": traducir borraría "candidato a" → se deja al médico.
+    const doc = baseDoc();
+    (doc.identificacion as Record<string, DocField>)['diagnostico_preoperatorio'] = ok('Obesidad, candidato a cirugía bariátrica', 'formulario:P3');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    const t = r.findings.find((f) => f.category === 'terminologia' && f.field === 'identificacion.diagnostico_preoperatorio');
+    expect(t).toBeTruthy();
+    // La advertencia NO propone un reemplazo lossy: no incluye "→".
+    expect(t!.message).not.toContain('→');
   });
 
   it('no se queja si el procedimiento ya está en término médico', () => {
@@ -201,23 +213,6 @@ describe('auditor — terminología (coloquialismo sin traducir)', () => {
     (doc.identificacion as Record<string, DocField>)['procedimiento'] = ok('Colecistectomía', 'formulario:P3');
     const r = auditDocument({ doc, answers: sanoAnswers });
     expect(r.findings.some((f) => f.category === 'terminologia')).toBe(false);
-  });
-});
-
-describe('auditor — ortografía', () => {
-  it('marca espacios dobles en la prosa', () => {
-    const doc = baseDoc();
-    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok('Apto para  cirugía electiva.', 'derivado:IA');
-    const r = auditDocument({ doc, answers: sanoAnswers });
-    expect(r.findings.some((f) => f.category === 'ortografia')).toBe(true);
-    expect(r.blocked).toBe(false);
-  });
-
-  it('marca minúscula inicial', () => {
-    const doc = baseDoc();
-    (doc.valoracion_plan as Record<string, DocField>)['concepto'] = ok('apto para cirugía electiva.', 'derivado:IA');
-    const r = auditDocument({ doc, answers: sanoAnswers });
-    expect(r.findings.some((f) => f.category === 'ortografia' && /mayúscula/.test(f.message))).toBe(true);
   });
 });
 
