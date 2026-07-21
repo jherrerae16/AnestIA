@@ -188,6 +188,49 @@ describe('auditor — redacción (lenguaje de IA prohibido)', () => {
   });
 });
 
+describe('auditor — disclaimers genéricos de cobertura', () => {
+  it('marca "Plan definitivo sujeto a la valoración presencial" en el plan', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['plan'] = ok(
+      'Anestesia general para rinoplastia. Plan definitivo sujeto a la valoración presencial del anestesiólogo.',
+      'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion' && f.field === 'valoracion_plan.plan' && /disclaimer|cobertura/.test(f.message))).toBe(true);
+    expect(r.blocked).toBe(false);
+  });
+
+  it('marca "confirmar hallazgos … en la evaluación presencial" en recomendaciones', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['recomendaciones'] = ok(
+      'Ayuno de 8 horas. Continuar estudios y confirmar hallazgos de vía aérea, signos vitales y examen físico en la evaluación presencial.',
+      'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion' && f.field === 'valoracion_plan.recomendaciones')).toBe(true);
+  });
+
+  it('marca "según protocolo institucional" y "monitorización estándar"', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['plan'] = ok('Anestesia general con monitorización estándar según protocolo institucional.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.filter((f) => f.category === 'redaccion' && f.field === 'valoracion_plan.plan').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('NO marca un cierre clínico directo', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['plan'] = ok('Anestesia general con intubación orotraqueal para rinoplastia. Vía aérea sin complejidad prevista según los antecedentes declarados.', 'derivado:IA');
+    (doc.valoracion_plan as Record<string, DocField>)['recomendaciones'] = ok('Ayuno preoperatorio de 8 horas. Precisar el patrón de consumo de alcohol para estratificar el riesgo anestésico.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion')).toBe(false);
+  });
+
+  it('NO marca una acción específica atada a un hallazgo (excepción CPAP)', () => {
+    const doc = baseDoc();
+    (doc.valoracion_plan as Record<string, DocField>)['recomendaciones'] = ok('Ayuno de 8 horas. Precisar los parámetros del CPAP y traerlo el día de la cirugía.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion')).toBe(false);
+  });
+});
+
 describe('auditor — terminología', () => {
   it('NO advierte un coloquialismo auto-corregible ("vesícula") — lo arregla el pipeline', () => {
     // El pipeline ya lo tradujo a Colecistectomía antes del borrador; el auditor no molesta.

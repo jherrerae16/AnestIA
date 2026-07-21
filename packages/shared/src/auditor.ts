@@ -69,6 +69,24 @@ const APTITUD_PROCESO: RegExp[] = [
 ];
 
 /**
+ * Disclaimers genéricos de cobertura al cerrar plan/concepto/recomendaciones. El documento lo firma
+ * un anestesiólogo que YA evaluó; el receptor recibe el resultado final, no un borrador provisional.
+ * Estas frases hacen que el documento parezca preliminar y no aportan (la seguridad está resuelta a
+ * nivel de datos: el examen queda `pendiente_examen` y bloquea la aprobación). Se detectan sólo como
+ * CIERRE de cobertura genérico, no una acción concreta atada a un hallazgo ("precisar parámetros del
+ * CPAP" es específico y NO cae aquí).
+ */
+const DISCLAIMER_GENERICO: { patron: RegExp; etiqueta: string }[] = [
+  { patron: /sujet[ao]s? a (la )?(valoracion|evaluacion|revision) presencial/, etiqueta: 'sujeto a valoración presencial' },
+  { patron: /(plan|concepto|manejo) (definitivo|final) sujet/, etiqueta: 'plan definitivo sujeto a…' },
+  { patron: /confirmar (los )?hallazgos.{0,40}(evaluacion|valoracion|examen) presencial/, etiqueta: 'confirmar hallazgos en la evaluación presencial' },
+  { patron: /en la evaluacion presencial\.?\s*$/, etiqueta: 'cierre "…en la evaluación presencial"' },
+  { patron: /segun (el )?protocolo institucional/, etiqueta: 'según protocolo institucional' },
+  { patron: /monitorizacion estandar/, etiqueta: 'monitorización estándar (sin especificar cuál)' },
+  { patron: /continuar (con )?(los )?estudios\b(?!.{0,30}\bde\b)/, etiqueta: 'continuar estudios (sin decir cuál)' },
+];
+
+/**
  * Medicamentos con implicación anestésica directa (perioperatorio) que, si el paciente los
  * declara (P15), deben quedar reflejados en el concepto o las recomendaciones — no basta con
  * listarlos en antecedentes. Cada entrada agrupa sinónimos comerciales/genéricos comunes.
@@ -273,12 +291,14 @@ export function auditDocument(input: AuditInput): AuditReport {
   }
 
   // Campos narrativos donde vive la prosa que audita redacción/terminología/ortografía.
+  // Labels como SUJETO capitalizado (sin artículo), para no romper la concordancia de género en
+  // los mensajes ("El recomendaciones" era incorrecto). Se usan como "El {label}" → "{Label}".
   const NARRATIVA: { seccion: keyof DocumentJSON; clave: string; label: string }[] = [
-    { seccion: 'valoracion_plan', clave: 'concepto', label: 'concepto anestésico' },
-    { seccion: 'valoracion_plan', clave: 'plan', label: 'plan anestésico' },
-    { seccion: 'valoracion_plan', clave: 'recomendaciones', label: 'recomendaciones' },
-    { seccion: 'identificacion', clave: 'diagnostico_preoperatorio', label: 'diagnóstico preoperatorio' },
-    { seccion: 'identificacion', clave: 'procedimiento', label: 'procedimiento' },
+    { seccion: 'valoracion_plan', clave: 'concepto', label: 'Concepto anestésico' },
+    { seccion: 'valoracion_plan', clave: 'plan', label: 'Plan anestésico' },
+    { seccion: 'valoracion_plan', clave: 'recomendaciones', label: 'Recomendaciones' },
+    { seccion: 'identificacion', clave: 'diagnostico_preoperatorio', label: 'Diagnóstico preoperatorio' },
+    { seccion: 'identificacion', clave: 'procedimiento', label: 'Procedimiento' },
   ];
   const narrativaText = (): { label: string; field: string; raw: string }[] =>
     NARRATIVA
@@ -295,7 +315,7 @@ export function auditDocument(input: AuditInput): AuditReport {
     for (const { patron, etiqueta } of FRASES_PROHIBIDAS) {
       if (patron.test(n)) {
         add('advertencia', 'redaccion',
-          `El ${label} usa lenguaje de IA/incertidumbre prohibido por el Prompt Maestro ("${etiqueta}"). El texto debe transmitir criterio clínico.`,
+          `${label} usa lenguaje de IA/incertidumbre prohibido por el Prompt Maestro ("${etiqueta}"). El texto debe transmitir criterio clínico.`,
           field);
       }
     }
@@ -303,8 +323,18 @@ export function auditDocument(input: AuditInput): AuditReport {
     if (field === 'valoracion_plan.concepto' || field === 'valoracion_plan.plan') {
       if (APTITUD_PROCESO.some((re) => re.test(n))) {
         add('advertencia', 'redaccion',
-          `El ${label} menciona la aptitud o el acto de evaluar ("la aptitud se definirá tras el examen…"). El concepto sintetiza el cuadro y el riesgo; la conclusión de aptitud la emite el anestesiólogo, no se anticipa como proceso en el borrador.`,
+          `${label} menciona la aptitud o el acto de evaluar ("la aptitud se definirá tras el examen…"). El concepto sintetiza el cuadro y el riesgo; la conclusión de aptitud la emite el anestesiólogo, no se anticipa como proceso en el borrador.`,
           field);
+      }
+    }
+    // Plan/concepto/recomendaciones no cierran con disclaimers genéricos de cobertura.
+    if (field === 'valoracion_plan.concepto' || field === 'valoracion_plan.plan' || field === 'valoracion_plan.recomendaciones') {
+      for (const { patron, etiqueta } of DISCLAIMER_GENERICO) {
+        if (patron.test(n)) {
+          add('advertencia', 'redaccion',
+            `${label} cierra con un disclaimer genérico de cobertura ("${etiqueta}"). El documento lo firma un anestesiólogo que ya evaluó; el cierre debe ser la conclusión clínica concreta, no un recordatorio de proceso.`,
+            field);
+        }
       }
     }
   }
@@ -323,7 +353,7 @@ export function auditDocument(input: AuditInput): AuditReport {
     const { text: traducido } = toMedicalTerms(raw);
     if (norm(traducido) !== norm(raw) && !norm(raw).includes(norm(traducido))) {
       add('advertencia', 'terminologia',
-        `El ${label} mezcla lenguaje coloquial con calificadores ("${raw}"); conviene reescribirlo en término médico conservando el contexto clínico.`,
+        `${label} mezcla lenguaje coloquial con calificadores ("${raw}"); conviene reescribirlo en término médico conservando el contexto clínico.`,
         field);
     }
   }
