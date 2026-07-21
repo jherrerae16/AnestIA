@@ -128,6 +128,7 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lr-unparsed { font-size:11px; color:var(--muted2); cursor:help; margin-left:3px; }
     /* Marca de verdicto manual del médico */
     .lr-manual { font-size:10px; color:var(--primary); background:var(--it-50); border-radius:100px; padding:1px 7px; white-space:nowrap; }
+    .lr-review { font-size:10px; color:#8a6d3b; background:#fdf6e8; border:1px solid #ecdcb8; border-radius:100px; padding:1px 7px; white-space:nowrap; }
     /* Botones ✓/✗ — pequeños y discretos por defecto. Un tap marca; otro deshace. */
     .lr-verdict { display:flex; gap:4px; flex-shrink:0; }
     .lr-btn { width:24px; height:24px; border-radius:6px; border:1px solid var(--border2); background:#fff; cursor:pointer;
@@ -184,6 +185,13 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .note-banner-toggle { margin-left:auto; font-size:12px; color:#92400e; background:none; border:none; cursor:pointer; padding:0; }
     .note-banner-toggle:hover { text-decoration:underline; }
     .note-banner-body { font-size:13px; color:var(--text); margin-top:8px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .note-edit { width:100%; min-height:80px; margin-top:8px; padding:9px 11px; border:1px solid #fcd34d; border-radius:8px;
+      font-family:var(--font-body); font-size:13px; color:var(--text); resize:vertical; outline:none; background:#fff; }
+    .note-edit:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(11,92,107,.12); }
+    .note-edit-actions { display:flex; gap:8px; margin-top:8px; }
+    .note-add-btn { font-size:12px; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:8px;
+      padding:6px 12px; cursor:pointer; margin-bottom:16px; }
+    .note-add-btn:hover { background:#fef3c7; }
   `],
   template: `
     @if (loading()) { <div class="empty">Cargando…</div> }
@@ -432,13 +440,17 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                 }
               </div>
 
-              <!-- Analitos ordenados peor-primero; los "por revisar" al final. -->
+              <!-- Orden: primero los que necesitan decisión (ilegibles sin marcar), luego los
+                   interpretados por severidad; los ilegibles ya marcados bajan a su categoría.
+                   Los ✓/✗ SOLO en analitos de rango ilegible: donde el sistema no pudo decidir.
+                   En los interpretados no hay botones — el sistema ya los evaluó (asiste; el
+                   médico decide sólo donde la máquina no puede). -->
               @for (l of sortedLabs(); track l.id) {
                 <div class="lab-row" [class]="'lab-row sev-' + sevClass(l)" [attr.data-testid]="'lab-row'">
                   <div class="lr-main">
                     <span class="lr-analyte">
                       {{ l.analyte }}
-                      @if (isPending(l)) {
+                      @if (needsVerdict(l) && !l.manualFlag) {
                         <span class="lr-unparsed" title="Rango de referencia no interpretado — verifica manualmente">?</span>
                       }
                     </span>
@@ -447,13 +459,20 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                     </span>
                   </div>
                   <span class="lr-value">{{ l.value }} {{ l.unit }}</span>
-                  @if (l.manualFlag) { <span class="lr-manual" [title]="manualTitle(l)">tu veredicto</span> }
-                  <div class="lr-verdict">
-                    <button class="lr-btn ok" [class.on]="effFlag(l)==='NORMAL' && l.manualFlag==='NORMAL'"
-                      (click)="setVerdict(l, 'NORMAL')" title="Marcar normal" data-testid="lab-ok">✓</button>
-                    <button class="lr-btn bad" [class.on]="l.manualFlag && l.manualFlag!=='NORMAL'"
-                      (click)="setVerdict(l, 'ALERTA')" title="Marcar fuera de rango" data-testid="lab-bad">✗</button>
-                  </div>
+                  @if (needsVerdict(l)) {
+                    <!-- Antes de marcar: "por revisar". Tras marcar: "tu veredicto". -->
+                    @if (l.manualFlag) {
+                      <span class="lr-manual" [title]="manualTitle(l)">tu veredicto</span>
+                    } @else {
+                      <span class="lr-review">por revisar</span>
+                    }
+                    <div class="lr-verdict">
+                      <button class="lr-btn ok" [class.on]="l.manualFlag==='NORMAL'"
+                        (click)="setVerdict(l, 'NORMAL')" title="Marcar normal" data-testid="lab-ok">✓</button>
+                      <button class="lr-btn bad" [class.on]="l.manualFlag && l.manualFlag!=='NORMAL'"
+                        (click)="setVerdict(l, 'ALERTA')" title="Marcar fuera de rango" data-testid="lab-bad">✗</button>
+                    </div>
+                  }
                 </div>
               }
             } @else {
@@ -490,19 +509,39 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     <!-- Nota privada del médico sobre este paciente. Aparece sola (no hay que buscarla): arranca
          expandida; el médico puede colapsarla y la preferencia se recuerda en localStorage. -->
     <ng-template #noteBanner>
-      @if (patientNote(); as note) {
-        <div class="note-banner" data-testid="case-note-banner">
-          <div class="note-banner-head">
-            <span class="note-banner-title">Notas privadas de este paciente</span>
-            <span class="note-banner-badge">🔒 solo tú ves esto</span>
-            <button class="note-banner-toggle" (click)="toggleNote()" data-testid="case-note-toggle">
-              {{ noteCollapsed() ? 'Mostrar' : 'Ocultar' }}
-            </button>
+      <!-- Notas privadas: se pueden ver Y editar aquí, no sólo desde la ficha del paciente.
+           Sólo hay UI si el caso tiene paciente vinculado (notePatientId). -->
+      @if (notePatientId()) {
+        @if (patientNote() || noteEditing()) {
+          <div class="note-banner" data-testid="case-note-banner">
+            <div class="note-banner-head">
+              <span class="note-banner-title">Notas privadas de este paciente</span>
+              <span class="note-banner-badge">🔒 solo tú ves esto</span>
+              @if (!noteEditing()) {
+                <button class="note-banner-toggle" (click)="startEditNote()" data-testid="case-note-edit">Editar</button>
+                <button class="note-banner-toggle" (click)="toggleNote()" data-testid="case-note-toggle">
+                  {{ noteCollapsed() ? 'Mostrar' : 'Ocultar' }}
+                </button>
+              }
+            </div>
+            @if (noteEditing()) {
+              <textarea class="note-edit" [ngModel]="noteDraft()" (ngModelChange)="noteDraft.set($event)"
+                placeholder="Ej: vía difícil — usar videolaringoscopio; prefiere menos midazolam…"
+                data-testid="case-note-input"></textarea>
+              <div class="note-edit-actions">
+                <button class="btn btn-primary btn-sm" (click)="saveNote()" [disabled]="savingNote()" data-testid="case-note-save">
+                  {{ savingNote() ? 'Guardando…' : 'Guardar' }}
+                </button>
+                <button class="btn btn-sm" (click)="cancelEditNote()">Cancelar</button>
+              </div>
+            } @else if (!noteCollapsed()) {
+              <div class="note-banner-body" data-testid="case-note-body">{{ patientNote()!.content }}</div>
+            }
           </div>
-          @if (!noteCollapsed()) {
-            <div class="note-banner-body" data-testid="case-note-body">{{ note.content }}</div>
-          }
-        </div>
+        } @else {
+          <!-- Sin nota: botón discreto para añadir. La sección sólo existe cuando hay contenido o se edita. -->
+          <button class="note-add-btn" (click)="startEditNote()" data-testid="case-note-add">+ Añadir nota privada</button>
+        }
       }
     </ng-template>
   `,
@@ -538,6 +577,12 @@ export class ReviewApprovalPage implements OnInit {
   procedureDate = signal<string | null>(null);
   /** Nota privada del médico sobre este paciente (o null). Aparece sola en el caso. */
   patientNote = signal<{ content: string; updatedAt: string } | null>(null);
+  /** patientId del caso (para crear/editar la nota desde aquí). null si el caso no tiene paciente. */
+  notePatientId = signal<string | null>(null);
+  /** Edición de la nota privada desde la revisión. */
+  noteEditing = signal(false);
+  noteDraft = signal('');
+  savingNote = signal(false);
   /** Estado colapsado del banner de nota. Arranca expandido; se recuerda en localStorage. */
   noteCollapsed = signal<boolean>(readNoteCollapsedPref());
   /** Hallazgos del auditor independiente, ordenados por severidad. */
@@ -596,11 +641,19 @@ export class ReviewApprovalPage implements OnInit {
   effFlag(l: any): string {
     return l.manualFlag ?? l.flag ?? 'NORMAL';
   }
-  /** ¿Analito por revisar? Rango ilegible y el médico aún no lo marcó. */
+  /**
+   * ¿El analito necesita veredicto del médico? Sólo los de rango ilegible: donde el sistema no
+   * pudo decidir. Los interpretados (rango legible) NO — el sistema ya los evaluó y son
+   * información, no trabajo. Un ilegible ya marcado sigue mostrando botones (para deshacer).
+   */
+  needsVerdict(l: any): boolean {
+    return !!l.rangeUnparsed;
+  }
+  /** ¿Ilegible aún sin marcar? Es el trabajo real pendiente. */
   isPending(l: any): boolean {
     return !!l.rangeUnparsed && !l.manualFlag;
   }
-  /** Clase de severidad efectiva (peor-primero, pendiente al final). */
+  /** Clase de severidad efectiva. Los ilegibles SIN marcar son 'pendiente' (van primero). */
   sevClass(l: any): string {
     if (this.isPending(l)) return 'pendiente';
     const f = this.effFlag(l);
@@ -610,7 +663,10 @@ export class ReviewApprovalPage implements OnInit {
   }
   private sevRank(l: any): number {
     const c = this.sevClass(l);
-    return c === 'critico' ? 0 : c === 'alerta' ? 1 : c === 'normal' ? 2 : 3; // pendiente último
+    // Lo clínicamente urgente primero: CRÍTICO → ALERTA (rojos/ámbar confirmados por el sistema)
+    // → "por revisar" (ilegibles sin marcar) → normales. El médico ve de inmediato lo que está
+    // fuera de rango; los "por revisar" quedan visibles en medio, antes de los normales.
+    return c === 'critico' ? 0 : c === 'alerta' ? 1 : c === 'pendiente' ? 2 : 3;
   }
   manualTitle(l: any): string {
     return l.manualSource === 'anestesiologo:sobrescribio-sistema'
@@ -618,7 +674,7 @@ export class ReviewApprovalPage implements OnInit {
       : 'Verificado por ti';
   }
 
-  /** Analitos ordenados peor-primero; los "por revisar" al final. Estable dentro de categoría. */
+  /** Analitos ordenados: "por revisar" primero, luego interpretados por severidad. Estable. */
   sortedLabs = computed(() => {
     return [...this.labs()]
       .map((l, i) => ({ l, i }))
@@ -670,6 +726,7 @@ export class ReviewApprovalPage implements OnInit {
     this.patient.set(r.patient ?? null);
     this.procedureDate.set(r.procedureDate ?? null);
     this.patientNote.set(r.patientNote ?? null);
+    this.notePatientId.set(r.patientId ?? null);
     // Hallazgos del auditor: primero lo más severo.
     const order: Record<string, number> = { bloqueante: 0, advertencia: 1, informativo: 2 };
     const findings = (r.audit?.findings ?? []) as { level: string; category: string; message: string }[];
@@ -693,6 +750,32 @@ export class ReviewApprovalPage implements OnInit {
     const next = !this.noteCollapsed();
     this.noteCollapsed.set(next);
     try { localStorage.setItem(NOTE_COLLAPSED_KEY, next ? '1' : '0'); } catch { /* almacenamiento no disponible */ }
+  }
+
+  /** Abre el editor de la nota privada (con el contenido actual, si hay). */
+  startEditNote() {
+    this.noteDraft.set(this.patientNote()?.content ?? '');
+    this.noteEditing.set(true);
+    this.noteCollapsed.set(false); // asegurar que se vea al editar
+  }
+  cancelEditNote() { this.noteEditing.set(false); }
+
+  /** Guarda la nota. Vaciar una nota existente = borrarla: se confirma antes (no silencioso). */
+  async saveNote() {
+    const patientId = this.notePatientId();
+    if (!patientId) return;
+    const content = this.noteDraft().trim();
+    if (content.length === 0 && this.patientNote()) {
+      if (!confirm('¿Borrar la nota privada de este paciente? No se puede deshacer.')) return;
+    }
+    this.savingNote.set(true);
+    try {
+      const { note } = await this.api.savePatientNote(patientId, content);
+      this.patientNote.set(note);
+      this.noteEditing.set(false);
+    } finally {
+      this.savingNote.set(false);
+    }
   }
 
   /** Abre/cierra el visor del examen original adjunto (PDF o imagen). */
