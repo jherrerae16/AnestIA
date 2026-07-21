@@ -1,5 +1,34 @@
 import { describe, it, expect } from 'vitest';
-import { toMedicalTerms, medicalTerm } from './medical-terms';
+import { toMedicalTerms, medicalTerm, isAmbiguousProcedure } from './medical-terms';
+
+describe('isAmbiguousProcedure — "operación de <parte>" no elige cirugía (guardarraíl)', () => {
+  it('AMBIGUO: operación de una parte con varias cirugías posibles → true', () => {
+    expect(isAmbiguousProcedure('operación de la nariz')).toBe(true);
+    expect(isAmbiguousProcedure('operacion del corazon')).toBe(true);
+    expect(isAmbiguousProcedure('cirugía de la rodilla')).toBe(true);
+    expect(isAmbiguousProcedure('operación de la espalda')).toBe(true);
+    expect(isAmbiguousProcedure('intervención en el ojo')).toBe(true);
+    expect(isAmbiguousProcedure('OPERACIÓN DE LA NARIZ')).toBe(true); // mayúsculas/tildes
+  });
+
+  it('UNÍVOCO: órgano cuya cirugía es única → false (se puede traducir)', () => {
+    expect(isAmbiguousProcedure('operación de la vesícula')).toBe(false);
+    expect(isAmbiguousProcedure('operación de apendicitis')).toBe(false);
+  });
+
+  it('término ya específico → false (no es "operación de <parte>")', () => {
+    expect(isAmbiguousProcedure('Rinoplastia')).toBe(false);
+    expect(isAmbiguousProcedure('Colecistectomía laparoscópica')).toBe(false);
+    expect(isAmbiguousProcedure('lipo')).toBe(false);
+    expect(isAmbiguousProcedure('apendicitis')).toBe(false);
+  });
+
+  it('vacío o nulo → false', () => {
+    expect(isAmbiguousProcedure('')).toBe(false);
+    expect(isAmbiguousProcedure(null)).toBe(false);
+    expect(isAmbiguousProcedure(undefined)).toBe(false);
+  });
+});
 
 describe('toMedicalTerms — coloquial → médico', () => {
   it('traduce términos comunes', () => {
