@@ -58,6 +58,18 @@ const FRASES_PROHIBIDAS: { patron: RegExp; etiqueta: string }[] = [
 ];
 
 /**
+ * El concepto anestésico es la CONCLUSIÓN del anestesiólogo tras evaluar. El borrador NO debe
+ * hablar del acto de evaluar ni de sus tiempos ("la aptitud se definirá tras el examen"): eso es
+ * meta-texto sobre el proceso, no criterio clínico, y suena a IA describiendo su propia
+ * limitación. Se detecta sólo en concepto/plan (donde no tiene lugar), no en recomendaciones.
+ */
+const APTITUD_PROCESO: RegExp[] = [
+  /(aptitud|apto|elegibilidad|concepto (final|definitivo)).{0,40}(se (definir|establecer|determinar|emitir|dar)|tras el examen|posterior al examen|luego de la evaluacion|evaluacion presencial|examen presencial)/,
+  /(se (definir|establecer|determinar|emitir)a?).{0,30}(tras|despues de|posterior a|luego de).{0,30}(examen|evaluacion|valoracion presencial)/,
+  /pendiente de (evaluacion|valoracion|examen) presencial/,
+];
+
+/**
  * Medicamentos con implicación anestésica directa (perioperatorio) que, si el paciente los
  * declara (P15), deben quedar reflejados en el concepto o las recomendaciones — no basta con
  * listarlos en antecedentes. Cada entrada agrupa sinónimos comerciales/genéricos comunes.
@@ -285,6 +297,14 @@ export function auditDocument(input: AuditInput): AuditReport {
       if (patron.test(n)) {
         add('advertencia', 'redaccion',
           `El ${label} usa lenguaje de IA/incertidumbre prohibido por el Prompt Maestro ("${etiqueta}"). El texto debe transmitir criterio clínico.`,
+          field);
+      }
+    }
+    // El concepto/plan no debe hablar de aptitud ni del acto de evaluar (meta-proceso).
+    if (field === 'valoracion_plan.concepto' || field === 'valoracion_plan.plan') {
+      if (APTITUD_PROCESO.some((re) => re.test(n))) {
+        add('advertencia', 'redaccion',
+          `El ${label} menciona la aptitud o el acto de evaluar ("la aptitud se definirá tras el examen…"). El concepto sintetiza el cuadro y el riesgo; la conclusión de aptitud la emite el anestesiólogo, no se anticipa como proceso en el borrador.`,
           field);
       }
     }
