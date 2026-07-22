@@ -97,7 +97,7 @@ import { AuthService } from '../core/auth.service';
     <div class="card" style="margin-top:16px">
       <div class="section-label">Sesión</div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Cierra tu sesión en este dispositivo.</p>
-      <button class="btn" (click)="signOut()" data-testid="panel-logout-button">⏻ Sign out</button>
+      <button class="btn" (click)="signOut()" data-testid="panel-logout-button">Cerrar sesión</button>
     </div>
   `,
 })

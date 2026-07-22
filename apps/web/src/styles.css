@@ -43,13 +43,31 @@
   --side-on:   rgba(255,255,255,0.10);
   --side-on-ink: #ffffff;
 
-  /* estados / riesgo */
+  /* estados / riesgo — tono vivo (fondos, bordes, indicadores) */
   --gold:   #C8881A;
   --amber:  #E08A1E;
   --red:    #DC4040;
   --green:  #2E9E63;
   --teal:   #1FA8A0;
   --purple: #6D54C8;
+
+  /* variantes de TEXTO más oscuras (WCAG AA ≥4.5:1 sobre fondo claro): usar en texto pequeño,
+     badges y estados. Los tonos vivos de arriba quedan para fondos/bordes. */
+  --gold-text:  #8a5d10;
+  --amber-text: #9a5a0e;
+  --red-text:   #b3261e;
+  --green-text: #1c7a4a;
+
+  /* semáforo clínico de laboratorios (un solo sistema, antes hardcodeado y duplicado). */
+  --sev-critico:      #b3261e;
+  --sev-critico-bg:   #fdecea;
+  --sev-alerta:       #a86a00;
+  --sev-alerta-line:  #d99100;
+  --sev-alerta-bg:    #fff7e8;
+  --sev-stale:        #8a6d3b;
+  --sev-stale-bg:     #fdf6e8;
+  --sev-stale-line:   #ecdcb8;
+  --sev-stale-strong: #6b4f1d;
 
   --font-display: 'Space Grotesk', sans-serif;
   --font-body:    'Inter', sans-serif;
@@ -149,11 +167,12 @@ a { color: var(--primary); text-decoration: none; }
 
 /* ── badges ── */
 .card-badge { font-size: 10px; font-family: var(--font-mono); padding: 2px 8px; border-radius: 20px; display: inline-block; }
-.badge-red { background: rgba(220,64,64,0.1); color: var(--red); border: 1px solid rgba(220,64,64,0.25); }
-.badge-amber { background: rgba(224,138,30,0.12); color: var(--amber); border: 1px solid rgba(224,138,30,0.28); }
-.badge-green { background: rgba(46,158,99,0.1); color: var(--green); border: 1px solid rgba(46,158,99,0.25); }
+/* Texto de badge en la variante oscura (WCAG AA); fondo y borde en el tono vivo suavizado. */
+.badge-red { background: rgba(220,64,64,0.1); color: var(--red-text); border: 1px solid rgba(220,64,64,0.25); }
+.badge-amber { background: rgba(224,138,30,0.12); color: var(--amber-text); border: 1px solid rgba(224,138,30,0.28); }
+.badge-green { background: rgba(46,158,99,0.1); color: var(--green-text); border: 1px solid rgba(46,158,99,0.25); }
 .badge-blue { background: var(--it-100); color: var(--primary-dark); border: 1px solid var(--it-200); }
-.badge-gold { background: rgba(200,136,26,0.12); color: var(--gold); border: 1px solid rgba(200,136,26,0.28); }
+.badge-gold { background: rgba(200,136,26,0.12); color: var(--gold-text); border: 1px solid rgba(200,136,26,0.28); }
 .badge-muted { background: var(--bg); color: var(--muted); border: 1px solid var(--border); }
 
 /* ── alert banner ── */

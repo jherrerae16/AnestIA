@@ -8,7 +8,7 @@ import { statusLabel, badgeClass } from '../core/case-status';
   standalone: true,
   imports: [RouterLink],
   styles: [`
-    .pending-links { font-size:12px; color:var(--muted); padding:10px 14px; border-top:1px solid var(--border, #e6edee); }
+    .pending-links { font-size:12px; color:var(--muted); padding:10px 14px; border-top:1px solid var(--border); }
     .head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:6px; gap:16px; flex-wrap:wrap; }
     .head h2 { font-size:26px; letter-spacing:-0.6px; }
     .head p { font-size:13px; color:var(--muted); margin-top:3px; }
@@ -49,7 +49,7 @@ import { statusLabel, badgeClass } from '../core/case-status';
     tbody tr:hover { background:var(--row-hover); }
     .pt-name { font-weight:600; color:var(--text); }
     .pt-doc { color:var(--muted); font-size:11px; font-family:var(--font-mono); margin-left:6px; }
-    .alerts { color:var(--red); font-weight:600; font-size:12px; }
+    .alerts { color:var(--red-text); font-weight:600; font-size:12px; }
     .rev-link { font-weight:600; }
     .muted { color:var(--muted2); }
   `],

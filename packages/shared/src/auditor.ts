@@ -378,8 +378,14 @@ export function auditDocument(input: AuditInput): AuditReport {
     // actual resume sin repetir las cifras.
     const condRaw = text((doc.identificacion as Record<string, DocField> | undefined)?.['condicion_actual']);
     if (condRaw) {
+      // Cifra clínica = número + unidad de laboratorio. La unidad es genérica (cubre g/dl, u/l,
+      // mui/l, pg/ml, %… sin lista cerrada), pero se EXCLUYEN unidades no clínicas (años/meses/días)
+      // para no marcar la edad como cifra repetida. Se normaliza la puntuación final.
+      const NO_CLINICA = /^\d+(?:[.,]\d+)?\s*(anos?|meses|mes|dias?|semanas?)$/;
       const cifras = (s: string) =>
-        new Set((norm(s).match(/\d+(?:[.,]\d+)?\s*(?:g\/dl|mg\/dl|ng\/ml|mcg|ug|mmol\/l|%|uui\/ml|mui\/ml|pg\/ml)/g) ?? []));
+        new Set((norm(s).match(/\d+(?:[.,]\d+)?\s*(?:%|[a-zµ³/·]+)/g) ?? [])
+          .map((m) => m.replace(/[.\s]+$/g, '').replace(/\s+/g, ' ').trim())
+          .filter((m) => /[a-z%µ]/.test(m) && !NO_CLINICA.test(m)));
       const enAsa = cifras(asaRaw);
       const compartidas = [...cifras(condRaw)].filter((c) => enAsa.has(c));
       if (compartidas.length > 0) {
