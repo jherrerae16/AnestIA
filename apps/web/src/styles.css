@@ -69,15 +69,16 @@
   --sev-stale-line:   #ecdcb8;
   --sev-stale-strong: #6b4f1d;
 
+  /* Notas privadas del médico (libreta ámbar). Antes hardcodeadas y duplicadas en dos pantallas. */
+  --note-bg:     #fffbeb;
+  --note-line:   #fde68a;
+  --note-line2:  #fcd34d;
+  --note-text:   #92400e;
+  --note-badge-bg: #fef3c7;
+
   --font-display: 'Space Grotesk', sans-serif;
   --font-body:    'Inter', sans-serif;
   --font-mono:    'JetBrains Mono', monospace;
-
-  /* niveles cualitativos */
-  --nivel-basico: var(--muted);
-  --nivel-intermedio: var(--blue);
-  --nivel-avanzado: var(--primary);
-  --nivel-experto: var(--green);
 
   /* sombras más sutiles y premium (rediseño A) */
   --shadow-sm: 0 1px 2px rgba(6,42,49,0.05);
@@ -194,51 +195,6 @@ a { color: var(--primary); text-decoration: none; }
 .alert-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
 .alert-meta { font-size: 10px; font-family: var(--font-mono); color: var(--muted2); margin-top: 4px; }
 
-/* ── people ── */
-.person-row { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); }
-.person-row:last-child { border-bottom: none; }
-.person-avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center;
-  justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; background: var(--it-100); color: var(--primary); }
-.person-name { font-size: 12px; font-weight: 600; color: var(--text); }
-.person-role { font-size: 11px; color: var(--muted); }
-.person-right { margin-left: auto; text-align: right; }
-.person-score { font-family: var(--font-mono); font-size: 14px; font-weight: 500; }
-.person-skills { font-size: 10px; color: var(--muted); margin-top: 2px; }
-
-/* ── area bars ── */
-.area-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
-.area-name { font-size: 12px; color: var(--text); flex: 0 0 130px; }
-.area-bar-bg { flex: 1; height: 6px; background: var(--it-100); border-radius: 3px; overflow: hidden; }
-.area-bar-fill { height: 6px; border-radius: 3px; transition: width 1s ease; background: var(--primary); }
-.area-pct { font-size: 11px; font-family: var(--font-mono); color: var(--muted); flex: 0 0 40px; text-align: right; }
-
-/* ── heatmap ── */
-.heatmap-table { width: 100%; border-collapse: separate; border-spacing: 4px; }
-.heatmap-table th { font-size: 9px; font-weight: 600; color: var(--muted); text-align: center; padding: 4px 2px;
-  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
-.heatmap-table th.row-header { text-align: left; font-size: 11px; font-weight: 500; color: var(--text);
-  text-transform: none; letter-spacing: 0; padding-right: 12px; min-width: 130px; }
-.heatmap-cell { width: 52px; height: 32px; border-radius: 5px; display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 600; font-family: var(--font-mono); cursor: pointer; transition: transform .15s, filter .15s; }
-.heatmap-cell:hover { transform: scale(1.15); filter: brightness(0.95); z-index: 10; }
-.heatmap-cell.level-0 { background: var(--it-50); color: var(--muted2); }
-.heatmap-cell.level-1 { background: rgba(224,138,30,0.18); color: #b06a12; }
-.heatmap-cell.level-2 { background: var(--it-200); color: var(--it-800); }
-.heatmap-cell.level-3 { background: var(--it-400); color: #fff; }
-.heatmap-cell.level-4 { background: var(--green); color: #fff; }
-
-/* ── legend ── */
-.legend { display: flex; gap: 14px; flex-wrap: wrap; }
-.legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); }
-.legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
-
-/* ── tabs ── */
-.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-.tab { padding: 8px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
-  color: var(--muted2); cursor: pointer; border: none; border-bottom: 2px solid transparent; background: none; transition: all .2s; }
-.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
-.tab:hover:not(.active) { color: var(--text); background: var(--it-50); }
-
 /* ── forms ── */
 .ki-label { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 5px; display: block; }
 .ki-input, .ki-select {
@@ -251,9 +207,10 @@ a { color: var(--primary); text-decoration: none; }
 /* ── buttons ── */
 .btn { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-family: var(--font-body);
   font-size: 13px; font-weight: 500; padding: 9px 16px; border-radius: var(--radius-btn); border: 1px solid var(--border2);
-  background: #fff; color: var(--text); transition: all 160ms; }
+  background: #fff; color: var(--text); transition: background 160ms, border-color 160ms, color 160ms, box-shadow 160ms; }
 .btn:hover { border-color: var(--primary); background: var(--it-50); }
-.btn:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(11,92,107,0.3); }
+/* Foco visible fuerte (outline sólido de 2px): el anillo tenue anterior no se veía sobre botones primarios. */
+.btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-hi); border-color: var(--primary-hi); }
 .btn-gold { background: var(--gold); border-color: var(--gold); color: #fff; }

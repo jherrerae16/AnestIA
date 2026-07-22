@@ -39,6 +39,8 @@ import { ApiService } from '../core/api.service';
               <span class="card-badge badge-green">Por defecto</span>
             }
           </div>
+        } @empty {
+          <div class="empty">Aún no hay cuestionarios.</div>
         }
       </div>
 

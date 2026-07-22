@@ -39,25 +39,25 @@ import { AuthService } from '../core/auth.service';
       <div class="section-label">Datos del profesional</div>
 
       <div class="field">
-        <label class="ki-label">Nombre completo</label>
-        <input class="ki-input" [(ngModel)]="p.fullName" data-testid="profile-name-input" />
+        <label class="ki-label" for="pf-name">Nombre completo</label>
+        <input id="pf-name" class="ki-input" [(ngModel)]="p.fullName" data-testid="profile-name-input" />
       </div>
       <div class="field">
-        <label class="ki-label">Especialidad</label>
-        <input class="ki-input" [(ngModel)]="p.specialty" />
+        <label class="ki-label" for="pf-spec">Especialidad</label>
+        <input id="pf-spec" class="ki-input" [(ngModel)]="p.specialty" />
       </div>
       <div class="field">
-        <label class="ki-label">Registro médico</label>
-        <input class="ki-input" [(ngModel)]="p.medicalRegistry" data-testid="profile-registry-input" />
+        <label class="ki-label" for="pf-reg">Registro médico</label>
+        <input id="pf-reg" class="ki-input" [(ngModel)]="p.medicalRegistry" data-testid="profile-registry-input" />
       </div>
       <div class="field">
-        <label class="ki-label">Texto de pie de página</label>
-        <input class="ki-input" [(ngModel)]="p.footerText" />
+        <label class="ki-label" for="pf-foot">Texto de pie de página</label>
+        <input id="pf-foot" class="ki-input" [(ngModel)]="p.footerText" />
       </div>
 
       <div class="save-row">
         <button class="btn btn-primary" (click)="save()" data-testid="profile-save-button">Guardar datos</button>
-        @if (savedMsg()) { <span class="saved">{{ savedMsg() }}</span> }
+        @if (savedMsg()) { <span class="saved" role="status" aria-live="polite">{{ savedMsg() }}</span> }
       </div>
     </div>
 

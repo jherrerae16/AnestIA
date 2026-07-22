@@ -30,7 +30,7 @@ import { AuthService } from '../core/auth.service';
           <input class="ki-input" id="password" name="password" type="password" [(ngModel)]="password" data-testid="signin-password-input" autocomplete="current-password" />
         </div>
         @if (error()) {
-          <div class="error" data-testid="signin-error">{{ error() }}</div>
+          <div class="error" role="alert" data-testid="signin-error">{{ error() }}</div>
         }
         <button type="submit" class="btn btn-primary signin-submit" [disabled]="loading()" data-testid="signin-submit-button">
           {{ loading() ? 'Entrando…' : 'Iniciar sesión' }}

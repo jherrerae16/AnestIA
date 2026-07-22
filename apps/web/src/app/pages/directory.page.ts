@@ -19,6 +19,7 @@ import { ApiService } from '../core/api.service';
     .contact-name { font-size:13px; font-weight:600; color:var(--text); }
     .contact-email { font-size:12px; color:var(--muted); margin-top:2px; }
     .contact .card-badge { margin-left:auto; flex-shrink:0; }
+    .add-err { font-size:12px; color:var(--red-text); margin:8px 0 0; }
   `],
   template: `
     <div class="page-head">
@@ -29,19 +30,25 @@ import { ApiService } from '../core/api.service';
       <div class="section-label">Agregar contacto</div>
       <div class="add-row">
         <div class="field">
-          <label class="ki-label">Nombre / etiqueta</label>
-          <input class="ki-input" placeholder="Nombre/etiqueta" [(ngModel)]="label" data-testid="contact-label-input" />
+          <label class="ki-label" for="ct-label">Nombre / etiqueta</label>
+          <input id="ct-label" class="ki-input" placeholder="Nombre/etiqueta" [(ngModel)]="label" data-testid="contact-label-input" />
         </div>
         <div class="field">
-          <label class="ki-label">Correo</label>
-          <input class="ki-input" placeholder="Correo" [(ngModel)]="email" data-testid="contact-email-input" />
+          <label class="ki-label" for="ct-email">Correo</label>
+          <input id="ct-email" class="ki-input" type="email" inputmode="email" placeholder="nombre@correo.com" [(ngModel)]="email" data-testid="contact-email-input" />
         </div>
         <div class="field">
-          <label class="ki-label">Tipo</label>
-          <select class="ki-select" [(ngModel)]="type"><option>MEDICO</option><option>CLINICA</option><option>ASEGURADORA</option><option>OTRO</option></select>
+          <label class="ki-label" for="ct-type">Tipo</label>
+          <select id="ct-type" class="ki-select" [(ngModel)]="type">
+            <option value="MEDICO">Médico</option>
+            <option value="CLINICA">Clínica</option>
+            <option value="ASEGURADORA">Aseguradora</option>
+            <option value="OTRO">Otro</option>
+          </select>
         </div>
         <button class="btn btn-primary" (click)="add()" data-testid="contact-add-button">Agregar</button>
       </div>
+      @if (addError()) { <p class="add-err" role="alert">{{ addError() }}</p> }
 
       <div class="section-label">Contactos</div>
       @for (c of contacts(); track c.id) {
@@ -50,7 +57,7 @@ import { ApiService } from '../core/api.service';
             <div class="contact-name">{{ c.label }}</div>
             <div class="contact-email">{{ c.email }}</div>
           </div>
-          <span class="card-badge badge-blue">{{ c.type }}</span>
+          <span class="card-badge badge-blue">{{ typeLabel(c.type) }}</span>
         </div>
       } @empty {
         <div class="empty">Sin contactos todavía.</div>
@@ -61,12 +68,22 @@ import { ApiService } from '../core/api.service';
 export class DirectoryPage implements OnInit {
   private api = inject(ApiService);
   contacts = signal<any[]>([]);
+  addError = signal('');
   label = ''; email = ''; type = 'MEDICO';
+  private static readonly TYPE_LABEL: Record<string, string> = {
+    MEDICO: 'Médico', CLINICA: 'Clínica', ASEGURADORA: 'Aseguradora', OTRO: 'Otro',
+  };
+  typeLabel(t: string) { return DirectoryPage.TYPE_LABEL[t] ?? t; }
+
   async ngOnInit() { await this.reload(); }
   async reload() { this.contacts.set((await this.api.listContacts()).contacts); }
   async add() {
-    if (!this.label || !this.email) return;
-    await this.api.addContact({ label: this.label, email: this.email, type: this.type });
+    const label = this.label.trim();
+    const email = this.email.trim();
+    if (!label || !email) { this.addError.set('Ingresa nombre y correo.'); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { this.addError.set('El correo no es válido.'); return; }
+    this.addError.set('');
+    await this.api.addContact({ label, email, type: this.type });
     this.label = ''; this.email = '';
     await this.reload();
   }
