@@ -274,6 +274,22 @@ describe('auditor — ASA vs comorbilidades', () => {
     const r = auditDocument({ doc, answers: sanoAnswers });
     expect(r.findings.some((f) => /Revisar la clasificación ASA/.test(f.message))).toBe(false);
   });
+
+  it('marca redundancia de cifra entre ASA y condición actual', () => {
+    const doc = baseDoc();
+    (doc.identificacion as Record<string, DocField>)['asa'] = ok('ASA II: Anemia leve (Hb 10.3 g/dL). Tratamiento con isotretinoína.', 'derivado:IA');
+    (doc.identificacion as Record<string, DocField>)['condicion_actual'] = ok('Sin enfermedades declaradas. Hallazgo de anemia (hemoglobina 10.3 g/dL) con ferritina en límite inferior.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => f.category === 'redaccion' && /repiten|cifra/.test(f.message) && f.field === 'identificacion.condicion_actual')).toBe(true);
+  });
+
+  it('no se queja si la condición actual resume sin repetir la cifra del ASA', () => {
+    const doc = baseDoc();
+    (doc.identificacion as Record<string, DocField>)['asa'] = ok('ASA II: Anemia leve (Hb 10.3 g/dL). Tratamiento con isotretinoína.', 'derivado:IA');
+    (doc.identificacion as Record<string, DocField>)['condicion_actual'] = ok('Sin enfermedades declaradas. Anemia leve sugestiva de ferropenia.', 'derivado:IA');
+    const r = auditDocument({ doc, answers: sanoAnswers });
+    expect(r.findings.some((f) => /repiten|cifra/.test(f.message))).toBe(false);
+  });
 });
 
 describe('auditor — interpretación de medicamentos de riesgo', () => {
