@@ -10,8 +10,8 @@ import { statusLabel, badgeClass } from '../core/case-status';
   styles: [`
     .pending-links { font-size:12px; color:var(--muted); padding:10px 14px; border-top:1px solid var(--border, #e6edee); }
     .head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:6px; gap:16px; flex-wrap:wrap; }
-    .head h2 { font-size:22px; }
-    .head p { font-size:13px; color:var(--muted); margin-top:2px; }
+    .head h2 { font-size:26px; letter-spacing:-0.6px; }
+    .head p { font-size:13px; color:var(--muted); margin-top:3px; }
     .export-msg { font-size:12px; color:var(--muted); margin:0 0 8px; }
 
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
@@ -43,10 +43,10 @@ import { statusLabel, badgeClass } from '../core/case-status';
       text-transform:uppercase; letter-spacing:0.07em; color:var(--muted);
       background:var(--bg3); border-bottom:1px solid var(--border);
     }
-    tbody td { padding:13px 18px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
+    tbody td { padding:14px 18px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:middle; }
     tbody tr:last-child td { border-bottom:none; }
     tbody tr { transition: background .12s; }
-    tbody tr:hover { background:var(--it-50); }
+    tbody tr:hover { background:var(--row-hover); }
     .pt-name { font-weight:600; color:var(--text); }
     .pt-doc { color:var(--muted); font-size:11px; font-family:var(--font-mono); margin-left:6px; }
     .alerts { color:var(--red); font-weight:600; font-size:12px; }
