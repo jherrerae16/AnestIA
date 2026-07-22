@@ -139,6 +139,10 @@ export class ApiService {
   calendarIcsUrl(caseId: string): string {
     return `/api/panel/cases/${caseId}/calendar.ics`;
   }
+  /** URL de descarga del .ics con TODAS las cirugías (exportar el calendario completo). */
+  allCalendarIcsUrl(): string {
+    return `/api/panel/calendar.ics`;
+  }
 }
 
 export interface PatientNoteDTO {
