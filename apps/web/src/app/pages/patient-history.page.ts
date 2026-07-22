@@ -1,6 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import { statusLabel, badgeClass } from '../core/case-status';
 
 @Component({
   selector: 'app-patient-history',
@@ -43,12 +44,12 @@ import { ApiService } from '../core/api.service';
     .case-status { font-size: 12px; color: var(--muted); }
 
     /* Notas privadas del médico. Fondo distinto para que se lean como "libreta aparte". */
-    .notes-block { margin-top: 18px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; padding: 14px 16px; }
+    .notes-block { margin-top: 18px; background: var(--note-bg); border: 1px solid var(--note-line); border-radius: 10px; padding: 14px 16px; }
     .notes-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
     .notes-title { font-size: 13px; font-weight: 600; color: var(--text); }
-    .notes-badge { font-size: 11px; font-weight: 600; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 100px; padding: 2px 9px; }
-    .notes-hint { font-size: 11.5px; color: #92400e; margin: 0 0 8px; }
-    .notes-ta { width: 100%; min-height: 90px; padding: 9px 11px; border: 1px solid #fcd34d; border-radius: 8px; font-family: var(--font-body); font-size: 13px; color: var(--text); resize: vertical; outline: none; background: #fff; }
+    .notes-badge { font-size: 11px; font-weight: 600; color: var(--note-text); background: var(--note-badge-bg); border: 1px solid var(--note-line); border-radius: 100px; padding: 2px 9px; }
+    .notes-hint { font-size: 11.5px; color: var(--note-text); margin: 0 0 8px; }
+    .notes-ta { width: 100%; min-height: 90px; padding: 9px 11px; border: 1px solid var(--note-line2); border-radius: 8px; font-family: var(--font-body); font-size: 13px; color: var(--text); resize: vertical; outline: none; background: #fff; }
     .notes-ta:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(11,92,107,.12); }
     .notes-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
     .notes-saved { font-size: 12px; color: var(--green); font-weight: 600; }
@@ -84,7 +85,7 @@ import { ApiService } from '../core/api.service';
             </thead>
             <tbody>
               @for (p of results(); track p.id) {
-                <tr (click)="open(p.id)">
+                <tr (click)="open(p.id)" (keydown.enter)="open(p.id)" tabindex="0" role="button" [attr.aria-label]="'Ver ' + p.fullName">
                   <td class="patient-name">{{ p.fullName }}</td>
                   <td class="doc">{{ p.documentId }}</td>
                   <td>{{ edadSexo(p) }}</td>
@@ -98,7 +99,7 @@ import { ApiService } from '../core/api.service';
           <!-- Móvil: una tarjeta por paciente. -->
           <div class="pt-cards">
             @for (p of results(); track p.id) {
-              <div class="pt-card" (click)="open(p.id)">
+              <div class="pt-card" (click)="open(p.id)" (keydown.enter)="open(p.id)" tabindex="0" role="button" [attr.aria-label]="'Ver ' + p.fullName">
                 <div class="ptc-name">{{ p.fullName }}</div>
                 <div class="ptc-meta">
                   <span>{{ p.documentId }}</span>
@@ -111,6 +112,8 @@ import { ApiService } from '../core/api.service';
               </div>
             }
           </div>
+        } @else if (searched()) {
+          <div class="empty">Sin resultados para “{{ q }}”.</div>
         }
 
         @if (selected(); as p) {
@@ -135,10 +138,7 @@ import { ApiService } from '../core/api.service';
           @for (c of selected().cases ?? []; track c.id) {
             <div class="case-row">
               <span class="case-proc">{{ c.procedure ?? 'Sin procedimiento' }}</span>
-              <span class="case-status">{{ c.status }}</span>
-              @if (c.approval) {
-                <span class="card-badge badge-green">Aprobado</span>
-              }
+              <span class="card-badge" [class]="'card-badge ' + badge(c.status)">{{ label(c.status) }}</span>
             </div>
           }
 
@@ -173,6 +173,11 @@ export class PatientHistoryPage {
   q = '';
   results = signal<any[]>([]);
   selected = signal<any>(null);
+  searched = signal(false); // true tras una búsqueda con ≥2 chars (para el estado vacío)
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  label(s: string) { return statusLabel(s); }
+  badge(s: string) { return badgeClass(s); }
 
   // Notas privadas
   noteContent = '';
@@ -183,9 +188,14 @@ export class PatientHistoryPage {
   /** La sección de nota sólo aparece si hay nota o si el médico la abrió. */
   noteVisible = () => this.hasNote() || this.editingNote();
 
-  async search() {
-    if (this.q.length < 2) { this.results.set([]); return; }
-    this.results.set((await this.api.searchPatients(this.q)).patients);
+  /** Búsqueda con debounce (~250 ms): una petición al parar de teclear, no una por tecla. */
+  search() {
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    if (this.q.length < 2) { this.results.set([]); this.searched.set(false); return; }
+    this.searchTimer = setTimeout(async () => {
+      this.results.set((await this.api.searchPatients(this.q)).patients);
+      this.searched.set(true);
+    }, 250);
   }
 
   async open(id: string) {

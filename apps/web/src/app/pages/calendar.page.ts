@@ -46,15 +46,15 @@ const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
     .chip { text-decoration:none; border-radius:6px; padding:4px 6px; font-size:11px; line-height:1.25; display:block;
       background:var(--it-50); border-left:3px solid var(--blue); color:var(--text); transition:background .12s; }
-    .chip:hover { background:var(--it-100, #eef4ff); }
+    .chip:hover { background:var(--it-100); }
     .chip .pt { font-weight:600; display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .chip .proc { color:var(--muted); display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .chip.st-amber { border-left-color:var(--amber, #f59e0b); }
+    .chip.st-amber { border-left-color:var(--amber); }
     .chip.st-green { border-left-color:var(--green); }
     .chip.st-blue { border-left-color:var(--blue); }
     .chip.st-muted { border-left-color:var(--muted2); }
     /* Alerta <48h sin aprobar: destaca en rojo, es trabajo pendiente que el médico debe ver. */
-    .chip.alerta { background:#fef2f2; border-left-color:var(--red); }
+    .chip.alerta { background:var(--sev-critico-bg); border-left-color:var(--red); }
     .chip.alerta .warn { color:var(--red); font-weight:700; }
 
     .add-cal { margin-top:2px; font-size:10px; color:var(--primary); background:none; border:none; cursor:pointer; padding:0; text-align:left; }
@@ -80,14 +80,14 @@ const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
         <div class="controls">
           <!-- Exporta TODAS las cirugías a un .ics: un tap y se abre/descarga en Google/Apple Calendar. -->
           <button class="btn btn-sm btn-primary" (click)="exportAll()" data-testid="cal-export-all">📅 Exportar calendario</button>
-          <div class="view-toggle">
-            <button [class.on]="view()==='month'" (click)="setView('month')" data-testid="cal-view-month">Mensual</button>
-            <button [class.on]="view()==='week'" (click)="setView('week')" data-testid="cal-view-week">Semanal</button>
+          <div class="view-toggle" role="group" aria-label="Vista del calendario">
+            <button [class.on]="view()==='month'" [attr.aria-pressed]="view()==='month'" (click)="setView('month')" data-testid="cal-view-month">Mensual</button>
+            <button [class.on]="view()==='week'" [attr.aria-pressed]="view()==='week'" (click)="setView('week')" data-testid="cal-view-week">Semanal</button>
           </div>
           <div class="nav-btns">
-            <button class="btn btn-sm" (click)="prev()" data-testid="cal-prev">←</button>
+            <button class="btn btn-sm" (click)="prev()" data-testid="cal-prev" aria-label="Período anterior">←</button>
             <span class="period">{{ periodLabel() }}</span>
-            <button class="btn btn-sm" (click)="next()" data-testid="cal-next">→</button>
+            <button class="btn btn-sm" (click)="next()" data-testid="cal-next" aria-label="Período siguiente">→</button>
             <button class="btn btn-sm" (click)="today()">Hoy</button>
           </div>
         </div>
@@ -118,7 +118,7 @@ const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
       <div class="legend">
         <span><span class="dot" style="background:var(--red)"></span>Cirugía &lt;48h sin valoración aprobada</span>
         <span><span class="dot" style="background:var(--green)"></span>Aprobado</span>
-        <span><span class="dot" style="background:var(--amber,#f59e0b)"></span>Pendiente revisión</span>
+        <span><span class="dot" style="background:var(--amber)"></span>Pendiente revisión</span>
       </div>
     </div>
   `,

@@ -192,20 +192,20 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .comp-hint { font-size:11.5px; color:var(--muted2); margin:0; }
 
     /* Banner de notas privadas — aparece solo arriba del caso cuando el paciente tiene notas. */
-    .note-banner { background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:12px 16px; margin-bottom:16px; }
+    .note-banner { background:var(--note-bg); border:1px solid var(--note-line); border-radius:10px; padding:12px 16px; margin-bottom:16px; }
     .note-banner-head { display:flex; align-items:center; gap:8px; }
     .note-banner-title { font-size:13px; font-weight:600; color:var(--text); }
-    .note-banner-badge { font-size:11px; font-weight:600; color:#92400e; background:#fef3c7; border:1px solid #fde68a; border-radius:100px; padding:2px 9px; }
-    .note-banner-toggle { margin-left:auto; font-size:12px; color:#92400e; background:none; border:none; cursor:pointer; padding:0; }
+    .note-banner-badge { font-size:11px; font-weight:600; color:var(--note-text); background:var(--note-badge-bg); border:1px solid var(--note-line); border-radius:100px; padding:2px 9px; }
+    .note-banner-toggle { margin-left:auto; font-size:12px; color:var(--note-text); background:none; border:none; cursor:pointer; padding:0; }
     .note-banner-toggle:hover { text-decoration:underline; }
     .note-banner-body { font-size:13px; color:var(--text); margin-top:8px; white-space:pre-wrap; overflow-wrap:anywhere; }
-    .note-edit { width:100%; min-height:80px; margin-top:8px; padding:9px 11px; border:1px solid #fcd34d; border-radius:8px;
+    .note-edit { width:100%; min-height:80px; margin-top:8px; padding:9px 11px; border:1px solid var(--note-line2); border-radius:8px;
       font-family:var(--font-body); font-size:13px; color:var(--text); resize:vertical; outline:none; background:#fff; }
     .note-edit:focus { border-color:var(--primary); box-shadow:0 0 0 3px rgba(11,92,107,.12); }
     .note-edit-actions { display:flex; gap:8px; margin-top:8px; }
-    .note-add-btn { font-size:12px; color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:8px;
+    .note-add-btn { font-size:12px; color:var(--note-text); background:var(--note-bg); border:1px solid var(--note-line); border-radius:8px;
       padding:6px 12px; cursor:pointer; margin-bottom:16px; }
-    .note-add-btn:hover { background:#fef3c7; }
+    .note-add-btn:hover { background:var(--note-badge-bg); }
   `],
   template: `
     @if (loading()) { <div class="empty">Cargando…</div> }

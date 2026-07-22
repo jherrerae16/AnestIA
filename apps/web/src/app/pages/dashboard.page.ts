@@ -64,7 +64,7 @@ import { statusLabel, badgeClass } from '../core/case-status';
           Exportar a Sheets
         </button>
       </div>
-      @if (exportMsg()) { <p class="export-msg">{{ exportMsg() }}</p> }
+      @if (exportMsg()) { <p class="export-msg" role="status" aria-live="polite">{{ exportMsg() }}</p> }
 
       <div class="kpi-row" style="margin-top:16px">
         <div class="kpi-card k-blue">
