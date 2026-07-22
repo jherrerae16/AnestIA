@@ -1,6 +1,8 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { AuthService } from '../core/auth.service';
 
 @Component({
   selector: 'app-profile',
@@ -91,10 +93,18 @@ import { ApiService } from '../core/api.service';
         </div>
       </div>
     </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="section-label">Sesión</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Cierra tu sesión en este dispositivo.</p>
+      <button class="btn" (click)="signOut()" data-testid="panel-logout-button">⏻ Sign out</button>
+    </div>
   `,
 })
 export class ProfilePage implements OnInit {
   private api = inject(ApiService);
+  private auth = inject(AuthService);
+  private router = inject(Router);
   p: any = { fullName: '', specialty: '', medicalRegistry: '', footerText: '' };
   logoUrl = signal<string | null>(null);
   signatureUrl = signal<string | null>(null);
@@ -108,6 +118,12 @@ export class ProfilePage implements OnInit {
     this.logoUrl.set(profile.clinicLogoUrl ? `${profile.clinicLogoUrl}?t=${Date.now()}` : null);
     this.signatureUrl.set(profile.signatureUrl ? `${profile.signatureUrl}?t=${Date.now()}` : null);
     this.reminderOn.set(!profile.dailyReminderOptOut);
+  }
+
+  /** Cierra sesión y vuelve al sign in. */
+  async signOut() {
+    await this.auth.logout();
+    this.router.navigate(['/signin']);
   }
 
   async toggleReminder(ev: Event) {

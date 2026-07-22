@@ -2,9 +2,7 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService } from '../core/api.service';
-import { addToCalendar } from '../core/add-to-calendar';
 
 const SECTION_LABELS: Record<string, string> = {
   paciente: 'Paciente', documento: 'Documento', edad: 'Edad', sexo: 'Sexo',
@@ -59,12 +57,28 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
   imports: [FormsModule, NgTemplateOutlet],
   styles: [`
     .page-head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; gap:16px; flex-wrap:wrap; }
-    .page-head h2 { font-size:22px; }
-    .page-head p { font-size:13px; color:var(--muted); margin-top:2px; }
+    .page-head h2 { font-size:26px; letter-spacing:-0.6px; }
+    .page-head p { font-size:13px; color:var(--muted); margin-top:3px; }
 
-    .cols { display:grid; grid-template-columns: 1.25fr 1fr; gap:16px; align-items:start; }
+    /* 3 columnas (rediseño A): contexto | documento | decisión. Con la topbar (sin sidebar) hay
+       ancho de sobra. Reparte la info en horizontal para reducir el scroll vertical. */
+    .cols { display:grid; grid-template-columns: 300px minmax(0,1fr) 340px; gap:16px; align-items:start; max-width:100%; }
+    .col-ctx, .col-doc, .col-act { display:flex; flex-direction:column; gap:16px; min-width:0; }
+    .col-ctx > .card, .col-doc > .card, .col-act > .card { min-width:0; max-width:100%; }
+    .col-act { position:sticky; top:76px; }   /* debajo de la topbar (60px) */
+    @media (max-width:1150px) {
+      .cols { grid-template-columns: 1fr; }
+      .col-act { position:static; }
+      .col-doc { order:-1; }
+    }
     .side { display:flex; flex-direction:column; gap:16px; min-width:0; }
     .attach { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--border, #e6edee); }
+    /* Fechas de informes de lab, dentro del box de adjuntos (no en la prosa del documento). */
+    .attach-dates { margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
+    .attach-dates .ad-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px; }
+    .attach-dates .ad-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--muted); padding:3px 0; }
+    .attach-dates .ad-row .ad-date { font-family:var(--font-mono); color:var(--text); }
+    .attach-dates .ad-row.stale .ad-date { color:#8a6d3b; font-weight:600; }
     .attach:last-of-type { border-bottom:none; }
     .a-name { font-size:12.5px; overflow-wrap:anywhere; }
     .a-actions { display:flex; gap:6px; flex-shrink:0; }
@@ -73,10 +87,11 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lab-date.alerta { color:#b3261e; font-weight:700; }
     .sec-block { margin-bottom:18px; }
     .sec-block:last-child { margin-bottom:0; }
-    .field { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; }
+    .field { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; min-width:0; }
     .field:last-child { border-bottom:none; }
-    .field .k { color:var(--muted); flex:0 0 42%; font-weight:500; }
-    .field .v { color:var(--text); flex:1; }
+    .field .k { color:var(--muted); flex:0 0 40%; font-weight:500; min-width:0; overflow-wrap:anywhere; }
+    /* Corta el texto largo (la prosa densa de paraclínicos rompía el ancho). */
+    .field .v { color:var(--text); flex:1; min-width:0; overflow-wrap:anywhere; word-break:break-word; }
     .edit-hint { font-size:11.5px; color:var(--muted2); margin:0 0 12px; }
     .v.editable { cursor:pointer; border-radius:5px; padding:1px 4px; margin:-1px -4px; transition:background .12s; position:relative; }
     .v.editable:hover { background:var(--it-50); }
@@ -206,9 +221,6 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
       <ng-container [ngTemplateOutlet]="noteBanner" />
       <div class="page-head">
         <div><h2>Caso aprobado</h2><p>El documento final está firmado. Puedes reabrirlo para corregir un error.</p></div>
-        @if (procedureDate()) {
-          <button class="btn btn-sm" (click)="addToMyCalendar()" data-testid="review-add-calendar">📅 Añadir a mi calendario</button>
-        }
         <button class="btn btn-sm" (click)="reopen()" [disabled]="reopening()" data-testid="review-reopen-button">
           {{ reopening() ? 'Reabriendo…' : '↺ Reabrir para corregir' }}
         </button>
@@ -216,13 +228,13 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
       <div class="ok-badge" data-testid="review-approved">✔ Caso APROBADO. Documento final firmado.</div>
 
       <div class="grid-3" style="margin-top:16px">
-        <div class="card preview-card">
+        <div class="card">
           <div class="preview-head">
             <span class="card-title">Documento final</span>
-            <a class="btn btn-sm" [href]="rawPreview()" target="_blank" rel="noopener">Abrir en pestaña</a>
+            <!-- Abre el PDF firmado en una pestaña nueva (no visor embebido). -->
+            <a class="btn btn-sm btn-primary" [href]="rawPreview()" target="_blank" rel="noopener">Abrir PDF</a>
           </div>
-          @if (previewSrc()) { <iframe class="preview-frame" [src]="previewSrc()" title="Documento"></iframe> }
-          @else { <div class="preview-empty">Cargando documento…</div> }
+          <p class="edit-hint" style="margin-top:10px">El documento final firmado. Ábrelo en una pestaña nueva para verlo o descargarlo.</p>
         </div>
         <div class="card">
           <div class="card-title" style="margin-bottom:12px">Distribuir reporte</div>
@@ -292,52 +304,63 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
       <div class="page-head">
         <div><h2>Revisión de valoración</h2><p>Verifica los datos antes de aprobar y firmar.</p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          @if (procedureDate()) {
-            <button class="btn btn-sm" (click)="addToMyCalendar()" data-testid="review-add-calendar">📅 Añadir a mi calendario</button>
-          }
-          <button class="btn btn-sm" (click)="togglePreview()" data-testid="review-preview-button">
-            {{ showPreview() ? 'Ocultar documento' : 'Previsualizar documento' }}
-          </button>
+          <!-- Ver PDF abre el documento en una pestaña nueva del navegador (no un visor embebido). -->
+          <a class="btn btn-sm" [href]="rawPreview()" target="_blank" rel="noopener" data-testid="review-preview-button">Ver PDF</a>
         </div>
       </div>
 
-      @if (showPreview()) {
-        <div class="card preview-card" style="margin-bottom:16px">
-          <div class="preview-head">
-            <span class="card-title">Vista previa del borrador</span>
-            <a class="btn btn-sm" [href]="rawPreview()" target="_blank" rel="noopener">Abrir en pestaña</a>
-          </div>
-          @if (previewSrc()) { <iframe class="preview-frame" [src]="previewSrc()" title="Vista previa"></iframe> }
-          @else { <div class="preview-empty">Generando vista previa…</div> }
-        </div>
-      }
+      <div class="cols">
+        <!-- ── Columna izquierda: paciente + adjuntos ── -->
+        <div class="col-ctx">
+          @if (patient(); as p) {
+            <div class="card" data-testid="patient-card">
+              <div class="card-title" style="margin-bottom:14px">Paciente</div>
+              <div class="field"><span class="k">Nombre</span><span class="v">{{ p.fullName }}</span></div>
+              <div class="field"><span class="k">Documento</span><span class="v">{{ p.documentId || '—' }}</span></div>
+              <div class="field"><span class="k">Edad</span><span class="v">{{ p.edad != null ? p.edad + ' años' : '—' }}</span></div>
+              <div class="field"><span class="k">Sexo</span><span class="v">{{ p.sex || '—' }}</span></div>
+              <div class="field">
+                <span class="k">Teléfono</span>
+                <span class="v">@if (p.phone) { <a [href]="'tel:' + p.phone">{{ p.phone }}</a> } @else { — }</span>
+              </div>
+              <div class="field">
+                <span class="k">Correo</span>
+                <span class="v">@if (p.email) { <a [href]="'mailto:' + p.email">{{ p.email }}</a> } @else { — }</span>
+              </div>
+              <div class="field"><span class="k">Aseguradora</span><span class="v">{{ p.insurer || '—' }}</span></div>
+              <div class="field"><span class="k">Grupo sanguíneo</span><span class="v">{{ p.bloodType || '—' }}</span></div>
+            </div>
+          }
 
-      @if (fields()) {
-        <div class="card audit-card" data-testid="audit-panel">
-          <div class="audit-head">
-            <span class="card-title">Revisión automática del borrador</span>
-            @if (auditFindings().length) {
-              <span class="audit-count">{{ auditFindings().length }} hallazgo{{ auditFindings().length === 1 ? '' : 's' }}</span>
-            }
-            <button class="btn btn-sm audit-reaudit" (click)="reaudit()" [disabled]="reauditing()" data-testid="reaudit-button">
-              {{ reauditing() ? 'Revisando…' : '↻ Re-auditar' }}
-            </button>
-          </div>
-          @if (auditFindings().length) {
-            <p class="audit-intro">Un auditor independiente revisó este borrador contra las respuestas del paciente. Estos puntos requieren tu criterio — el sistema no los corrige por su cuenta.</p>
-            @for (f of auditFindings(); track $index) {
-              <div class="finding" [class]="'finding ' + f.level" [attr.data-testid]="'finding-' + f.level">
-                <span class="f-level">{{ levelLabel(f.level) }}</span>
-                <span class="f-msg">{{ f.message }}</span>
+          <div class="card" data-testid="attachments-card">
+            <div class="card-title" style="margin-bottom:14px">Exámenes adjuntos</div>
+            <p class="edit-hint">Los archivos originales del paciente. Revísalos: lo del borrador es lo que la IA leyó de ellos.</p>
+            @for (a of attachments(); track a.id) {
+              <div class="attach">
+                <span class="a-name">{{ a.filename }}</span>
+                <!-- Solo "Abrir" (pestaña nueva). El visor embebido se retiró: abre el archivo real. -->
+                <a class="btn btn-sm" [href]="a.url" target="_blank" rel="noopener" [attr.data-testid]="'attach-open-' + a.id">Abrir</a>
               </div>
             }
-          } @else {
-            <p class="audit-intro" data-testid="audit-clean">Sin hallazgos: el borrador pasó la revisión automática.</p>
-          }
-        </div>
-      }
+            @if (!attachments().length) { <div class="empty">El paciente no adjuntó exámenes.</div> }
 
-      <div class="cols">
+            <!-- Fechas de los informes de laboratorio (para que el médico juzgue la vigencia). -->
+            @if (labDates().length) {
+              <div class="attach-dates">
+                <div class="ad-title">Fechas de los informes</div>
+                @for (d of labDates(); track d.label) {
+                  <div class="ad-row" [class.stale]="d.desactualizado">
+                    <span>{{ d.label }}</span>
+                    <span class="ad-date">{{ d.fecha }}@if (d.desactualizado) { · ⚠ vencido }</span>
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        </div>
+
+        <!-- ── Columna central: borrador + paraclínicos ── -->
+        <div class="col-doc">
         <div class="card">
           <div class="card-title" style="margin-bottom:14px">Borrador de valoración</div>
           <p class="edit-hint">Haz clic en cualquier valor para editarlo. Los cambios se guardan al confirmar.</p>
@@ -398,137 +421,108 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
             </div>
           }
         </div>
-        <div class="side">
-          @if (patient(); as p) {
-            <div class="card" data-testid="patient-card">
-              <div class="card-title" style="margin-bottom:14px">Paciente</div>
-              <div class="field"><span class="k">Nombre</span><span class="v">{{ p.fullName }}</span></div>
-              <div class="field"><span class="k">Documento</span><span class="v">{{ p.documentId || '—' }}</span></div>
-              <div class="field"><span class="k">Edad</span><span class="v">{{ p.edad != null ? p.edad + ' años' : '—' }}</span></div>
-              <div class="field"><span class="k">Sexo</span><span class="v">{{ p.sex || '—' }}</span></div>
-              <div class="field">
-                <span class="k">Teléfono</span>
-                <span class="v">@if (p.phone) { <a [href]="'tel:' + p.phone">{{ p.phone }}</a> } @else { — }</span>
+
+        <!-- Paraclínicos: sección del borrador, en el centro. -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:12px">Paraclínicos</div>
+          @if (labs().length) {
+            <div class="lab-summary">
+              Interpretados automáticamente <b>{{ labSummary().auto }}</b>@if (labSummary().manual) { + verificados por ti <b>{{ labSummary().manual }}</b> } = <b>{{ labSummary().resueltos }}</b> de <b>{{ labSummary().total }}</b>.
+              @if (labSummary().pendientes) {
+                <span class="pend">Quedan {{ labSummary().pendientes }} por revisar.</span>
+              } @else {
+                <span class="done">Todos los rangos evaluados.</span>
+              }
+            </div>
+
+            @if (staleGroups().length) {
+              <div class="lab-stale" data-testid="lab-stale">
+                ⏳ Exámenes posiblemente vencidos para cirugía electiva:
+                @for (g of staleGroups(); track g.grupo) {
+                  <b>{{ g.label }}</b> ({{ formatFecha(g.fecha) }}){{ $last ? '' : ', ' }}
+                }
+                — verificar vigencia con el paciente.
               </div>
-              <div class="field">
-                <span class="k">Correo</span>
-                <span class="v">@if (p.email) { <a [href]="'mailto:' + p.email">{{ p.email }}</a> } @else { — }</span>
+            }
+
+            @for (l of sortedLabs(); track l.id) {
+              <div class="lab-row" [class]="'lab-row sev-' + sevClass(l)" [attr.data-testid]="'lab-row'">
+                <div class="lr-main">
+                  <span class="lr-analyte">
+                    {{ l.analyte }}
+                    @if (needsVerdict(l) && !l.manualFlag) {
+                      <span class="lr-unparsed" title="Rango de referencia no interpretado — verifica manualmente">?</span>
+                    }
+                  </span>
+                  <span class="lr-meta">
+                    {{ grupoLabel(l.grupo) }}@if (l.refRange) { · ref {{ l.refRange }} }
+                  </span>
+                </div>
+                <span class="lr-value">{{ l.value }} {{ l.unit }}</span>
+                @if (needsVerdict(l)) {
+                  @if (l.manualFlag) {
+                    <span class="lr-manual" [title]="manualTitle(l)">tu veredicto</span>
+                  } @else {
+                    <span class="lr-review">por revisar</span>
+                  }
+                  <div class="lr-verdict">
+                    <button class="lr-btn ok" [class.on]="l.manualFlag==='NORMAL'"
+                      (click)="setVerdict(l, 'NORMAL')" title="Marcar normal" data-testid="lab-ok">✓</button>
+                    <button class="lr-btn bad" [class.on]="l.manualFlag && l.manualFlag!=='NORMAL'"
+                      (click)="setVerdict(l, 'ALERTA')" title="Marcar fuera de rango" data-testid="lab-bad">✗</button>
+                  </div>
+                }
               </div>
-              <div class="field"><span class="k">Aseguradora</span><span class="v">{{ p.insurer || '—' }}</span></div>
-              <div class="field"><span class="k">Grupo sanguíneo</span><span class="v">{{ p.bloodType || '—' }}</span></div>
+            }
+          } @else {
+            <div class="empty">Sin laboratorios cargados.</div>
+          }
+        </div>
+        </div>
+
+        <!-- ── Columna derecha: auditor + aprobación (sticky) ── -->
+        <div class="col-act">
+          @if (fields()) {
+            <div class="card audit-card" data-testid="audit-panel">
+              <div class="audit-head">
+                <span class="card-title">Revisión automática</span>
+                @if (auditFindings().length) {
+                  <span class="audit-count">{{ auditFindings().length }} hallazgo{{ auditFindings().length === 1 ? '' : 's' }}</span>
+                }
+                <button class="btn btn-sm audit-reaudit" (click)="reaudit()" [disabled]="reauditing()" data-testid="reaudit-button">
+                  {{ reauditing() ? 'Revisando…' : '↻ Re-auditar' }}
+                </button>
+              </div>
+              @if (auditFindings().length) {
+                <p class="audit-intro">Un auditor independiente revisó este borrador contra las respuestas del paciente. Estos puntos requieren tu criterio.</p>
+                @for (f of auditFindings(); track $index) {
+                  <div class="finding" [class]="'finding ' + f.level" [attr.data-testid]="'finding-' + f.level">
+                    <span class="f-level">{{ levelLabel(f.level) }}</span>
+                    <span class="f-msg">{{ f.message }}</span>
+                  </div>
+                }
+              } @else {
+                <p class="audit-intro" data-testid="audit-clean">Sin hallazgos: el borrador pasó la revisión automática.</p>
+              }
             </div>
           }
 
-          <div class="card" data-testid="attachments-card">
-            <div class="card-title" style="margin-bottom:14px">Exámenes adjuntos del paciente</div>
-            <p class="edit-hint">Los archivos originales tal como los subió el paciente. Revísalos: lo de abajo es lo que la IA leyó de ellos.</p>
-            @for (a of attachments(); track a.id) {
-              <div class="attach">
-                <span class="a-name">{{ a.filename }}</span>
-                <span class="a-actions">
-                  @if (a.viewable) {
-                    <button class="btn btn-sm" (click)="toggleAttachment(a.id)" [attr.data-testid]="'attach-view-' + a.id">
-                      {{ openAttachment() === a.id ? 'Cerrar' : 'Ver' }}
-                    </button>
-                  }
-                  <a class="btn btn-sm" [href]="a.url" target="_blank" rel="noopener">Abrir</a>
-                </span>
-              </div>
-              @if (openAttachment() === a.id && attachmentSrc(); as src) {
-                <iframe class="attach-frame" [src]="src" [title]="a.filename"></iframe>
-              }
-            }
-            @if (!attachments().length) { <div class="empty">El paciente no adjuntó exámenes.</div> }
-          </div>
-
           <div class="card">
-            <div class="card-title" style="margin-bottom:12px">Fuente · Laboratorios</div>
-
-            @if (labs().length) {
-              <!-- Resumen agregado, en vivo. Le dice al médico qué esperar de un vistazo. -->
-              <div class="lab-summary">
-                Interpretados automáticamente <b>{{ labSummary().auto }}</b>@if (labSummary().manual) { + verificados por ti <b>{{ labSummary().manual }}</b> } = <b>{{ labSummary().resueltos }}</b> de <b>{{ labSummary().total }}</b>.
-                @if (labSummary().pendientes) {
-                  <span class="pend">Quedan {{ labSummary().pendientes }} por revisar.</span>
-                } @else {
-                  <span class="done">Todos los rangos evaluados.</span>
-                }
+            <div class="card-title" style="margin-bottom:12px">Aprobación</div>
+            @if (!check()?.ok) {
+              <div class="blockers" data-testid="review-blockers">
+                @for (b of check()?.blockers ?? []; track b) { <div>⛔ {{ b }}</div> }
               </div>
-
-              <!-- Vigencia: alerta SÓLO para el médico (no va al documento). Si algún estudio es
-                   más viejo que la vigencia para cirugía electiva, se avisa con su fecha. -->
-              @if (staleGroups().length) {
-                <div class="lab-stale" data-testid="lab-stale">
-                  ⏳ Exámenes posiblemente vencidos para cirugía electiva:
-                  @for (g of staleGroups(); track g.grupo) {
-                    <b>{{ g.label }}</b> ({{ formatFecha(g.fecha) }}){{ $last ? '' : ', ' }}
-                  }
-                  — verificar vigencia con el paciente.
-                </div>
-              }
-
-              <!-- Orden: primero los que necesitan decisión (ilegibles sin marcar), luego los
-                   interpretados por severidad; los ilegibles ya marcados bajan a su categoría.
-                   Los ✓/✗ SOLO en analitos de rango ilegible: donde el sistema no pudo decidir.
-                   En los interpretados no hay botones — el sistema ya los evaluó (asiste; el
-                   médico decide sólo donde la máquina no puede). -->
-              @for (l of sortedLabs(); track l.id) {
-                <div class="lab-row" [class]="'lab-row sev-' + sevClass(l)" [attr.data-testid]="'lab-row'">
-                  <div class="lr-main">
-                    <span class="lr-analyte">
-                      {{ l.analyte }}
-                      @if (needsVerdict(l) && !l.manualFlag) {
-                        <span class="lr-unparsed" title="Rango de referencia no interpretado — verifica manualmente">?</span>
-                      }
-                    </span>
-                    <span class="lr-meta">
-                      {{ grupoLabel(l.grupo) }}@if (l.refRange) { · ref {{ l.refRange }} }
-                    </span>
-                  </div>
-                  <span class="lr-value">{{ l.value }} {{ l.unit }}</span>
-                  @if (needsVerdict(l)) {
-                    <!-- Antes de marcar: "por revisar". Tras marcar: "tu veredicto". -->
-                    @if (l.manualFlag) {
-                      <span class="lr-manual" [title]="manualTitle(l)">tu veredicto</span>
-                    } @else {
-                      <span class="lr-review">por revisar</span>
-                    }
-                    <div class="lr-verdict">
-                      <button class="lr-btn ok" [class.on]="l.manualFlag==='NORMAL'"
-                        (click)="setVerdict(l, 'NORMAL')" title="Marcar normal" data-testid="lab-ok">✓</button>
-                      <button class="lr-btn bad" [class.on]="l.manualFlag && l.manualFlag!=='NORMAL'"
-                        (click)="setVerdict(l, 'ALERTA')" title="Marcar fuera de rango" data-testid="lab-bad">✗</button>
-                    </div>
-                  }
-                </div>
-              }
-            } @else {
-              <div class="empty">Sin laboratorios cargados.</div>
+              <label class="contact" style="margin:10px 0;font-size:12.5px">
+                <input type="checkbox" [checked]="examAttested()" (change)="setExamAttested($event)" data-testid="exam-attest-checkbox" />
+                <span>Confirmo que examiné al paciente presencialmente y los hallazgos son normales.
+                  Los signos vitales y el peso/talla los ingreso yo con los valores medidos.</span>
+              </label>
+              <button class="btn" style="width:100%;justify-content:center;margin-bottom:8px" [disabled]="!examAttested()" (click)="loadNormal()" data-testid="exam-load-normal-button">Confirmar hallazgos normales</button>
             }
+            <button class="btn btn-primary" style="width:100%;justify-content:center;margin-bottom:8px" [disabled]="!check()?.ok" (click)="approve()" data-testid="review-approve-button">Aprobar y firmar</button>
+            <button class="btn" style="width:100%;justify-content:center" (click)="reject()" data-testid="review-reject-button">Rechazar borrador</button>
           </div>
-        </div>
-      </div>
-
-      <div class="bar">
-        @if (!check()?.ok) {
-          <div class="blockers" data-testid="review-blockers">
-            @for (b of check()?.blockers ?? []; track b) { <div>⛔ {{ b }}</div> }
-          </div>
-        }
-        @if (!check()?.ok) {
-          <label class="contact" style="margin-bottom:10px;font-size:12.5px">
-            <input type="checkbox" [checked]="examAttested()" (change)="setExamAttested($event)" data-testid="exam-attest-checkbox" />
-            <span>Confirmo que examiné al paciente presencialmente y los hallazgos son normales.
-              Los signos vitales y el peso/talla los ingreso yo con los valores medidos.</span>
-          </label>
-        }
-        <div class="bar-actions">
-          @if (!check()?.ok) {
-            <button class="btn" [disabled]="!examAttested()" (click)="loadNormal()" data-testid="exam-load-normal-button">Confirmar hallazgos normales</button>
-          }
-          <span class="spacer"></span>
-          <button class="btn" (click)="reject()" data-testid="review-reject-button">Rechazar</button>
-          <button class="btn btn-primary" [disabled]="!check()?.ok" (click)="approve()" data-testid="review-approve-button">Aprobar y firmar</button>
         </div>
       </div>
     }
@@ -577,7 +571,6 @@ export class ReviewApprovalPage implements OnInit {
   private api = inject(ApiService);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
-  private sanitizer = inject(DomSanitizer);
 
   sections = [
     { key: 'identificacion', label: 'Identificación' },
@@ -635,8 +628,12 @@ export class ReviewApprovalPage implements OnInit {
   >([]);
   /** Estudios cuya fecha excede la vigencia para cirugía electiva — alerta sólo para el médico. */
   staleGroups = computed(() => this.labGroups().filter((g) => g.desactualizado));
-  openAttachment = signal<string | null>(null);
-  attachmentSrc = signal<SafeResourceUrl | null>(null);
+  /** Fechas de informe por estudio, para mostrarlas en el box de adjuntos (no en la prosa). */
+  labDates = computed(() =>
+    this.labGroups()
+      .filter((g) => g.fecha)
+      .map((g) => ({ label: g.label, fecha: g.fecha as string, desactualizado: g.desactualizado })),
+  );
   sendToPatient = signal(false);
   distError = signal('');
   composerOpen = signal(false);
@@ -646,8 +643,6 @@ export class ReviewApprovalPage implements OnInit {
   sending = signal(false);
   sentOk = signal(false);
   examAttested = signal(false);
-  showPreview = signal(false);
-  previewSrc = signal<SafeResourceUrl | null>(null);
   rawPreview = signal('');
   private selectedContacts = new Set<string>();
 
@@ -771,7 +766,6 @@ export class ReviewApprovalPage implements OnInit {
     if (isApproved) {
       this.contacts.set((await this.api.listContacts()).contacts);
       this.sendToPatient.set(Boolean(r.patient?.email)); // por defecto, marcar al paciente si tiene correo
-      this.loadPreview(); // muestra el documento final automáticamente
     }
   }
 
@@ -790,11 +784,6 @@ export class ReviewApprovalPage implements OnInit {
     } finally {
       this.reauditing.set(false);
     }
-  }
-
-  /** Añade la cirugía al calendario del dispositivo (un tap; el .ics abre la app nativa). */
-  addToMyCalendar() {
-    addToCalendar(this.api.calendarIcsUrl(this.caseId));
   }
 
   /** Colapsa/expande el banner de nota y recuerda la preferencia. */
@@ -828,30 +817,6 @@ export class ReviewApprovalPage implements OnInit {
     } finally {
       this.savingNote.set(false);
     }
-  }
-
-  /** Abre/cierra el visor del examen original adjunto (PDF o imagen). */
-  toggleAttachment(id: string) {
-    if (this.openAttachment() === id) {
-      this.openAttachment.set(null);
-      this.attachmentSrc.set(null);
-      return;
-    }
-    const a = this.attachments().find((x) => x.id === id);
-    if (!a) return;
-    this.openAttachment.set(id);
-    this.attachmentSrc.set(this.sanitizer.bypassSecurityTrustResourceUrl(a.url));
-  }
-
-  /** Fija el src del iframe (bust cache para reflejar cambios recientes). */
-  private loadPreview() {
-    const url = `${this.api.previewUrl(this.caseId)}?t=${Date.now()}`;
-    this.previewSrc.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
-  }
-  togglePreview() {
-    const next = !this.showPreview();
-    this.showPreview.set(next);
-    if (next) this.loadPreview();
   }
 
   toggle(id: string, ev: Event) {
@@ -956,7 +921,6 @@ export class ReviewApprovalPage implements OnInit {
       await this.api.editField(this.caseId, section, key, value);
       this.editingKey.set(null);
       await this.reload();
-      if (this.showPreview()) this.loadPreview();
     } finally {
       this.savingEdit.set(false);
     }
@@ -967,7 +931,6 @@ export class ReviewApprovalPage implements OnInit {
     if (!this.examAttested()) return;
     await this.api.loadExamNormal(this.caseId);
     await this.reload();
-    if (this.showPreview()) this.loadPreview();
   }
   async approve() {
     const res = await this.api.approve(this.caseId);
