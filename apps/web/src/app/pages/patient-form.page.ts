@@ -127,12 +127,13 @@ function norm(v: unknown): string {
 
     .finp {
       width:100%; padding:12px 15px; border:1.5px solid var(--border2); border-radius:var(--r-md);
-      font-size:15px; font-family:var(--font-body); color:var(--text); background:#fff;
+      /* 16px evita el auto-zoom de iOS al enfocar un campo (formulario móvil-first). */
+      font-size:16px; font-family:var(--font-body); color:var(--text); background:#fff;
       transition:border-color .15s, box-shadow .15s; outline:none;
     }
     .finp:focus { border-color:var(--primary); box-shadow:0 0 0 4px rgba(11,92,107,.1); }
     textarea.finp { resize:vertical; min-height:80px; }
-    .finp::placeholder { color:var(--border2); }
+    .finp::placeholder { color:var(--muted2); }
     .phone-wrap { display:flex; gap:8px; align-items:stretch; }
     /* Selector país: muestra compacto (bandera + código); el nombre completo aparece al desplegar. */
     .phone-cc-box { position:relative; flex:0 0 92px; width:92px; display:inline-flex; align-items:center;
@@ -148,12 +149,16 @@ function norm(v: unknown): string {
     .opts { display:flex; flex-direction:column; gap:7px; }
     .opts.inline { flex-direction:row; flex-wrap:wrap; }
     .opts.inline .opt { flex:1; min-width:120px; }
+    /* .opt es un <button> (accesible por teclado): se resetea la apariencia nativa y se estira. */
     .opt {
-      display:flex; align-items:center; gap:12px; padding:12px 15px;
+      appearance:none; width:100%; text-align:left; font-family:var(--font-body);
+      display:flex; align-items:center; gap:12px; padding:12px 15px; min-height:48px;
       border:1.5px solid var(--border2); border-radius:var(--r-md); cursor:pointer;
-      transition:all .13s; background:#fff; font-size:14.5px; color:var(--text); font-weight:500; user-select:none;
+      transition:border-color .13s, background .13s, color .13s; background:#fff; font-size:15px; color:var(--text); font-weight:500; user-select:none;
     }
+    .opts.inline .opt { text-align:center; justify-content:center; }
     .opt:hover { border-color:var(--primary); background:var(--blue-light); }
+    .opt:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
     .opt.sel { border-color:var(--primary); background:var(--blue-light); color:var(--primary-dark); }
     .chk { width:19px; height:19px; border:2px solid var(--border2); border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:all .13s; }
     .chk.box { border-radius:5px; }
@@ -165,8 +170,11 @@ function norm(v: unknown): string {
     /* UPLOAD */
     .drop { border:2px dashed var(--border2); border-radius:var(--r-md); padding:26px; text-align:center; background:var(--bg3); transition:border-color .15s; }
     .drop:hover { border-color:var(--primary); }
-    .drop input { display:none; }
-    .drop-label { cursor:pointer; color:var(--primary); font-weight:600; font-size:15px; }
+    /* Oculto visualmente pero accesible por teclado (no display:none, que lo saca del tab-order).
+       El label asociado (for="fileup") lo activa; recibe foco vía el label. */
+    .drop input { position:absolute; width:1px; height:1px; opacity:0; overflow:hidden; }
+    .drop input:focus-visible + .drop-label { outline:2px solid var(--primary); outline-offset:3px; border-radius:4px; }
+    .drop-label { cursor:pointer; color:var(--primary); font-weight:600; font-size:15px; display:inline-block; }
     .drop-hint { font-size:12px; color:var(--muted); margin-top:5px; }
     .uploaded-list { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
     .up-item { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); background:var(--blue-light); padding:8px 12px; border-radius:8px; }
@@ -176,7 +184,8 @@ function norm(v: unknown): string {
     .errors div { margin:2px 0; }
 
     /* SUBMIT BAR */
-    .submit-bar { position:sticky; bottom:0; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); border-top:1px solid var(--border); padding:14px 20px; display:flex; gap:10px; justify-content:flex-end; align-items:center; z-index:50; flex-wrap:wrap; }
+    /* padding-bottom con safe-area: el botón "Enviar" no queda tapado por el home indicator del iPhone. */
+    .submit-bar { position:sticky; bottom:0; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); border-top:1px solid var(--border); padding:14px 20px calc(14px + env(safe-area-inset-bottom)); display:flex; gap:10px; justify-content:flex-end; align-items:center; z-index:50; flex-wrap:wrap; }
     .submit-hint { font-size:12px; color:var(--muted); margin-right:auto; }
     /* En móvil el hint + 2 botones no caben en una fila (375px): el contador se cortaba y
        "Enviar respuestas" partía en dos líneas. Se apila el hint arriba y los botones abajo. */
@@ -278,20 +287,20 @@ function norm(v: unknown): string {
 
                 @switch (q.type) {
                   @case ('SI_NO') {
-                    <div class="opts inline">
+                    <div class="opts inline" role="radiogroup" [attr.aria-label]="q.label">
                       @for (o of [['si','Sí'],['no','No']]; track o[0]) {
-                        <div class="opt" [class.sel]="valueOf(q.order)===o[0]" (click)="setAnswer(q, o[0])" [attr.data-testid]="'q-' + q.order + '-' + o[0]">
+                        <button type="button" class="opt" role="radio" [attr.aria-checked]="valueOf(q.order)===o[0]" [class.sel]="valueOf(q.order)===o[0]" (click)="setAnswer(q, o[0])" [attr.data-testid]="'q-' + q.order + '-' + o[0]">
                           <span class="chk"></span>{{ o[1] }}
-                        </div>
+                        </button>
                       }
                     </div>
                   }
                   @case ('SELECCION_UNICA') {
-                    <div class="opts">
+                    <div class="opts" role="radiogroup" [attr.aria-label]="q.label">
                       @for (o of q.options ?? []; track o) {
-                        <div class="opt" [class.sel]="isSelectedOption(q.order, o)" (click)="setChoice(q, o)" [attr.data-testid]="'q-' + q.order">
+                        <button type="button" class="opt" role="radio" [attr.aria-checked]="isSelectedOption(q.order, o)" [class.sel]="isSelectedOption(q.order, o)" (click)="setChoice(q, o)" [attr.data-testid]="'q-' + q.order">
                           <span class="chk"></span>{{ o }}
-                        </div>
+                        </button>
                       }
                     </div>
                     @if (isOtherChosen(q.order)) {
@@ -299,11 +308,11 @@ function norm(v: unknown): string {
                     }
                   }
                   @case ('SELECCION_MULTIPLE') {
-                    <div class="opts">
+                    <div class="opts" role="group" [attr.aria-label]="q.label">
                       @for (o of q.options ?? []; track o) {
-                        <div class="opt" [class.sel]="isChecked(q.order, o)" (click)="toggleMulti(q, o)" [attr.data-testid]="'q-' + q.order">
+                        <button type="button" class="opt" role="checkbox" [attr.aria-checked]="isChecked(q.order, o)" [class.sel]="isChecked(q.order, o)" (click)="toggleMulti(q, o)" [attr.data-testid]="'q-' + q.order">
                           <span class="chk box"></span>{{ o }}
-                        </div>
+                        </button>
                       }
                     </div>
                     @if (isChecked(q.order, 'Otra')) {
@@ -359,7 +368,7 @@ function norm(v: unknown): string {
           <div class="section-line"></div>
           <div class="q-label" style="font-weight:500;color:var(--muted)">Si cuenta con exámenes recientes (laboratorios, electrocardiograma, ecocardiograma u otros estudios), adjúntelos para complementar su valoración preanestésica.</div>
           <div class="drop">
-            <input type="file" id="fileup" multiple (change)="onFiles($event)" data-testid="form-attachment-input" />
+            <input type="file" id="fileup" multiple accept="application/pdf,image/*" (change)="onFiles($event)" data-testid="form-attachment-input" />
             <label for="fileup" class="drop-label">Seleccionar archivos</label>
             <div class="drop-hint">PDF o imágenes</div>
           </div>
@@ -381,7 +390,9 @@ function norm(v: unknown): string {
         <span class="submit-hint">
           @if (missingRequired()) { Faltan {{ missingRequired() }} preguntas obligatorias } @else { Todo listo para enviar }
         </span>
-        <button class="btn-ghost" (click)="savePartial()" data-testid="form-save-partial-button">Guardar</button>
+        <button class="btn-ghost" (click)="savePartial()" [disabled]="saveState()==='saving'" data-testid="form-save-partial-button" aria-live="polite">
+          {{ saveState()==='saving' ? 'Guardando…' : saveState()==='saved' ? 'Guardado ✓' : 'Guardar' }}
+        </button>
         <button class="btn-send" (click)="submit()" [disabled]="submitting()" data-testid="form-submit-button">
           {{ submitting() ? 'Enviando…' : 'Enviar respuestas' }}
         </button>
@@ -398,6 +409,8 @@ export class PatientFormPage implements OnInit {
   invalid = signal(false);
   done = signal(false);
   submitting = signal(false);
+  /** Estado del guardado parcial: idle | saving | saved. Da feedback al paciente. */
+  saveState = signal<'idle' | 'saving' | 'saved'>('idle');
   branding = signal<{ logo?: string; doctor?: string } | null>(null);
   questions = signal<Q[]>([]);
   consentText = signal('');
@@ -630,8 +643,15 @@ export class PatientFormPage implements OnInit {
   }
 
   async savePartial() {
-    await this.api.savePartial(this.token, this.answersForApi());
-    this.errors.set([]);
+    this.saveState.set('saving');
+    try {
+      await this.api.savePartial(this.token, this.answersForApi());
+      this.errors.set([]);
+      this.saveState.set('saved');
+      setTimeout(() => this.saveState.set('idle'), 2500);
+    } catch {
+      this.saveState.set('idle');
+    }
   }
 
   async submit() {
