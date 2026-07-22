@@ -72,19 +72,18 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
       .col-doc { order:-1; }
     }
     .side { display:flex; flex-direction:column; gap:16px; min-width:0; }
-    .attach { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--border, #e6edee); }
+    .attach { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); }
     /* Fechas de informes de lab, dentro del box de adjuntos (no en la prosa del documento). */
     .attach-dates { margin-top:12px; padding-top:10px; border-top:1px solid var(--border); }
     .attach-dates .ad-title { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:6px; }
     .attach-dates .ad-row { display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--muted); padding:3px 0; }
     .attach-dates .ad-row .ad-date { font-family:var(--font-mono); color:var(--text); }
-    .attach-dates .ad-row.stale .ad-date { color:#8a6d3b; font-weight:600; }
+    .attach-dates .ad-row.stale .ad-date { color:var(--sev-stale); font-weight:600; }
     .attach:last-of-type { border-bottom:none; }
     .a-name { font-size:12.5px; overflow-wrap:anywhere; }
     .a-actions { display:flex; gap:6px; flex-shrink:0; }
-    .attach-frame { width:100%; height:520px; border:1px solid var(--border, #e6edee); border-radius:6px; margin:8px 0 12px; background:#fff; }
     .lab-date { font-size:11px; font-weight:500; margin-left:4px; }
-    .lab-date.alerta { color:#b3261e; font-weight:700; }
+    .lab-date.alerta { color:var(--sev-critico); font-weight:700; }
     .sec-block { margin-bottom:18px; }
     .sec-block:last-child { margin-bottom:0; }
     .field { display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--border); font-size:13px; min-width:0; }
@@ -101,8 +100,8 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .edit-input { width:100%; padding:8px 10px; border:1.5px solid var(--primary); border-radius:8px; font-family:var(--font-body); font-size:13px; color:var(--text); resize:vertical; outline:none; box-shadow:0 0 0 3px rgba(11,92,107,.12); }
     .edit-actions { display:flex; gap:8px; }
     .field.derivado { border-left:3px solid var(--gold); padding-left:9px; margin-left:-9px; }
-    .v.alerta { color:var(--red); font-weight:700; }
-    .v.pending { color:var(--amber); font-weight:600; }
+    .v.alerta { color:var(--red-text); font-weight:700; }
+    .v.pending { color:var(--amber-text); font-weight:600; }
     .lab-flag { font-family:var(--font-mono); font-size:11px; }
     /* #2 capacidad funcional: hint de UX en pantalla (NO va al PDF). */
     .hint-eval { color:var(--muted2); font-style:italic; }
@@ -122,11 +121,11 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lab-summary { font-size:12px; color:var(--muted); background:var(--bg3); border:1px solid var(--border);
       border-radius:8px; padding:8px 11px; margin-bottom:12px; line-height:1.5; }
     .lab-summary b { color:var(--text); font-weight:700; }
-    .lab-summary .pend { color:#8a6d3b; font-weight:600; }
+    .lab-summary .pend { color:var(--sev-stale); font-weight:600; }
     .lab-summary .done { color:var(--green); font-weight:600; }
-    .lab-stale { font-size:12px; color:#8a6d3b; background:#fdf6e8; border:1px solid #ecdcb8;
+    .lab-stale { font-size:12px; color:var(--sev-stale); background:var(--sev-stale-bg); border:1px solid var(--sev-stale-line);
       border-radius:8px; padding:8px 11px; margin-bottom:12px; }
-    .lab-stale b { color:#6b4f1d; font-weight:700; }
+    .lab-stale b { color:var(--sev-stale-strong); font-weight:700; }
     .lab-row { display:flex; align-items:center; gap:10px; padding:7px 9px; border-radius:7px; margin-bottom:3px;
       font-size:13px; border-left:3px solid transparent; transition:background .15s, border-color .15s; }
     .lab-row .lr-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
@@ -134,10 +133,10 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lab-row .lr-meta { font-size:11px; color:var(--muted2); }
     .lab-row .lr-value { font-weight:600; white-space:nowrap; }
     /* Severidad efectiva */
-    .lab-row.sev-critico { background:#fdecea; border-left-color:#b3261e; }
-    .lab-row.sev-critico .lr-value { color:#b3261e; }
-    .lab-row.sev-alerta  { background:#fff7e8; border-left-color:#d99100; }
-    .lab-row.sev-alerta  .lr-value { color:#a86a00; }
+    .lab-row.sev-critico { background:var(--sev-critico-bg); border-left-color:var(--sev-critico); }
+    .lab-row.sev-critico .lr-value { color:var(--sev-critico); }
+    .lab-row.sev-alerta  { background:var(--sev-alerta-bg); border-left-color:var(--sev-alerta-line); }
+    .lab-row.sev-alerta  .lr-value { color:var(--sev-alerta); }
     .lab-row.sev-normal  { background:transparent; }
     .lab-row.sev-normal  .lr-value { color:var(--text); }
     /* rangeUnparsed sin verdicto: gris discreto, NO compite con alerta real. Sin fondo de color. */
@@ -146,29 +145,23 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lr-unparsed { font-size:11px; color:var(--muted2); cursor:help; margin-left:3px; }
     /* Marca de verdicto manual del médico */
     .lr-manual { font-size:10px; color:var(--primary); background:var(--it-50); border-radius:100px; padding:1px 7px; white-space:nowrap; }
-    .lr-review { font-size:10px; color:#8a6d3b; background:#fdf6e8; border:1px solid #ecdcb8; border-radius:100px; padding:1px 7px; white-space:nowrap; }
+    .lr-review { font-size:10px; color:var(--sev-stale); background:var(--sev-stale-bg); border:1px solid var(--sev-stale-line); border-radius:100px; padding:1px 7px; white-space:nowrap; }
     /* Botones ✓/✗ — pequeños y discretos por defecto. Un tap marca; otro deshace. */
     .lr-verdict { display:flex; gap:4px; flex-shrink:0; }
     .lr-btn { width:24px; height:24px; border-radius:6px; border:1px solid var(--border2); background:#fff; cursor:pointer;
       font-size:12px; line-height:1; display:flex; align-items:center; justify-content:center; padding:0; transition:all .12s; color:var(--muted); }
     .lr-btn:hover { border-color:var(--muted2); }
     .lr-btn.ok.on { background:var(--green); border-color:var(--green); color:#fff; }
-    .lr-btn.bad.on { background:#b3261e; border-color:#b3261e; color:#fff; }
+    .lr-btn.bad.on { background:var(--sev-critico); border-color:var(--sev-critico); color:#fff; }
 
-    /* PREVIEW */
-    .preview-card { padding:0; overflow:hidden; }
-    .preview-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--border); }
-    .preview-frame { width:100%; height:760px; border:none; display:block; background:var(--bg3); }
-    .preview-empty { padding:40px; text-align:center; color:var(--muted); font-size:13px; }
+    /* Encabezado del documento final (título + botón "Abrir PDF"). */
+    .preview-head { display:flex; align-items:center; justify-content:space-between; padding:2px 0; gap:12px; }
 
-    /* BAR */
-    .bar { position:sticky; bottom:0; background:rgba(255,255,255,0.95); backdrop-filter:blur(10px); border:1px solid var(--border); border-radius:14px; padding:16px 18px; margin-top:18px; box-shadow:0 -2px 12px rgba(6,42,49,.05); }
-    .blockers { background:rgba(224,138,30,.1); border:1px solid rgba(224,138,30,.28); color:#9a5a0e; padding:11px 14px; border-radius:10px; font-size:13px; margin-bottom:12px; }
+    /* Bloqueadores de aprobación (lista de motivos por los que aún no se puede firmar). */
+    .blockers { background:var(--sev-alerta-bg); border:1px solid var(--sev-alerta-line); color:var(--sev-alerta); padding:11px 14px; border-radius:10px; font-size:13px; margin-bottom:12px; }
     .blockers div { margin:2px 0; }
-    .bar-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-    .spacer { flex:1; }
 
-    .ok-badge { background:rgba(46,158,99,.1); border:1px solid rgba(46,158,99,.28); color:#1c7a4a; padding:16px 20px; border-radius:12px; font-weight:600; }
+    .ok-badge { background:rgba(46,158,99,.1); border:1px solid rgba(46,158,99,.28); color:var(--green-text); padding:16px 20px; border-radius:12px; font-weight:600; }
 
     .dist-row { display:flex; align-items:center; gap:10px; margin-top:8px; font-size:13px; }
     .dist-row input[readonly] { flex:1; padding:8px 11px; border:1px solid var(--border2); border-radius:8px; font-family:var(--font-mono); font-size:12px; }
@@ -593,8 +586,6 @@ export class ReviewApprovalPage implements OnInit {
   ptImc = computed(() => imcLocal(parseDecimalLocal(this.ptPeso()), parseDecimalLocal(this.ptTalla())));
   savingEdit = signal(false);
   reopening = signal(false);
-  /** Fecha de cirugía (P10). Habilita el botón "Añadir a mi calendario". */
-  procedureDate = signal<string | null>(null);
   /** Nota privada del médico sobre este paciente (o null). Aparece sola en el caso. */
   patientNote = signal<{ content: string; updatedAt: string } | null>(null);
   /** patientId del caso (para crear/editar la nota desde aquí). null si el caso no tiene paciente. */
@@ -757,7 +748,6 @@ export class ReviewApprovalPage implements OnInit {
     this.attachments.set(r.attachments ?? []);
     this.check.set(r.canApprove);
     this.patient.set(r.patient ?? null);
-    this.procedureDate.set(r.procedureDate ?? null);
     this.patientNote.set(r.patientNote ?? null);
     this.notePatientId.set(r.patientId ?? null);
     this.setFindings(r.audit?.findings ?? []);
@@ -938,16 +928,18 @@ export class ReviewApprovalPage implements OnInit {
     else this.check.set({ ok: false, blockers: res.blockers ?? [] });
   }
   async reject() {
-    const reason = prompt('Motivo del rechazo:') ?? '';
-    await this.api.reject(this.caseId, reason);
+    // Cancelar el prompt (null) aborta: no se rechaza sin un motivo real (acción trazable).
+    const reason = prompt('Motivo del rechazo (queda registrado):');
+    if (reason === null || !reason.trim()) return;
+    await this.api.reject(this.caseId, reason.trim());
     this.router.navigate(['/dashboard']);
   }
   async reopen() {
-    const reason = prompt('Motivo de la reapertura (queda registrado):') ?? '';
-    if (reason === null) return;
+    const reason = prompt('Motivo de la reapertura (queda registrado):');
+    if (reason === null || !reason.trim()) return; // cancelar o motivo vacío → no reabrir
     this.reopening.set(true);
     try {
-      await this.api.reopen(this.caseId, reason);
+      await this.api.reopen(this.caseId, reason.trim());
       this.approved.set(false);
       this.editingKey.set(null);
       await this.reload();

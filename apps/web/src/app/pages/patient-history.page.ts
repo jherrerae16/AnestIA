@@ -33,8 +33,8 @@ import { ApiService } from '../core/api.service';
     .patient-name { font-weight: 600; }
     .doc { font-family: var(--font-mono); font-size: 12px; color: var(--muted2); }
     .detail-title { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
-    .pt-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:1px; background:var(--border, #e6edee); border:1px solid var(--border, #e6edee); border-radius:6px; margin-bottom:18px; }
-    .pt-cell { background:var(--surface, #fff); padding:8px 11px; min-width:0; }
+    .pt-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:6px; margin-bottom:18px; }
+    .pt-cell { background:var(--bg2); padding:8px 11px; min-width:0; }
     .pt-k { display:block; font-size:10px; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); font-weight:600; margin-bottom:2px; }
     .pt-v { display:block; font-size:13px; overflow-wrap:anywhere; }
     .case-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
