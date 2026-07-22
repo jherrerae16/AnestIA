@@ -372,6 +372,22 @@ export function auditDocument(input: AuditInput): AuditReport {
         `El ASA registrado es I (paciente sano) pero el paciente declaró comorbilidades, medicación o tabaquismo. Revisar la clasificación ASA.`,
         'identificacion.asa');
     }
+
+    // Redundancia ASA ↔ condición actual: si la MISMA cifra (valor + unidad, p. ej. "10.3 g/dL")
+    // aparece en ambos campos, se está duplicando. El ASA lleva los hallazgos clave; la condición
+    // actual resume sin repetir las cifras.
+    const condRaw = text((doc.identificacion as Record<string, DocField> | undefined)?.['condicion_actual']);
+    if (condRaw) {
+      const cifras = (s: string) =>
+        new Set((norm(s).match(/\d+(?:[.,]\d+)?\s*(?:g\/dl|mg\/dl|ng\/ml|mcg|ug|mmol\/l|%|uui\/ml|mui\/ml|pg\/ml)/g) ?? []));
+      const enAsa = cifras(asaRaw);
+      const compartidas = [...cifras(condRaw)].filter((c) => enAsa.has(c));
+      if (compartidas.length > 0) {
+        add('advertencia', 'redaccion',
+          `El ASA y la condición actual repiten la(s) misma(s) cifra(s) (${compartidas.join(', ')}). El ASA lleva los hallazgos clave; la condición actual debe resumir sin duplicar las cifras.`,
+          'identificacion.condicion_actual');
+      }
+    }
   }
 
   // ── 12. Interpretar medicamentos de riesgo anestésico (ADVERTENCIA) ──
