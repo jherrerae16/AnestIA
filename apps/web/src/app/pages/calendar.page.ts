@@ -78,6 +78,8 @@ const DIAS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
           <p>Tus cirugías programadas. Toca una para abrir el caso.</p>
         </div>
         <div class="controls">
+          <!-- Exporta TODAS las cirugías a un .ics: un tap y se abre/descarga en Google/Apple Calendar. -->
+          <button class="btn btn-sm btn-primary" (click)="exportAll()" data-testid="cal-export-all">📅 Exportar calendario</button>
           <div class="view-toggle">
             <button [class.on]="view()==='month'" (click)="setView('month')" data-testid="cal-view-month">Mensual</button>
             <button [class.on]="view()==='week'" (click)="setView('week')" data-testid="cal-view-week">Semanal</button>
@@ -197,6 +199,11 @@ export class CalendarPage implements OnInit {
     ev.preventDefault();
     ev.stopPropagation();
     addToCalendar(this.api.calendarIcsUrl(c.caseId));
+  }
+
+  /** Exporta todas las cirugías: descarga/abre el .ics completo en la app de calendario. */
+  exportAll() {
+    addToCalendar(this.api.allCalendarIcsUrl());
   }
 }
 

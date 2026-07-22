@@ -1,7 +1,7 @@
 import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { bogotaParts, pureDateISO, pureDayUTC } from '../tz';
-import { buildSurgeryIcs, icsFilename } from '../ics';
+import { buildSurgeryIcs, buildCalendarIcs, icsFilename } from '../ics';
 
 /**
  * Servicio del calendario de cirugías. Hace visible información que YA existe
@@ -135,4 +135,38 @@ export async function buildIcsForCase(
     now,
   });
   return { filename: icsFilename(patientName), content };
+}
+
+/**
+ * Genera un .ics con TODAS las cirugías con fecha del anestesiólogo (aislamiento por perfil).
+ * Para exportar el calendario completo a Google Calendar / Apple Calendar de un tap.
+ */
+export async function buildIcsForAllCases(
+  anesthesiologistId: string,
+  origin: string,
+  now: Date,
+): Promise<{ filename: string; content: string }> {
+  const cases = await prisma.case.findMany({
+    where: { anesthesiologistId, procedureDate: { not: null } },
+    select: {
+      id: true,
+      procedure: true,
+      procedureDate: true,
+      patient: { select: { fullName: true, insurer: true } },
+    },
+    orderBy: { procedureDate: 'asc' },
+  });
+
+  const content = buildCalendarIcs(
+    cases.map((k) => ({
+      caseId: k.id,
+      patientName: k.patient?.fullName ?? 'Paciente',
+      procedure: k.procedure,
+      insurer: k.patient?.insurer ?? null,
+      date: k.procedureDate!,
+      caseUrl: `${origin}/cases/${k.id}/review`,
+      now,
+    })),
+  );
+  return { filename: 'cirugias-anestia.ics', content };
 }

@@ -26,13 +26,11 @@ export interface SurgeryEvent {
 const DISCLAIMER =
   'Este evento es una copia. Si cambia la fecha, vuelve a añadir el evento actualizado.';
 
-/** Construye el contenido .ics de una cirugía. */
-export function buildSurgeryIcs(ev: SurgeryEvent): string {
-  // Fecha pura (all-day): se estampa por su día UTC tal cual, sin desplazar a Bogotá.
-  const dtStart = pureDateStamp(ev.date);
+/** Líneas de un VEVENT (sin el envoltorio VCALENDAR). Reutilizado por single y multi. */
+function eventLines(ev: SurgeryEvent): string[] {
+  const dtStart = pureDateStamp(ev.date); // all-day: día UTC tal cual, sin desplazar a Bogotá
   const dtStamp = icsUtcStamp(ev.now);
   const summary = `Cirugía — ${ev.patientName} — ${ev.procedure ?? 'Procedimiento'}`;
-
   const descParts = [
     `Procedimiento: ${ev.procedure ?? 'Sin especificar'}`,
     `Aseguradora: ${ev.insurer ?? 'Sin especificar'}`,
@@ -40,15 +38,8 @@ export function buildSurgeryIcs(ev: SurgeryEvent): string {
     '',
     DISCLAIMER,
   ];
-
-  // UID estable por caso: si el médico vuelve a descargar, el calendario reemplaza el evento
-  // en vez de duplicarlo.
-  const lines = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//AnestIA//Calendario de cirugías//ES',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
+  // UID estable por caso: al re-descargar, el calendario reemplaza el evento, no lo duplica.
+  return [
     'BEGIN:VEVENT',
     `UID:caso-${ev.caseId}@anestia`,
     `DTSTAMP:${dtStamp}`,
@@ -58,10 +49,32 @@ export function buildSurgeryIcs(ev: SurgeryEvent): string {
     `DESCRIPTION:${escapeText(descParts.join('\n'))}`,
     'TRANSP:TRANSPARENT',
     'END:VEVENT',
+  ];
+}
+
+const CAL_HEADER = [
+  'BEGIN:VCALENDAR',
+  'VERSION:2.0',
+  'PRODID:-//AnestIA//Calendario de cirugías//ES',
+  'CALSCALE:GREGORIAN',
+  'METHOD:PUBLISH',
+];
+
+/** Construye el contenido .ics de UNA cirugía. */
+export function buildSurgeryIcs(ev: SurgeryEvent): string {
+  const lines = [...CAL_HEADER, ...eventLines(ev), 'END:VCALENDAR'];
+  // RFC 5545 exige CRLF entre líneas de contenido.
+  return lines.map(foldLine).join('\r\n') + '\r\n';
+}
+
+/** Construye un .ics con TODAS las cirugías (un VEVENT por caso). Para exportar el calendario. */
+export function buildCalendarIcs(events: SurgeryEvent[]): string {
+  const lines = [
+    ...CAL_HEADER,
+    'X-WR-CALNAME:Cirugías — AnestIA',
+    ...events.flatMap(eventLines),
     'END:VCALENDAR',
   ];
-
-  // RFC 5545 exige CRLF entre líneas de contenido.
   return lines.map(foldLine).join('\r\n') + '\r\n';
 }
 
