@@ -59,6 +59,8 @@ export interface ClinicalInput {
   /** Peso/talla reales del paciente (P5/P6) — para forzar peso_talla_imc por código (CS2). */
   pesoKg?: number | null;
   tallaCm?: number | null;
+  /** Edad en años (de P3 vs P10) — para estimar signos vitales de referencia. */
+  edad?: number | null;
 }
 
 export interface AIProvider {
@@ -211,21 +213,27 @@ export class StubAIProvider implements AIProvider {
       ? ok('Refiere prótesis dental o diseño de sonrisa (relevante para el manejo de la vía aérea).', 'formulario:P21')
       : negado('21', 'Niega prótesis dental o diseño de sonrisa.', 'formulario:P21');
 
-    // Hábitos: P22 tabaco/vapeo (+P23 cantidad), P24 alcohol, P25 psicoactivas.
+    // Hábitos: P22 tabaco/vapeo (+P23 cantidad), P24 alcohol (+P25 frecuencia), P26 psicoactivas (+P27 cuáles).
     const habitos = ((): DocField => {
       const positivos: string[] = [];
       if (isYes('22')) {
         const cant = val('23');
         positivos.push(cant ? `tabaquismo/vapeo (${cant})` : 'tabaquismo/vapeo');
       }
-      if (isYes('24')) positivos.push('consumo de alcohol');
-      if (isYes('25')) positivos.push('consumo de sustancias psicoactivas');
-      if (positivos.length > 0) return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P22-25');
+      if (isYes('24')) {
+        const frec = val('25');
+        positivos.push(frec ? `consumo de alcohol (${frec})` : 'consumo de alcohol');
+      }
+      if (isYes('26')) {
+        const cuales = val('27');
+        positivos.push(cuales ? `consumo de sustancias psicoactivas (${cuales})` : 'consumo de sustancias psicoactivas');
+      }
+      if (positivos.length > 0) return ok(`Refiere ${positivos.join(', ')}.`, 'formulario:P22-27');
       // Sólo se escribe la negación si el paciente negó las tres; si dejó alguna en blanco,
       // el campo queda sin reportar en vez de afirmar un "niega" que no dijo (CS2).
-      const negóTodas = isNo('22') && isNo('24') && isNo('25');
+      const negóTodas = isNo('22') && isNo('24') && isNo('26');
       return negóTodas
-        ? ok('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P22-25')
+        ? ok('Niega tabaquismo, vapeo, consumo de alcohol y sustancias psicoactivas.', 'formulario:P22-27')
         : noRep();
     })();
 
@@ -243,6 +251,16 @@ export class StubAIProvider implements AIProvider {
     const asaSug = suggestASA(comorbilidades);
     const asaField: DocField = { valor: `ASA ${asaSug.grado}`, estado: 'ok', fuente: 'derivado:IA', nota: asaSug.justificacion };
 
+    // Capacidad funcional: SUGERENCIA editable, no afirmación (CS4). Si el paciente no declara
+    // comorbilidades, se ofrece un estimado de tamizaje (≥4 METs es el umbral que suele eximir de
+    // estudio cardiológico adicional), MARCADO como estimado y a confirmar en el examen — el
+    // médico lo verifica o corrige antes de aprobar. Con comorbilidad declarada no se estima:
+    // queda no_reportado para su evaluación presencial.
+    const capacidadFuncional: DocField = isYes('12')
+      ? noRep()
+      : { valor: '≥ 4 METs (estimado — confirmar en examen)', estado: 'ok', fuente: 'derivado:IA',
+          nota: 'Estimado de tamizaje sin comorbilidades declaradas; el anestesiólogo lo confirma o corrige tras el examen.' };
+
     const glp1 = input.glp1?.declared;
     const recomendaciones = glp1
       ? 'Ayuno de 8 horas; dieta líquida durante las 24 horas previas; confirmar ausencia de náuseas, vómito, distensión o dolor abdominal. Ante uso de agonista GLP-1, considerar ecografía gástrica y manejar como estómago lleno o diferir el procedimiento si existe riesgo de contenido gástrico residual.'
@@ -258,11 +276,9 @@ export class StubAIProvider implements AIProvider {
         fecha_procedimiento: fechaProc,
         fecha_valoracion: noRep(), // la inyecta el renderer (opts.fechaValoracion)
         // CS2/CS4: el formulario NO pregunta por capacidad funcional (METs) ni por el
-        // carácter de la cirugía. Afirmar "≥4 METs" es el umbral que exime de estudio
-        // cardiológico adicional — asegurarlo sin haberlo evaluado no es derivar, es
-        // inventar. Los pone el anestesiólogo en la revisión.
-        capacidad_funcional: noRep(),
-        tipo_cirugia: noRep(),
+        // capacidad_funcional: estimado editable si no hay comorbilidades (ver arriba), a
+        // confirmar por el anestesiólogo (CS4). Con comorbilidad → no_reportado.
+        capacidad_funcional: capacidadFuncional,
         condicion_actual: condicionActual,
         // Diagnóstico preoperatorio: nombre de la cirugía (término médico). El médico lo
         // reemplaza por el diagnóstico clínico real si aplica.

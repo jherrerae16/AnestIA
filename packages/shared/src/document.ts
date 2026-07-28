@@ -8,6 +8,10 @@ import { z } from 'zod';
 export const fieldStateSchema = z.enum([
   'ok',
   'pendiente_examen',
+  // Estimado por el sistema en standby (p. ej. signos vitales de referencia por edad/IMC).
+  // NO es una medición: se muestra etiquetado "(estimado — sin medir)" y BLOQUEA la aprobación
+  // hasta que el anestesiólogo lo confirme (queda 'ok') o teclee el valor medido real (CS3).
+  'estimado_ia',
   'no_reportado',
   'no_disponible',
 ]);
@@ -32,9 +36,11 @@ export type DocField = z.infer<typeof docFieldSchema>;
  * `paraclinicos` es la excepción: sus claves son los TIPOS de estudio realmente extraídos
  * (hemograma, coagulacion, …), variables por caso, así que esa sección queda abierta.
  */
+// `tipo_cirugia` se fusionó con `procedimiento` (eran lo mismo: el nombre de la cirugía).
+// Un solo campo evita duplicar y que el "tipo" quedara siempre vacío.
 export const ALLOWED_ID_FIELDS = [
   'paciente', 'documento', 'edad_sexo', 'peso_talla_imc', 'imc', 'procedimiento',
-  'fecha_procedimiento', 'fecha_valoracion', 'capacidad_funcional', 'tipo_cirugia',
+  'fecha_procedimiento', 'fecha_valoracion', 'capacidad_funcional',
   'condicion_actual', 'diagnostico_preoperatorio', 'asa',
 ] as const;
 export const ALLOWED_ANTECEDENTES_FIELDS = [

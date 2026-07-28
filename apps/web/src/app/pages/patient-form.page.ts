@@ -31,25 +31,25 @@ interface Section {
   /** rango de `order` (inclusive) que agrupa esta sección. */
   from: number;
   to: number;
-  /** órdenes sueltos adicionales fuera del rango (p. ej. correo P23 en Contacto). */
+  /** órdenes sueltos adicionales fuera del rango (p. ej. correo P28 en Contacto). */
   extra?: number[];
 }
 
 /**
  * Secciones del formulario preanestésico (piloto "Preanestésica general").
- * Agrupan preguntas por `order`. Cubren los 26 órdenes del preset base.
+ * Agrupan preguntas por `order`. Cubren los 28 órdenes del preset base.
  *
  * TODO (C-2 / bloqueado por el editor de cuestionarios, C-6): NO hay catch-all "Otros datos".
- * Una pregunta con `order` fuera de todo rango (p. ej. 27+ de un preset custom) se omite
+ * Una pregunta con `order` fuera de todo rango (p. ej. 29+ de un preset custom) se omite
  * silenciosamente del formulario. Al implementar presets editables, agregar una sección
  * catch-all que recoja los órdenes no cubiertos, o derivar los rangos del propio preset.
  */
 const SECTIONS: Section[] = [
   { title: 'Información personal', icon: '👤', from: 1, to: 6 },
-  { title: 'Contacto y aseguradora', icon: '📇', from: 7, to: 8, extra: [26] },
+  { title: 'Contacto y aseguradora', icon: '📇', from: 7, to: 8, extra: [28] },
   { title: 'Cirugía programada', icon: '🏥', from: 9, to: 11 },
   { title: 'Antecedentes médicos', icon: '🩺', from: 12, to: 21 },
-  { title: 'Hábitos', icon: '🚭', from: 22, to: 25 },
+  { title: 'Hábitos', icon: '🚭', from: 22, to: 27 },
 ];
 
 /** Normaliza para comparar condicionales ('sí'→'si'). */

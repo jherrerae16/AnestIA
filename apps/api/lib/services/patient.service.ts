@@ -8,7 +8,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
 /**
  * Upsert de Patient a partir de las respuestas del formulario (US-1.7 / RF-11.2).
  * Mapeo por order del preset base: P1 nombre, P2 documento, P3 nacimiento, P4 sexo,
- * P7 teléfono, P8 aseguradora, P11 grupo sanguíneo, P23 correo. Idempotente por (anesthesiologistId, documentId).
+ * P7 teléfono, P8 aseguradora, P11 grupo sanguíneo, P28 correo. Idempotente por (anesthesiologistId, documentId).
  */
 export async function upsertFromForm(
   anesthesiologistId: string,
@@ -26,7 +26,7 @@ export async function upsertFromForm(
   const fullName = toTitleCase(rawName);
 
   // Mapeo por order del Google Form real: P1 nombre, P2 doc, P3 nacimiento, P4 sexo (Hombre/Mujer),
-  // P7 teléfono, P8 aseguradora, P11 grupo sanguíneo, P24 correo.
+  // P7 teléfono, P8 aseguradora, P11 grupo sanguíneo, P28 correo.
   const sexRaw = str(get(4)).toLowerCase();
   const sex =
     /^(masc|hombre|m$)/.test(sexRaw) ? 'MASCULINO'
@@ -40,7 +40,7 @@ export async function upsertFromForm(
     update: {
       fullName,
       phone: str(get(7)) || undefined,
-      email: normalizeEmail(str(get(26))) || undefined,
+      email: normalizeEmail(str(get(28))) || undefined,
       insurer: str(get(8)) || undefined,
       bloodType: str(get(11)) || undefined,
       ...(sex ? { sex } : {}),
@@ -51,7 +51,7 @@ export async function upsertFromForm(
       documentId,
       fullName,
       phone: str(get(7)) || null,
-      email: normalizeEmail(str(get(26))) || null,
+      email: normalizeEmail(str(get(28))) || null,
       insurer: str(get(8)) || null,
       bloodType: str(get(11)) || null,
       sex: (sex ?? undefined) as never,

@@ -31,7 +31,11 @@ export function canApprove(fields: DocumentJSON): ApprovalCheck {
   const blockers: string[] = [];
 
   const exam = fields.examen_fisico ?? {};
-  const pending = Object.entries(exam).filter(([, f]) => f?.estado === 'pendiente_examen');
+  // Un signo vital 'estimado_ia' (referencia en standby) NO cuenta como confirmado: bloquea
+  // igual que un pendiente, hasta que el anestesiólogo lo acepte o teclee lo medido (CS3).
+  const pending = Object.entries(exam).filter(
+    ([, f]) => f?.estado === 'pendiente_examen' || f?.estado === 'estimado_ia',
+  );
   if (Object.keys(exam).length === 0) {
     blockers.push('El examen físico está pendiente. Ingresa o confirma los valores antes de aprobar.');
   } else if (pending.length > 0) {
@@ -84,20 +88,33 @@ function okField(valor: string, fuente = 'anestesiologo'): DocField {
 }
 
 /**
- * Atestación de examen presencial normal (CS3). Rellena SÓLO los hallazgos cualitativos que
- * el anestesiólogo puede confirmar de memoria tras explorar al paciente.
+ * Atestación de examen presencial normal (CS3). Rellena los hallazgos cualitativos que el
+ * anestesiólogo puede confirmar de memoria tras explorar al paciente.
  *
- * Los signos vitales y el peso/talla NO se rellenan: son cifras que exigen instrumento, y
- * escribir "TA 120/80" sin haber medido pondría un dato fabricado en un documento firmado —
- * exactamente lo que prohíbe CS2. Quedan en `pendiente_examen`, lo que además bloquea la
- * aprobación (canApprove) hasta que el médico los teclee.
+ * Signos vitales: si el sistema propuso un estimado de referencia ('estimado_ia'), este clic
+ * (acción EXPLÍCITA del anestesiólogo tras el examen) lo CONFIRMA como valor del documento —
+ * fuente 'anestesiologo:examen-normal-confirmado'. Sin estimado, sigue pendiente hasta teclear.
+ *
+ * Peso/talla NO se rellena: es una cifra que exige báscula/tallímetro y no hay estimado; queda
+ * en `pendiente_examen`, lo que además bloquea la aprobación (canApprove) hasta que se teclee.
  */
 export function applyExamNormal(fields: DocumentJSON): DocumentJSON {
   const examen_fisico: Record<string, DocField> = { ...(fields.examen_fisico ?? {}) };
   for (const key of EXAM_FIELDS) {
     if (requiresMeasurement(key)) {
-      // Se respeta lo ya medido; si no hay medición, sigue pendiente.
-      if (examen_fisico[key]?.estado !== 'ok') examen_fisico[key] = pendingExam();
+      const prev = examen_fisico[key];
+      if (prev?.estado === 'ok') continue; // ya medido/confirmado: se respeta
+      // Un signo vital estimado en standby se confirma con esta acción explícita del médico.
+      if (key === 'signos_vitales' && prev?.estado === 'estimado_ia' && prev.valor) {
+        examen_fisico[key] = {
+          valor: prev.valor,
+          estado: 'ok',
+          fuente: 'anestesiologo:examen-normal-confirmado',
+          nota: 'Signos vitales de referencia confirmados por el anestesiólogo tras examen presencial',
+        };
+        continue;
+      }
+      examen_fisico[key] = pendingExam(); // sin medición ni estimado → pendiente
       continue;
     }
     examen_fisico[key] = {

@@ -209,6 +209,16 @@ export function auditDocument(input: AuditInput): AuditReport {
     add('advertencia', 'contradiccion',
       `El paciente negó fumar o vapear (P22) pero reportó consumo diario: "${listOf(a, '23')}" (P23).`);
   }
+  // Niega alcohol pero especificó frecuencia.
+  if (isNo(a, '24') && answered(a, '25')) {
+    add('advertencia', 'contradiccion',
+      `El paciente negó consumir alcohol (P24) pero especificó frecuencia: "${listOf(a, '25')}" (P25).`);
+  }
+  // Niega sustancias psicoactivas pero especificó cuáles.
+  if (isNo(a, '26') && answered(a, '27')) {
+    add('advertencia', 'contradiccion',
+      `El paciente negó consumir sustancias psicoactivas (P26) pero especificó: "${listOf(a, '27')}" (P27).`);
+  }
 
   // ── 4. Coherencia respuesta ↔ documento (ADVERTENCIA) ───────────
   const ant = (doc.antecedentes ?? {}) as Record<string, DocField>;

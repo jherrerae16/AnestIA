@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 const SEED_EMAIL = 'jherrerae16@gmail.com';
 
 /**
- * Las 22 preguntas del preset base "Preanestésica general" (docs/form-mapping.md / Anexo A).
+ * Las 28 preguntas del preset base "Preanestésica general" (docs/form-mapping.md / Anexo A).
  * order = número de pregunta. conditional/options en JSON.
  */
 // Patologías del Google Form real del doctor (SELECCION_MULTIPLE).
@@ -31,8 +31,9 @@ type QDef = {
 
 /**
  * Preguntas EXACTAS del Google Form del Dr. Luquetta. Todas requeridas.
- * Dos condicionales: patologías (si enfermedad=Sí), cigarrillos (si fuma=Sí).
- * El correo (P21) lo agrega la plataforma para registrar/contactar al paciente.
+ * Condicionales (showIf): patologías (P12=Sí), medicamentos (P14), alergias (P16),
+ * cirugías (P18), cigarrillos (P22), frecuencia de alcohol (P24), sustancias (P26).
+ * El correo (P28) lo agrega la plataforma para registrar/contactar al paciente.
  */
 const QUESTIONS: QDef[] = [
   { order: 1, label: 'Nombre completo', type: 'TEXTO_CORTO', required: true },
@@ -76,8 +77,18 @@ const QUESTIONS: QDef[] = [
     conditional: { showIf: { questionOrder: 22, equals: 'si' } },
   },
   { order: 24, label: '¿Consume alcohol?', type: 'SI_NO', required: true },
-  { order: 25, label: '¿Consume alguna sustancia psicoactiva?', type: 'SI_NO', required: true },
-  { order: 26, label: 'Correo electrónico', type: 'TEXTO_CORTO', required: true },
+  {
+    order: 25, label: '¿Cuántas veces a la semana consume alcohol? (especifique)',
+    type: 'TEXTO_CORTO', required: true,
+    conditional: { showIf: { questionOrder: 24, equals: 'si' } },
+  },
+  { order: 26, label: '¿Consume alguna sustancia psicoactiva?', type: 'SI_NO', required: true },
+  {
+    order: 27, label: '¿Cuáles sustancias psicoactivas? (especifique)',
+    type: 'TEXTO_CORTO', required: true,
+    conditional: { showIf: { questionOrder: 26, equals: 'si' } },
+  },
+  { order: 28, label: 'Correo electrónico', type: 'TEXTO_CORTO', required: true },
 ];
 
 async function main() {
@@ -116,7 +127,7 @@ async function main() {
     });
   }
 
-  // --- 22 preguntas (idempotente: borra y recrea para el preset base) ---
+  // --- 28 preguntas (idempotente: borra y recrea para el preset base) ---
   await prisma.question.deleteMany({ where: { presetId: preset.id } });
   for (const q of QUESTIONS) {
     await prisma.question.create({
