@@ -109,16 +109,28 @@ export async function emailDraftForCase(
 ): Promise<{ subject: string; body: string; pdfFilename: string } | null> {
   const kase = await prisma.case.findFirst({
     where: { id: caseId, anesthesiologistId },
-    include: { patient: { select: { fullName: true } }, anesthesiologist: { select: { fullName: true } } },
+    include: {
+      patient: { select: { fullName: true } },
+      anesthesiologist: { select: { fullName: true, emailBodyTemplate: true } },
+    },
   });
   if (!kase) return null;
   const patientName = kase.patient?.fullName ?? 'el paciente';
+  const doctorName = kase.anesthesiologist.fullName;
   const subject = `Valoración preanestésica — ${patientName}`;
   const proc = kase.procedure ? ` para ${kase.procedure}` : '';
-  const body =
-    `Estimado(a) destinatario(a):\n\n` +
-    `Adjunto la valoración preanestésica${proc} del paciente ${patientName}, aprobada y firmada por ${kase.anesthesiologist.fullName}.\n\n` +
-    `Quedo atento(a) a cualquier consulta.\n\n${kase.anesthesiologist.fullName}`;
+
+  // Si el médico guardó una plantilla en su perfil, se usa con los placeholders resueltos.
+  // Placeholders soportados: {paciente} {procedimiento} {doctor}. Sin plantilla → default dinámico.
+  const tpl = kase.anesthesiologist.emailBodyTemplate?.trim();
+  const body = tpl
+    ? tpl
+        .replace(/\{paciente\}/g, patientName)
+        .replace(/\{procedimiento\}/g, kase.procedure ?? '')
+        .replace(/\{doctor\}/g, doctorName)
+    : `Estimado(a) destinatario(a):\n\n` +
+      `Adjunto la valoración preanestésica${proc} del paciente ${patientName}, aprobada y firmada por ${doctorName}.\n\n` +
+      `Quedo atento(a) a cualquier consulta.\n\n${doctorName}`;
   return { subject, body, pdfFilename: documentFilename(kase.patient?.fullName) };
 }
 

@@ -15,6 +15,7 @@ const updateSchema = z.object({
   specialty: z.string().max(120).optional(),
   medicalRegistry: z.string().max(60).optional(),
   footerText: z.string().max(300).optional(),
+  emailBodyTemplate: z.string().max(2000).optional(),
   dailyReminderOptOut: z.boolean().optional(),
 });
 
