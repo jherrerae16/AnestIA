@@ -7,7 +7,7 @@ import { ApiService } from '../core/api.service';
 const SECTION_LABELS: Record<string, string> = {
   paciente: 'Paciente', documento: 'Documento', edad: 'Edad', sexo: 'Sexo',
   edad_sexo: 'Edad / Sexo', peso_talla_imc: 'Peso / Talla / IMC', imc: 'IMC', procedimiento: 'Procedimiento',
-  diagnostico_preoperatorio: 'Diagnóstico preoperatorio', asa: 'ASA', tipo_cirugia: 'Tipo de cirugía',
+  diagnostico_preoperatorio: 'Diagnóstico preoperatorio', asa: 'ASA',
   fecha_valoracion: 'Fecha de valoración', fecha_procedimiento: 'Fecha del procedimiento',
   capacidad_funcional: 'Capacidad funcional', condicion_actual: 'Condición actual',
   patologicos: 'Patológicos', medicamentos: 'Medicamentos', glp1: 'Uso de GLP-1',
@@ -105,6 +105,8 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lab-flag { font-family:var(--font-mono); font-size:11px; }
     /* #2 capacidad funcional: hint de UX en pantalla (NO va al PDF). */
     .hint-eval { color:var(--muted2); font-style:italic; }
+    /* #5 signos vitales estimados en standby: etiqueta visible de "no medido". */
+    .est-tag { color:var(--red-text); font-style:italic; font-size:11px; font-weight:600; }
     /* #6 fecha con botón Hoy */
     .fecha-edit { display:flex; gap:8px; align-items:center; }
     .fecha-edit .edit-input { flex:1; }
@@ -166,6 +168,20 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .dist-row { display:flex; align-items:center; gap:10px; margin-top:8px; font-size:13px; }
     .dist-row input[readonly] { flex:1; padding:8px 11px; border:1px solid var(--border2); border-radius:8px; font-family:var(--font-mono); font-size:12px; }
     label.contact { display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13px; }
+    .contact-main { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .contact-type-badge { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.03em;
+      padding:2px 6px; border-radius:20px; flex-shrink:0; background:var(--it-50); color:var(--muted); border:1px solid var(--border); }
+    .contact-type-badge[data-type="MEDICO"] { background:rgba(11,92,107,.1); color:var(--primary); border-color:rgba(11,92,107,.22); }
+    .contact-type-badge[data-type="CLINICA"] { background:rgba(46,158,99,.1); color:var(--green-text); border-color:rgba(46,158,99,.24); }
+    .contact-type-badge[data-type="ASEGURADORA"] { background:rgba(224,138,30,.12); color:var(--amber); border-color:rgba(224,138,30,.26); }
+    /* Directorio: buscador + chips de filtro */
+    .dir-tools { display:flex; flex-direction:column; gap:9px; margin:4px 0 10px; }
+    .dir-search { font-size:13px; }
+    .dir-filters { display:flex; gap:6px; flex-wrap:wrap; }
+    .dir-chip { font-size:12px; font-weight:600; padding:5px 12px; border-radius:20px; cursor:pointer;
+      background:#fff; border:1px solid var(--border2); color:var(--muted); transition:all .15s; font-family:var(--font-body); }
+    .dir-chip:hover { border-color:var(--primary); color:var(--primary); }
+    .dir-chip.active { background:var(--primary); border-color:var(--primary); color:#fff; }
 
     /* Panel del auditor independiente */
     .audit-card { margin-bottom:16px; border-left:3px solid var(--gold); }
@@ -242,11 +258,31 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
           } @else {
             <p class="muted" style="font-size:12px;margin-bottom:6px">El paciente no registró correo.</p>
           }
-          @for (c of contacts(); track c.id) {
+          <!-- Directorio: buscador + filtro por categoría -->
+          @if (contacts().length) {
+            <div class="dir-tools">
+              <input class="ki-input dir-search" type="search" placeholder="Buscar en tu directorio…"
+                [ngModel]="contactSearch()" (ngModelChange)="contactSearch.set($event)"
+                data-testid="distribute-contact-search" />
+              <div class="dir-filters" role="tablist" aria-label="Filtrar por categoría">
+                @for (opt of typeFilters; track opt.value) {
+                  <button type="button" class="dir-chip" [class.active]="contactTypeFilter() === opt.value"
+                    (click)="contactTypeFilter.set(opt.value)"
+                    [attr.aria-pressed]="contactTypeFilter() === opt.value"
+                    [attr.data-testid]="'distribute-filter-' + opt.value">{{ opt.label }}</button>
+                }
+              </div>
+            </div>
+          }
+          @for (c of filteredContacts(); track c.id) {
             <label class="contact">
-              <input type="checkbox" [value]="c.id" (change)="toggle(c.id, $event)" data-testid="distribute-contact-checkbox" />
-              {{ c.label }} — {{ c.email }}
+              <input type="checkbox" [value]="c.id" [checked]="isContactSelected(c.id)" (change)="toggle(c.id, $event)" data-testid="distribute-contact-checkbox" />
+              <span class="contact-type-badge" [attr.data-type]="c.type">{{ typeLabel(c.type) }}</span>
+              <span class="contact-main">{{ c.label }} — {{ c.email }}</span>
             </label>
+          }
+          @if (contacts().length && !filteredContacts().length) {
+            <p class="muted" style="font-size:12px;margin:6px 0">Sin contactos que coincidan.</p>
           }
 
           @if (!composerOpen()) {
@@ -400,9 +436,10 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                       </span>
                     </span>
                   } @else {
-                    <span class="v editable" [class.alerta]="f.v?.alerta" [class.pending]="f.v?.estado==='pendiente_examen'"
+                    <span class="v editable" [class.alerta]="f.v?.alerta" [class.pending]="f.v?.estado==='pendiente_examen' || f.v?.estado==='estimado_ia'"
                       (click)="startEdit(sec.key, f.k, f.v)" [attr.data-testid]="'field-' + f.k" title="Clic para editar">
                       @if (f.v?.estado==='pendiente_examen') { PENDIENTE DE EXAMEN }
+                      @else if (f.v?.estado==='estimado_ia') { {{ f.v.valor }} <span class="est-tag">(estimado — confirmar)</span> }
                       @else if (f.v?.valor) { {{ f.v.valor }} }
                       @else if (f.k === 'capacidad_funcional') { <span class="hint-eval">Evaluar en examen</span> }
                       @else { — }
@@ -635,7 +672,41 @@ export class ReviewApprovalPage implements OnInit {
   sentOk = signal(false);
   examAttested = signal(false);
   rawPreview = signal('');
-  private selectedContacts = new Set<string>();
+  /** IDs de contactos del directorio seleccionados (signal para reaccionar al filtrar). */
+  selectedContacts = signal<Set<string>>(new Set());
+
+  /** Buscador y filtro por categoría del directorio en el compositor. */
+  contactSearch = signal('');
+  contactTypeFilter = signal<'ALL' | 'MEDICO' | 'CLINICA' | 'ASEGURADORA' | 'OTRO'>('ALL');
+  readonly typeFilters = [
+    { value: 'ALL' as const, label: 'Todos' },
+    { value: 'MEDICO' as const, label: 'Médico' },
+    { value: 'CLINICA' as const, label: 'Clínica' },
+    { value: 'ASEGURADORA' as const, label: 'Aseguradora' },
+    { value: 'OTRO' as const, label: 'Otro' },
+  ];
+  private readonly TYPE_LABEL: Record<string, string> = {
+    MEDICO: 'Médico', CLINICA: 'Clínica', ASEGURADORA: 'Aseguradora', PACIENTE: 'Paciente', OTRO: 'Otro',
+  };
+  typeLabel(t: string | null | undefined): string { return this.TYPE_LABEL[t ?? ''] ?? 'Otro'; }
+
+  /** Contactos filtrados por texto (nombre/email) y categoría. PACIENTE cae en "Otro". */
+  filteredContacts = computed(() => {
+    const q = this.contactSearch().trim().toLowerCase();
+    const cat = this.contactTypeFilter();
+    return this.contacts().filter((c) => {
+      const type = (c.type ?? 'OTRO') as string;
+      const matchCat = cat === 'ALL'
+        ? true
+        : cat === 'OTRO'
+          ? type === 'OTRO' || type === 'PACIENTE'
+          : type === cat;
+      if (!matchCat) return false;
+      if (!q) return true;
+      return `${c.label ?? ''} ${c.email ?? ''}`.toLowerCase().includes(q);
+    });
+  });
+  isContactSelected(id: string): boolean { return this.selectedContacts().has(id); }
 
   async ngOnInit() {
     this.caseId = this.route.snapshot.paramMap.get('id') ?? '';
@@ -811,12 +882,16 @@ export class ReviewApprovalPage implements OnInit {
 
   toggle(id: string, ev: Event) {
     const checked = (ev.target as HTMLInputElement).checked;
-    if (checked) this.selectedContacts.add(id); else this.selectedContacts.delete(id);
+    this.selectedContacts.update((s) => {
+      const next = new Set(s);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
   }
   setSendToPatient(ev: Event) { this.sendToPatient.set((ev.target as HTMLInputElement).checked); }
 
   private hasRecipient(): boolean {
-    return this.selectedContacts.size > 0 || this.sendToPatient();
+    return this.selectedContacts().size > 0 || this.sendToPatient();
   }
 
   /** Abre el compositor con asunto/cuerpo precargados desde el servidor. */
@@ -839,7 +914,7 @@ export class ReviewApprovalPage implements OnInit {
     this.sending.set(true);
     try {
       const res = await this.api.distribute(this.caseId, {
-        contactIds: [...this.selectedContacts], channel: 'email', sendToPatient: this.sendToPatient(),
+        contactIds: [...this.selectedContacts()], channel: 'email', sendToPatient: this.sendToPatient(),
         subject: this.emailSubject(), body: this.emailBody(),
       });
       this.deliveries.set(res.deliveries ?? []);
@@ -860,7 +935,7 @@ export class ReviewApprovalPage implements OnInit {
     if (!this.hasRecipient()) { this.distError.set('Selecciona al menos un destinatario.'); return; }
     try {
       const res = await this.api.distribute(this.caseId, {
-        contactIds: [...this.selectedContacts], channel: 'link', sendToPatient: this.sendToPatient(),
+        contactIds: [...this.selectedContacts()], channel: 'link', sendToPatient: this.sendToPatient(),
       });
       this.deliveries.set(res.deliveries ?? []);
     } catch (err: unknown) {

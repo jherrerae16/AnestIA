@@ -14,6 +14,8 @@ import { AuthService } from '../core/auth.service';
     .page-title { font-family:var(--font-display); font-size:22px; font-weight:600; letter-spacing:-0.5px; color:var(--text); }
     .page-sub { font-size:13px; color:var(--muted); margin-top:6px; line-height:1.5; }
     .field { margin-bottom:14px; }
+    .email-tpl { resize:vertical; min-height:130px; font-family:var(--font-body); line-height:1.55; }
+    .page-sub code { font-family:var(--font-mono); font-size:12px; background:var(--it-50); padding:1px 5px; border-radius:4px; color:var(--primary); }
     .save-row { display:flex; align-items:center; gap:12px; margin-top:20px; }
     .saved { color:var(--green); font-size:12px; font-weight:600; }
     .assets { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:8px; }
@@ -62,6 +64,27 @@ import { AuthService } from '../core/auth.service';
     </div>
 
     <div class="card" style="margin-top:16px">
+      <div class="section-label">Mensaje del correo</div>
+      <p class="page-sub" style="margin:2px 0 12px;">
+        Este es el mensaje que acompaña el reporte cuando lo envías por correo. Se guarda una vez y
+        se precarga en cada envío — aún puedes ajustarlo por caso antes de mandarlo. Déjalo vacío
+        para usar el mensaje por defecto. Puedes usar
+        <code>{{ '{' }}paciente{{ '}' }}</code>, <code>{{ '{' }}procedimiento{{ '}' }}</code> y
+        <code>{{ '{' }}doctor{{ '}' }}</code>; se reemplazan automáticamente.
+      </p>
+      <div class="field">
+        <label class="ki-label" for="pf-email-tpl">Plantilla del mensaje</label>
+        <textarea id="pf-email-tpl" class="ki-input email-tpl" rows="7"
+          [(ngModel)]="p.emailBodyTemplate" data-testid="profile-email-template"
+          placeholder="Estimado(a) destinatario(a):&#10;&#10;Adjunto la valoración preanestésica del paciente {paciente}, aprobada y firmada por {doctor}.&#10;&#10;Quedo atento(a) a cualquier consulta.&#10;&#10;{doctor}"></textarea>
+      </div>
+      <div class="save-row">
+        <button class="btn btn-primary" (click)="save()" data-testid="profile-email-template-save">Guardar mensaje</button>
+        @if (savedMsg()) { <span class="saved" role="status" aria-live="polite">{{ savedMsg() }}</span> }
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <div class="section-label">Recordatorio matutino</div>
       <p class="page-sub" style="margin:2px 0 12px;">
         Cada mañana (7:00, hora de Colombia) recibes un correo con tus cirugías de hoy y mañana,
@@ -105,7 +128,7 @@ export class ProfilePage implements OnInit {
   private api = inject(ApiService);
   private auth = inject(AuthService);
   private router = inject(Router);
-  p: any = { fullName: '', specialty: '', medicalRegistry: '', footerText: '' };
+  p: any = { fullName: '', specialty: '', medicalRegistry: '', footerText: '', emailBodyTemplate: '' };
   logoUrl = signal<string | null>(null);
   signatureUrl = signal<string | null>(null);
   savedMsg = signal('');
@@ -114,7 +137,7 @@ export class ProfilePage implements OnInit {
 
   async ngOnInit() {
     const { profile } = await this.api.getProfile();
-    this.p = { fullName: profile.fullName, specialty: profile.specialty ?? '', medicalRegistry: profile.medicalRegistry ?? '', footerText: profile.footerText ?? '' };
+    this.p = { fullName: profile.fullName, specialty: profile.specialty ?? '', medicalRegistry: profile.medicalRegistry ?? '', footerText: profile.footerText ?? '', emailBodyTemplate: profile.emailBodyTemplate ?? '' };
     this.logoUrl.set(profile.clinicLogoUrl ? `${profile.clinicLogoUrl}?t=${Date.now()}` : null);
     this.signatureUrl.set(profile.signatureUrl ? `${profile.signatureUrl}?t=${Date.now()}` : null);
     this.reminderOn.set(!profile.dailyReminderOptOut);

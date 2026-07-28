@@ -28,6 +28,9 @@ model Anesthesiologist {
   clinicLogoUrl   String?
   signatureUrl    String?  // imagen PNG/PDF de la firma visual
   footerText      String?
+  // Plantilla del cuerpo del correo de distribución. La edita el médico una vez en su perfil;
+  // el compositor la precarga en cada envío y aún puede ajustarla por caso. null → default dinámico.
+  emailBodyTemplate String?
 
   // Recordatorio matutino de cirugías (cero setup): ON por defecto. El médico lo apaga
   // desde su perfil si no lo quiere. No hay más config (hora fija 7am Colombia en el cron).

@@ -11,7 +11,8 @@ export function getProfile(anesthesiologistId: string) {
     where: { id: anesthesiologistId },
     select: {
       id: true, fullName: true, specialty: true, medicalRegistry: true, email: true,
-      clinicLogoUrl: true, signatureUrl: true, footerText: true, dailyReminderOptOut: true,
+      clinicLogoUrl: true, signatureUrl: true, footerText: true, emailBodyTemplate: true,
+      dailyReminderOptOut: true,
     },
   });
 }
@@ -24,6 +25,7 @@ export function updateProfile(
     specialty?: string;
     medicalRegistry?: string;
     footerText?: string;
+    emailBodyTemplate?: string;
     dailyReminderOptOut?: boolean;
   },
 ) {
@@ -34,11 +36,12 @@ export function updateProfile(
       ...(data.specialty !== undefined ? { specialty: data.specialty } : {}),
       ...(data.medicalRegistry !== undefined ? { medicalRegistry: data.medicalRegistry } : {}),
       ...(data.footerText !== undefined ? { footerText: data.footerText } : {}),
+      ...(data.emailBodyTemplate !== undefined ? { emailBodyTemplate: data.emailBodyTemplate } : {}),
       ...(data.dailyReminderOptOut !== undefined ? { dailyReminderOptOut: data.dailyReminderOptOut } : {}),
     },
     select: {
       id: true, fullName: true, specialty: true, medicalRegistry: true, footerText: true,
-      dailyReminderOptOut: true,
+      emailBodyTemplate: true, dailyReminderOptOut: true,
     },
   });
 }

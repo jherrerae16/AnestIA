@@ -118,7 +118,7 @@ export class ApiService {
   getProfile(): Promise<any> {
     return firstValueFrom(this.http.get<any>('/api/panel/profile'));
   }
-  updateProfile(data: { fullName?: string; specialty?: string; medicalRegistry?: string; footerText?: string; dailyReminderOptOut?: boolean }): Promise<any> {
+  updateProfile(data: { fullName?: string; specialty?: string; medicalRegistry?: string; footerText?: string; emailBodyTemplate?: string; dailyReminderOptOut?: boolean }): Promise<any> {
     return firstValueFrom(this.http.patch<any>('/api/panel/profile', data));
   }
   uploadBranding(kind: 'logo' | 'signature', file: File): Promise<{ ok: boolean; url?: string }> {
