@@ -23,6 +23,24 @@ export interface ClinicalInput {
   /** Peso/talla reales del paciente (P5/P6), para forzar peso_talla_imc por código (CS2). */
   pesoKg: number | null;
   tallaCm: number | null;
+  /** Edad en años (de P3 vs P10), para estimar signos vitales de referencia. */
+  edad?: number | null;
+}
+
+/**
+ * Edad en años a una fecha de referencia (p. ej. la fecha de cirugía P10), sin usar Date.now
+ * para no depender del reloj del proceso. `birthISO`/`refISO` en formato de fecha parseable.
+ * Devuelve null si faltan datos o el resultado es implausible (<0 o ≥130).
+ */
+export function computeAge(birthISO: string | null | undefined, refISO: string | null | undefined): number | null {
+  if (!birthISO || !refISO) return null;
+  const d = new Date(birthISO);
+  const ref = new Date(refISO);
+  if (isNaN(d.getTime()) || isNaN(ref.getTime())) return null;
+  let age = ref.getFullYear() - d.getFullYear();
+  const m = ref.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && ref.getDate() < d.getDate())) age--;
+  return age >= 0 && age < 130 ? age : null;
 }
 
 /** IMC determinístico (kg / m^2), 1 decimal. Convierte cm→m. null si datos inválidos. */
@@ -58,6 +76,31 @@ export interface Vitals {
   imc: number | null;
   pesoKg?: number | null;
   tallaCm?: number | null;
+  /** Edad en años (de P3), para estimar signos vitales de referencia. */
+  edad?: number | null;
+  /**
+   * Si true y el perfil no tiene comorbilidades, `signos_vitales` sale en `estimado_ia`
+   * (referencia por edad/IMC, etiquetada, que bloquea la aprobación). Si false → pendiente.
+   */
+  estimarSignos?: boolean;
+}
+
+/**
+ * Signos vitales de REFERENCIA esperados para un adulto sano según su edad/IMC. NO es una
+ * medición: es un estimado de tamizaje que el sistema propone para que el anestesiólogo lo
+ * confirme o corrija (CS3 — se marca "estimado — sin medir" y bloquea la aprobación). Devuelve
+ * null si faltan datos mínimos (edad) o el perfil no es adulto (los rangos pediátricos difieren).
+ */
+export function estimateSignosVitales(edad: number | null | undefined, imc: number | null): string | null {
+  if (edad == null || !isFinite(edad) || edad < 15 || edad > 120) return null;
+  // Rangos de normalidad del adulto (referencia, no lectura de aparato).
+  const fc = '60–100 lpm';
+  const ta = '110–130 / 70–85 mmHg';
+  const fr = '12–20 rpm';
+  const sat = '≥ 96 % (aire ambiente)';
+  const temp = '36.0–37.0 °C';
+  const nota = imc != null && imc >= 30 ? ' (IMC elevado: vigilar vía aérea y saturación)' : '';
+  return `FC ${fc} · TA ${ta} · FR ${fr} · SatO₂ ${sat} · T ${temp}${nota}`;
 }
 
 /**
@@ -96,6 +139,16 @@ export function enforceGuardrails(doc: DocumentJSON, vitals: Vitals | number | n
 
   // Examen físico SIEMPRE pendiente (CS3).
   for (const key of EXAM_FIELDS) out.examen_fisico[key] = pending();
+
+  // Signos vitales: si se pidió estimar y el perfil lo permite, se proponen valores de
+  // REFERENCIA en standby (estado 'estimado_ia'). NO es una medición — se etiqueta y sigue
+  // bloqueando la aprobación hasta que el anestesiólogo lo confirme o teclee lo medido (CS3).
+  if (v.estimarSignos) {
+    const sv = estimateSignosVitales(v.edad, v.imc);
+    if (sv != null) {
+      out.examen_fisico['signos_vitales'] = { valor: sv, estado: 'estimado_ia', fuente: 'sistema:estimado-ia' };
+    }
+  }
 
   // IMC suelto por código (CS4).
   if (v.imc != null) {

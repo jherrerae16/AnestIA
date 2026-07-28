@@ -5,6 +5,7 @@ import { activeModelLabel, getAIProvider, type ClinicalInput } from '../ai';
 import { logAudit } from '../audit';
 import {
   computeIMC,
+  computeAge,
   enforceGuardrails,
   documentSchema,
   detectGLP1,
@@ -45,11 +46,20 @@ export async function assembleInput(caseId: string): Promise<ClinicalInput> {
   const tallaCm = talla != null && talla > 0 ? talla : null;
   const imc = pesoKg != null && tallaCm != null ? computeIMC(pesoKg, tallaCm) : null;
 
+  // Edad de P3 (nacimiento) vs P10 (fecha de cirugía) — misma base que el documento, sin Date.now.
+  const birth = answers['3']?.value;
+  const ref = answers['10']?.value;
+  const edad = computeAge(
+    typeof birth === 'string' ? birth : null,
+    typeof ref === 'string' ? ref : null,
+  );
+
   return {
     caseId,
     answers,
     pesoKg,
     tallaCm,
+    edad,
     labs: labs.map((l) => ({
       analyte: l.analyte,
       value: l.value,
@@ -165,7 +175,17 @@ export async function generateForCase(caseId: string): Promise<void> {
 
   // Guardarraíles (segunda línea) — CS2/CS3/CS4. peso/talla/IMC se fuerzan a los datos reales
   // del paciente: el modelo no decide esos números (evita el 71/188 fabricado sobre 78/193).
-  const doc = enforceGuardrails(parsed, { imc: input.imc ?? null, pesoKg: input.pesoKg, tallaCm: input.tallaCm });
+  // Signos vitales: se estiman en standby SOLO si el paciente no declaró comorbilidades (P12);
+  // el estimado se etiqueta y sigue bloqueando la aprobación hasta que el médico lo confirme (CS3).
+  const declaraEnfermedad = String(input.answers['12']?.value ?? '')
+    .trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') === 'si';
+  const doc = enforceGuardrails(parsed, {
+    imc: input.imc ?? null,
+    pesoKg: input.pesoKg,
+    tallaCm: input.tallaCm,
+    edad: input.edad ?? null,
+    estimarSignos: !declaraEnfermedad,
+  });
 
   // Procedimiento ambiguo ("operación de la nariz"): el modelo tiende a elegir una cirugía
   // específica (rinoplastia) por sesgo, pero eso es inventar el procedimiento — en anestesia el

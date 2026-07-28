@@ -7,7 +7,7 @@ Fuente exhaustiva y ejemplo de referencia (caso Roberto Mario Uribe): Anexo C de
 1. **Encabezado:** logo de clínica (perfil) · título "VALORACIÓN PREANESTÉSICA" · subtítulo.
 2. **Identificación (rejilla):** Paciente · Documento · Edad/Sexo · Peso/Talla/IMC · Diagnóstico
    preoperatorio · Procedimiento · Fecha valoración · Fecha procedimiento · Capacidad funcional (METs) ·
-   ASA · Tipo de cirugía · Condición actual.
+   ASA · Condición actual. (Procedimiento y "tipo de cirugía" se fusionaron en un solo campo.)
 3. **Antecedentes y medicación:** Patológicos · Quirúrgicos · Anestésicos · Medicamentos ·
    Uso de GLP-1 (con última dosis) · Alergias · Grupo sanguíneo ⭐ · Transfusionales ⭐ ·
    Prótesis dental ⭐ · Hábitos · Síntomas actuales.

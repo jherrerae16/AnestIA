@@ -7,6 +7,7 @@ import { logAudit } from '../audit';
 import { brandingDataUri } from '../pdf/branding';
 import { filenameFromKey, isViewableInline, mimeFor } from '../mime';
 import { auditForCase } from './audit-clinical.service';
+import { fechaValoracionForCase } from './document.service';
 import { getNoteForCase } from './note.service';
 import { reflagForCase } from './lab.service';
 import { regenerateParaclinicos } from './clinical.service';
@@ -249,8 +250,9 @@ export async function approve(caseId: string, anesthesiologistId: string): Promi
     registry: a.medicalRegistry,
     footer: a.footerText ?? 'Documento aprobado y firmado electrónicamente por el anestesiólogo tratante',
   };
-  // PDF final: sin marca de agua (draft:false).
-  const opts = { draft: false, fechaValoracion: new Date().toLocaleDateString('es-CO') };
+  // PDF final: sin marca de agua (draft:false). La fecha de valoración es la del envío del
+  // formulario (fechaValoracionForCase), no la de aprobación — mantiene una sola fecha estable.
+  const opts = { draft: false, fechaValoracion: await fechaValoracionForCase(caseId) };
   const html = buildDocumentHtml(fields, branding, opts);
   const pdf = await renderPdf(html, buildFooterTemplate(branding, opts));
   const { key } = await getStorageProvider().put(pdf, { caseId, type: 'FINAL_PDF', filename: 'valoracion-final.pdf' });

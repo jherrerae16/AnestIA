@@ -34,6 +34,16 @@ export function bogotaISODate(instant: Date): string {
 }
 
 /**
+ * Fecha DD/MM/AAAA en hora de Bogotá — formato para mostrar al médico/paciente (p. ej. la
+ * fecha de valoración del documento). Determinístico e independiente del locale del proceso,
+ * a diferencia de `toLocaleDateString('es-CO')` (que varía por entorno).
+ */
+export function bogotaFechaLegible(instant: Date): string {
+  const { year, month, day } = bogotaParts(instant);
+  return `${pad2(day)}/${pad2(month)}/${year}`;
+}
+
+/**
  * La fecha de cirugía (procedureDate) es una FECHA PURA (día natural, sin hora real): se
  * guarda como `new Date('YYYY-MM-DD')` = medianoche UTC. Por eso se lee por sus componentes
  * UTC, NO desplazada a Bogotá — desplazarla la correría un día (la cirugía del 1 saldría el 31).

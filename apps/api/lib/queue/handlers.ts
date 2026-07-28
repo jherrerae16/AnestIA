@@ -97,8 +97,7 @@ export async function onClinicalAudit(jobs: Job[]): Promise<void> {
 export async function onDocumentRender(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    const fecha = new Date().toLocaleDateString('es-CO');
-    await runStage(caseId, 'document.render', () => renderDraftForCase(caseId, fecha));
+    await runStage(caseId, 'document.render', () => renderDraftForCase(caseId));
     await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.PENDIENTE_REVISION } }).catch(() => {});
     logger.info({ caseId }, 'document_render_done');
   }

@@ -29,11 +29,18 @@ function isExamPending(doc: DocumentJSON): boolean {
   const ex = doc.examen_fisico ?? {};
   const vals = Object.values(ex);
   if (vals.length === 0) return true;
-  return vals.some((f) => f?.estado === 'pendiente_examen');
+  // Un estimado en standby ('estimado_ia') NO es examen resuelto: mantiene la marca BORRADOR.
+  return vals.some((f) => f?.estado === 'pendiente_examen' || f?.estado === 'estimado_ia');
 }
 
 function fieldVal(f: DocField | undefined): string {
-  if (!f || f.valor == null || f.estado !== 'ok') return '—';
+  if (!f || f.valor == null) return '—';
+  // Estimado en standby: se muestra el valor pero SIEMPRE etiquetado como no medido (CS3),
+  // para que nadie lo lea como una medición real en el documento firmado.
+  if (f.estado === 'estimado_ia') {
+    return `${escapeHtml(f.valor)} <span class="est-mark">(estimado — sin medir)</span>`;
+  }
+  if (f.estado !== 'ok') return '—';
   return escapeHtml(f.valor);
 }
 
@@ -174,6 +181,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   tr.alt { background: #eef5f6; }
   td.alerta { color: #b3261e; font-weight: 700; }
   .der-mark { color: #c8881a; font-weight: 700; margin-left: 2px; }
+  .est-mark { color: #b3261e; font-weight: 600; font-style: italic; font-size: 8.5px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
   .idgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: #bcd0d3; border: 1px solid #bcd0d3; border-top: none; margin: 0 0 2px; }
   .idgrid .cell { background: #fff; padding: 5px 8px; min-width: 0; }
@@ -202,7 +210,7 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
     ['paciente','Paciente'],['documento','Documento'],['edad_sexo','Edad / Sexo'],
     ['peso_talla_imc','Peso / Talla / IMC'],['diagnostico_preoperatorio','Diagnóstico preoperatorio'],['procedimiento','Procedimiento'],
     ['fecha_valoracion','Fecha de valoración'],['fecha_procedimiento','Fecha del procedimiento'],['capacidad_funcional','Capacidad funcional'],
-    ['asa','Clasificación ASA'],['tipo_cirugia','Tipo de cirugía'],['condicion_actual','Condición actual'],
+    ['asa','Clasificación ASA'],['condicion_actual','Condición actual'],
   ], draft)}
 
   <h2 class="band">Antecedentes y medicación</h2>

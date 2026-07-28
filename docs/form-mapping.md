@@ -5,7 +5,7 @@ Cuestionario base (preset "Preanestésica general"), tal como está sembrado en 
 debe coincidir con el seed y con la constante `PREGUNTAS` de `lib/ai/anthropic.ts`. 🫁 = relevancia
 directa para vía aérea/anestesia. Fuente exhaustiva del dominio: Anexo A del PRD.
 
-26 preguntas; varias son condicionales (se muestran según una respuesta previa).
+28 preguntas; varias son condicionales (se muestran según una respuesta previa).
 
 | P# | Pregunta | Tipo | Campo documento | Notas |
 |---|---|---|---|---|
@@ -32,9 +32,11 @@ directa para vía aérea/anestesia. Fuente exhaustiva del dominio: Anexo A del P
 | 21 | 🫁 ¿Prótesis dental / diseño de sonrisa? | sí/no | Vía aérea | relevante para intubación |
 | 22 | ¿Fuma o vapea? | sí/no | Hábitos | gatilla P23 |
 | 23 | 🫁 ¿Cuántos cigarrillos/vapeo al día? | texto | Hábitos | condicional (P22=sí) |
-| 24 | ¿Consume alcohol? | sí/no | Hábitos | |
-| 25 | ¿Consume sustancias psicoactivas? | sí/no | Hábitos | |
-| 26 | Correo electrónico | texto | Contacto/destinatario | |
+| 24 | ¿Consume alcohol? | sí/no | Hábitos | gatilla P25 |
+| 25 | ¿Cuántas veces/semana consume alcohol? | texto | Hábitos | condicional (P24=sí) |
+| 26 | ¿Consume sustancias psicoactivas? | sí/no | Hábitos | gatilla P27 |
+| 27 | ¿Cuáles sustancias psicoactivas? | texto | Hábitos | condicional (P26=sí) |
+| 28 | Correo electrónico | texto | Contacto/destinatario | |
 | — | Adjuntos (opcional) | archivo | Paraclínicos | extracción en cascada (texto→visión) |
 | — | Examen físico / signos vitales | — | Examen físico | `pendiente_examen`; nunca inventar (CS3) |
 | — | Diagnóstico·ASA·Concepto·Plan·Recomendaciones | — | Valoración y plan | IA derivado, confirma el médico (HITL) |

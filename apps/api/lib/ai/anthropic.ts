@@ -51,7 +51,7 @@ const CLINICAL_MAX_TOKENS = 32000;
 /** Campos permitidos por sección. Un esquema cerrado impide poblar campos prohibidos (CS5). */
 const ID_FIELDS = [
   'paciente', 'documento', 'edad_sexo', 'peso_talla_imc', 'procedimiento',
-  'fecha_procedimiento', 'fecha_valoracion', 'capacidad_funcional', 'tipo_cirugia',
+  'fecha_procedimiento', 'fecha_valoracion', 'capacidad_funcional',
   'condicion_actual', 'diagnostico_preoperatorio', 'asa',
 ] as const;
 
@@ -73,7 +73,8 @@ P11 grupo sanguíneo · P12 ¿sufre alguna enfermedad? · P13 patologías (check
 P14 ¿toma medicamentos? · P15 ¿cuáles medicamentos? · P16 ¿es alérgico? · P17 ¿a qué es alérgico? ·
 P18 ¿cirugía o anestesia previa? · P19 ¿cuáles cirugías? · P20 ¿transfusión previa? ·
 P21 ¿prótesis dental o diseño de sonrisa? · P22 ¿fuma o vapea? · P23 cigarrillos por día ·
-P24 ¿consume alcohol? · P25 ¿sustancias psicoactivas? · P26 correo`;
+P24 ¿consume alcohol? · P25 ¿cuántas veces por semana consume alcohol? ·
+P26 ¿sustancias psicoactivas? · P27 ¿cuáles sustancias psicoactivas? · P28 correo`;
 
 /**
  * Contrato de salida del motor clínico, descrito en el prompt.
@@ -394,9 +395,11 @@ export class AnthropicAIProvider implements AIProvider {
       '  reales del paciente. NO transcribas ni estimes peso/talla/IMC tú.',
       '- fecha_procedimiento: dd-mm-aaaa.',
       '- fecha_valoracion: déjalo en no_reportado; lo pone el sistema al renderizar.',
-      '- capacidad_funcional: el formulario NO la pregunta. Déjala en no_reportado salvo que',
-      '  una respuesta la sustente explícitamente; la evalúa el anestesiólogo.',
-      '- tipo_cirugia: sólo si se deduce del procedimiento declarado; si no, no_reportado.',
+      '- capacidad_funcional: el formulario NO la pregunta. Es una SUGERENCIA editable, no una',
+      '  afirmación. Si el paciente NO declara comorbilidades (P12=no), ofrécela como estimado de',
+      '  tamizaje: valor "≥ 4 METs (estimado — confirmar en examen)", estado ok, fuente derivado:IA,',
+      '  nota que aclare que es estimado a confirmar. Si declara comorbilidad (P12=sí) o cualquier',
+      '  dato que sugiera limitación, déjala en no_reportado: la evalúa el anestesiólogo presencial.',
       '- asa: formato CONCISO — el grado + los hallazgos clave en frases cortas, p. ej.',
       '  "ASA II: Anemia leve (Hb 10.3 g/dL). Tratamiento con isotretinoína." SIN muletillas',
       '  ("paciente joven sin comorbilidades declaradas, con … como factores clínicos relevantes").',

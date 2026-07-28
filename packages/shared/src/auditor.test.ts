@@ -27,7 +27,7 @@ function baseDoc(over: Partial<DocumentJSON> = {}): DocumentJSON {
 const sanoAnswers: AuditAnswers = {
   '12': { value: 'no' }, '14': { value: 'no' }, '16': { value: 'no' },
   '18': { value: 'no' }, '20': { value: 'no' }, '21': { value: 'no' },
-  '22': { value: 'no' }, '24': { value: 'no' }, '25': { value: 'no' },
+  '22': { value: 'no' }, '24': { value: 'no' }, '26': { value: 'no' },
 };
 
 describe('auditor — seguridad dura (bloqueante)', () => {
