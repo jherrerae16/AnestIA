@@ -2,7 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { documentSchema, LAB_GRUPOS, type DocumentJSON } from '@anestia/shared';
+import {
+  documentSchema,
+  LAB_GRUPOS,
+  QUESTION_DICTIONARY,
+  type DocumentJSON,
+} from '@anestia/shared';
 import { logger } from '../logger';
 import { mimeFor } from '../mime';
 import { readPdfText } from './pdf-text';
@@ -63,18 +68,19 @@ const ANTECEDENTES_FIELDS = [
 const PLAN_FIELDS = ['concepto', 'plan', 'recomendaciones'] as const;
 
 /**
- * Mapa de preguntas del formulario. El modelo NO puede adivinar la numeración: sin esto
- * cita fuentes equivocadas (`formulario:P18` para alergias, que en realidad es P16) y la
- * trazabilidad —que es el punto de CS2— queda inservible.
+ * Mapa de preguntas del formulario. El modelo NO puede adivinar los códigos: sin esto cita
+ * fuentes equivocadas y la trazabilidad —que es el punto de CS2— queda inservible.
+ *
+ * Se GENERA del diccionario. Antes era un literal escrito a mano que había que recordar
+ * actualizar junto al seed y a `docs/form-mapping.md`; tres copias de la misma lista es
+ * exactamente cómo se llega a citar `formulario:P18` para una alergia que era P16.
  */
-const PREGUNTAS = `P1 nombre · P2 documento · P3 fecha de nacimiento · P4 sexo · P5 peso (kg) ·
-P6 estatura (cm) · P7 teléfono · P8 aseguradora · P9 cirugía o procedimiento · P10 fecha de cirugía ·
-P11 grupo sanguíneo · P12 ¿sufre alguna enfermedad? · P13 patologías (checklist) ·
-P14 ¿toma medicamentos? · P15 ¿cuáles medicamentos? · P16 ¿es alérgico? · P17 ¿a qué es alérgico? ·
-P18 ¿cirugía o anestesia previa? · P19 ¿cuáles cirugías? · P20 ¿transfusión previa? ·
-P21 ¿prótesis dental o diseño de sonrisa? · P22 ¿fuma o vapea? · P23 cigarrillos por día ·
-P24 ¿consume alcohol? · P25 ¿cuántas veces por semana consume alcohol? ·
-P26 ¿sustancias psicoactivas? · P27 ¿cuáles sustancias psicoactivas? · P28 correo`;
+function buildPreguntasBlock(): string {
+  return QUESTION_DICTIONARY.filter((q) => q.obligacion !== 'S')
+    .map((q) => `${q.code} ${q.label}`)
+    .join(' · ');
+}
+const PREGUNTAS = buildPreguntasBlock();
 
 /**
  * Contrato de salida del motor clínico, descrito en el prompt.
@@ -91,7 +97,7 @@ function contractSpec(): string {
     'Devuelve ÚNICAMENTE un objeto JSON con esta forma exacta, sin texto alrededor y sin ```:',
     '',
     'Campo = { "valor": string, "estado": "ok"|"no_reportado", "fuente": string }',
-    '  - Con sustento     → estado "ok", valor con el dato, fuente citada (formulario:Pn | lab:... | derivado:IA).',
+    '  - Con sustento     → estado "ok", valor con el dato, fuente citada (formulario:<CODIGO> | lab:... | agenda:<CODIGO> | derivado:IA).',
     '  - Sin sustento     → estado "no_reportado", valor "", fuente "".',
     '',
     '{',
@@ -121,8 +127,18 @@ const extractionJsonSchema = {
           // Cadena vacía si el informe no la reporta (evita uniones nullable).
           reportDate: { type: 'string' },
           sourceRef: { type: 'string' },
+          // Nombre y valor tal como están IMPRESOS, antes de normalizar.
+          analyteRaw: { type: 'string' },
+          valueRaw: { type: 'string' },
+          institucion: { type: 'string' },
+          // Página del informe (1-based) y confianza de la lectura (0-1).
+          page: { type: 'integer' },
+          confidence: { type: 'number' },
         },
-        required: ['analyte', 'value', 'unit', 'refRange', 'grupo', 'reportDate', 'sourceRef'],
+        required: [
+          'analyte', 'value', 'unit', 'refRange', 'grupo', 'reportDate', 'sourceRef',
+          'analyteRaw', 'valueRaw', 'page', 'confidence',
+        ],
         additionalProperties: false,
       },
     },
@@ -142,6 +158,11 @@ const extractionSchema = z.object({
       grupo: z.string().nullish(),
       reportDate: z.string().nullish(),
       sourceRef: z.string().min(1),
+      analyteRaw: z.string().nullish(),
+      valueRaw: z.string().nullish(),
+      institucion: z.string().nullish(),
+      page: z.number().int().positive().nullish(),
+      confidence: z.number().min(0).max(1).nullish(),
     }),
   ),
 });
@@ -209,6 +230,16 @@ REGLA DE ORO — NUNCA FABRICAR:
 - Nunca infieras, estimes ni completes valores "esperables".
 - Cada valor lleva sourceRef indicando dónde se leyó (p. ej. "hemograma:hemoglobina", "coagulacion:INR").
 
+PROCEDENCIA (obligatoria en cada valor):
+- "analyteRaw" y "valueRaw": el nombre y el valor TAL COMO ESTÁN IMPRESOS, sin normalizar.
+  Si el informe dice "HB" y "15,9", eso es lo que va ahí, aunque en "analyte"/"value" pongas
+  la forma canónica. El original nunca se pierde.
+- "page": número de página del documento donde leíste el valor, empezando en 1.
+- "confidence": qué tan seguro estás de la lectura, entre 0 y 1. Sé honesto: un valor borroso,
+  cortado o ambiguo debe llevar confianza baja. Marcarlo bajo hace que un humano lo revise;
+  inflarlo hace que se use un número dudoso en un documento firmado.
+- "institucion": el laboratorio que emite el informe, si aparece.
+
 Extrae los analitos de laboratorio con su valor, unidad y rango de referencia si aparecen.
 Si el documento no es un laboratorio (p. ej. un ECG o un ecocardiograma), devuelve una lista vacía.
 
@@ -250,8 +281,13 @@ export class AnthropicAIProvider implements AIProvider {
     if (!files || files.length === 0) return { labs: [], perFile: [] };
 
     if (method === 'vision') {
-      const raw = await this.extractByVision(files);
-      const labs = raw.map((l) => ({ ...l, extractionLayer: 'vision' as const }));
+      // Un archivo por llamada: con varios juntos no se sabe de cuál salió cada valor, y sin eso
+      // no hay procedencia que persistir (Especificación §15).
+      const labs: ExtractedLab[] = [];
+      for (const f of files) {
+        const raw = await this.extractByVision([f]);
+        labs.push(...raw.map((l) => ({ ...l, extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null })));
+      }
       return { labs, perFile: files.map((f) => ({ file: f.filename, layer: 'vision' })) };
     }
 
@@ -281,12 +317,24 @@ export class AnthropicAIProvider implements AIProvider {
     for (const f of textFiles) {
       const t = await readPdfText(await storage.get(f.key), f.filename);
       const fromText = await this.extractFromText(t.text, f.filename);
-      labs.push(...fromText.map((l) => ({ ...l, extractionLayer: 'texto' as const })));
+      labs.push(
+        ...fromText.map((l) => ({
+          ...l,
+          extractionLayer: 'texto' as const,
+          attachmentId: f.attachmentId ?? null,
+        })),
+      );
     }
-    // Capa 4: fallback a visión para lo que el texto no resolvió.
-    if (visionFiles.length > 0) {
-      const byVision = await this.extractByVision(visionFiles);
-      labs.push(...byVision.map((l) => ({ ...l, extractionLayer: 'vision' as const })));
+    // Capa 4: fallback a visión, también archivo por archivo, para conservar la procedencia.
+    for (const f of visionFiles) {
+      const byVision = await this.extractByVision([f]);
+      labs.push(
+        ...byVision.map((l) => ({
+          ...l,
+          extractionLayer: 'vision' as const,
+          attachmentId: f.attachmentId ?? null,
+        })),
+      );
     }
     return { labs, perFile };
   }
@@ -386,7 +434,7 @@ export class AnthropicAIProvider implements AIProvider {
       'No generes el examen físico, los signos vitales ni los paraclínicos: los aporta el',
       'anestesiólogo y el sistema.',
       '',
-      'PREGUNTAS DEL FORMULARIO (cita la fuente con este número exacto):',
+      'PREGUNTAS DEL FORMULARIO (cita la fuente con este código exacto, p. ej. formulario:CF01):',
       PREGUNTAS,
       '',
       'FORMATO DE ALGUNOS CAMPOS:',
@@ -395,11 +443,9 @@ export class AnthropicAIProvider implements AIProvider {
       '  reales del paciente. NO transcribas ni estimes peso/talla/IMC tú.',
       '- fecha_procedimiento: dd-mm-aaaa.',
       '- fecha_valoracion: déjalo en no_reportado; lo pone el sistema al renderizar.',
-      '- capacidad_funcional: el formulario NO la pregunta. Es una SUGERENCIA editable, no una',
-      '  afirmación. Si el paciente NO declara comorbilidades (P12=no), ofrécela como estimado de',
-      '  tamizaje: valor "≥ 4 METs (estimado — confirmar en examen)", estado ok, fuente derivado:IA,',
-      '  nota que aclare que es estimado a confirmar. Si declara comorbilidad (P12=sí) o cualquier',
-      '  dato que sugiera limitación, déjala en no_reportado: la evalúa el anestesiólogo presencial.',
+      '- capacidad_funcional: déjala SIEMPRE en no_reportado. NO la estimes ni la infieras de la',
+      '  ausencia de comorbilidades: que alguien no declare enfermedades no mide su tolerancia al',
+      '  ejercicio. Se obtiene de CF01/CF02 y del DASI (D01-D12), y la calcula el sistema.',
       '- asa: formato CONCISO — el grado + los hallazgos clave en frases cortas, p. ej.',
       '  "ASA II: Anemia leve (Hb 10.3 g/dL). Tratamiento con isotretinoína." SIN muletillas',
       '  ("paciente joven sin comorbilidades declaradas, con … como factores clínicos relevantes").',

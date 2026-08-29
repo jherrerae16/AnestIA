@@ -35,3 +35,36 @@ no solo la tabla de sinónimos.
 - **Fecha del informe (`reportDate`):** se lee la fecha impresa (toma/proceso), no la de carga.
   Un examen de ≥3 meses se marca para verificar vigencia. Si el informe no la trae, se declara
   ausente — nunca se asume reciente (CS2). Ojo con el formato colombiano DD/MM/AAAA.
+
+## Procedencia y confianza (Especificación §15)
+
+Cada resultado guarda de dónde salió y con qué seguridad se leyó:
+
+| Campo | Qué guarda |
+|---|---|
+| `attachmentId` + `page` | Archivo y página del informe. Sin esto un valor no se puede rastrear. |
+| `analyteRaw` / `valueRaw` | Nombre y valor **tal como están impresos**, antes de normalizar. |
+| `unitRaw` + `conversionRule` | Unidad impresa y la regla aplicada, si hubo conversión. |
+| `institucion` | Laboratorio que emite el informe. |
+| `confidence` | Confianza de la lectura, 0-1. La aporta el extractor. |
+| `estadoExtraccion` | `AUTOMATICO` · `PENDIENTE_CONFIRMACION` · `CONFIRMADO`. |
+| `identityMatch` | Si la identidad del informe concuerda con la del caso. |
+
+### Qué pasa a revisión humana
+
+Un resultado va a `PENDIENTE_CONFIRMACION` si tiene **confianza < 0.7**, **no trae unidad** o
+**no se pudo asociar a un archivo**. No se descarta —perderlo sería peor— pero **no alimenta
+escalas ni alertas** hasta que el médico lo confirme. Dejar una escala pendiente es correcto;
+puntuarla con un número dudoso, no.
+
+### Conversión de unidades
+
+Tabla **cerrada** en `packages/shared/src/lab-units.ts`. Lo que no está ahí no se convierte: se
+deja como vino. Adivinar un factor es peor que no convertir — uno equivocado en una hemoglobina
+cambia una anemia por una policitemia en un documento firmado.
+
+El valor y la unidad originales se conservan **siempre**, incluso cuando sí se convierte.
+
+Las reglas se escriben con el nombre **canónico** del analito (el que devuelve `canonicalAnalyte`:
+"Glucemia", no "Glucosa"). Un nombre coloquial no coincide nunca y la conversión se perdería sin
+error visible; hay un test que lo comprueba.

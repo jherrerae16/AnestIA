@@ -25,14 +25,7 @@ export async function createPreset(anesthesiologistId: string, def: PresetDef) {
       name: def.name,
       version: 1,
       questions: {
-        create: def.questions.map((q) => ({
-          order: q.order,
-          label: q.label,
-          type: q.type,
-          required: q.required ?? false,
-          options: (q.options ?? undefined) as never,
-          conditional: (q.conditional ?? undefined) as never,
-        })),
+        create: def.questions.map(toQuestionRow),
       },
     },
     include: { questions: { orderBy: { order: 'asc' } } },
@@ -59,14 +52,7 @@ export async function updatePreset(anesthesiologistId: string, id: string, def: 
         version: existing.version + 1,
         isDefault: existing.isDefault,
         questions: {
-          create: def.questions.map((q) => ({
-            order: q.order,
-            label: q.label,
-            type: q.type,
-            required: q.required ?? false,
-            options: (q.options ?? undefined) as never,
-            conditional: (q.conditional ?? undefined) as never,
-          })),
+          create: def.questions.map(toQuestionRow),
         },
       },
       include: { questions: { orderBy: { order: 'asc' } } },
@@ -80,16 +66,41 @@ export async function updatePreset(anesthesiologistId: string, id: string, def: 
     data: {
       name: def.name,
       questions: {
-        create: def.questions.map((q) => ({
-          order: q.order,
-          label: q.label,
-          type: q.type,
-          required: q.required ?? false,
-          options: (q.options ?? undefined) as never,
-          conditional: (q.conditional ?? undefined) as never,
-        })),
+        create: def.questions.map(toQuestionRow),
       },
     },
     include: { questions: { orderBy: { order: 'asc' } } },
   });
 }
+
+/**
+ * `QuestionDef` (contrato compartido) → fila de `Question`. Un solo sitio: antes este mapeo
+ * estaba copiado en las tres rutas de escritura del servicio y era donde se perdían campos.
+ */
+function toQuestionRow(q: PresetDef['questions'][number]) {
+  return {
+    code: q.code,
+    order: q.order,
+    label: q.label,
+    type: q.type,
+    required: q.required ?? false,
+    obligacion: OBLIGACION[q.obligacion ?? 'C'],
+    seccion: q.seccion ?? null,
+    grupo: q.grupo ?? null,
+    modulo: q.modulo ?? null,
+    ayuda: q.ayuda ?? null,
+    alimenta: q.alimenta ?? [],
+    repiteSobre: q.repiteSobre ?? null,
+    campos: (q.campos ?? undefined) as never,
+    validacion: (q.validacion ?? undefined) as never,
+    options: (q.options ?? undefined) as never,
+    conditional: (q.conditional ?? undefined) as never,
+  };
+}
+
+const OBLIGACION = {
+  O: 'OBLIGATORIA',
+  C: 'CONDICIONAL',
+  S: 'SISTEMA',
+  V: 'VERIFICA',
+} as const;

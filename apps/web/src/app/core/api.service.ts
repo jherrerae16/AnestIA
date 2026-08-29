@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import type { ScheduleDef } from '@anestia/shared';
 
 export interface PresetSummary {
   id: string;
@@ -27,8 +28,15 @@ export class ApiService {
   listPresets(): Promise<{ presets: PresetSummary[] }> {
     return firstValueFrom(this.http.get<{ presets: PresetSummary[] }>('/api/panel/presets'));
   }
-  createCase(presetId: string, procedure?: string): Promise<CreatedCase> {
-    return firstValueFrom(this.http.post<CreatedCase>('/api/panel/cases', { presetId, procedure }));
+  createCase(presetId: string, schedule: ScheduleDef, patientId?: string): Promise<CreatedCase> {
+    return firstValueFrom(
+      this.http.post<CreatedCase>('/api/panel/cases', { presetId, schedule, patientId }),
+    );
+  }
+  updateSchedule(caseId: string, schedule: ScheduleDef): Promise<{ ok: boolean }> {
+    return firstValueFrom(
+      this.http.put<{ ok: boolean }>(`/api/panel/cases/${caseId}/schedule`, schedule),
+    );
   }
   getForm(token: string): Promise<any> {
     return firstValueFrom(this.http.get<any>(`/api/form/${token}`));

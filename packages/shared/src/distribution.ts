@@ -1,3 +1,4 @@
+import { CODES } from './dictionary/codes';
 export type ContactTypeT = 'MEDICO' | 'CLINICA' | 'ASEGURADORA' | 'PACIENTE' | 'OTRO';
 
 export interface DeliveryEmailInput {
@@ -30,22 +31,24 @@ export interface PatientBase {
   fullName: string;
   documentId: string;
   birthDate?: string | null;
-  sex?: string | null;
+  sexAtBirth?: string | null;
   insurer?: string | null;
   bloodType?: string | null;
 }
 
 /**
  * Precarga de respuestas base al crear un caso para un paciente existente (US-6.3/RF-11.5).
- * Devuelve un mapa questionOrder→value con los datos conocidos, para reconfirmación.
+ * Devuelve un mapa CÓDIGO→valor con lo que ya se sabe, para que el paciente lo confirme en vez
+ * de volver a escribirlo. La Especificación lo pide de forma explícita: "preguntar nuevamente
+ * un dato ya disponible se considera un error de diseño".
  */
 export function prefillFromPatient(p: PatientBase): Record<string, string> {
   const out: Record<string, string> = {};
-  if (p.fullName) out['1'] = p.fullName;
-  if (p.documentId) out['2'] = p.documentId;
-  if (p.birthDate) out['3'] = p.birthDate;
-  if (p.sex) out['4'] = p.sex;
-  if (p.insurer) out['8'] = p.insurer;
-  if (p.bloodType) out['11'] = p.bloodType;
+  if (p.fullName) out[CODES.nombre] = p.fullName;
+  if (p.documentId) out[CODES.documento] = p.documentId;
+  if (p.birthDate) out[CODES.fechaNacimiento] = p.birthDate;
+  if (p.sexAtBirth) out[CODES.sexoNacimiento] = p.sexAtBirth;
+  if (p.insurer) out[CODES.aseguradora] = p.insurer;
+  if (p.bloodType) out[CODES.grupoSanguineo] = p.bloodType;
   return out;
 }

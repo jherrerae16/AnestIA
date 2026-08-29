@@ -3,6 +3,7 @@ import { prisma } from '../prisma';
 import { publish } from './index';
 import { logger } from '../logger';
 import { logAudit } from '../audit';
+import { computeScalesForCase } from '../services/scales.service';
 import { extractForCase, flagForCase } from '../services/lab.service';
 import { generateForCase } from '../services/clinical.service';
 import { auditForCase } from '../services/audit-clinical.service';
@@ -57,6 +58,12 @@ export async function onLabFlag(jobs: Job[]): Promise<void> {
     await runStage(caseId, 'lab.flag', () => flagForCase(caseId));
     await logAudit({ action: 'lab.flagged', entity: 'Case', entityId: caseId });
     logger.info({ caseId }, 'lab_flag_done');
+
+    // Escalas ANTES del motor clínico: son determinísticas y el modelo no las produce — sólo
+    // puede citarlas. Van después del flagging porque ARISCAT y RCRI consumen hemoglobina y
+    // creatinina ya validadas.
+    await runStage(caseId, 'scales.compute', () => computeScalesForCase(caseId));
+
     await publish('clinical.generate', { caseId });
   }
 }

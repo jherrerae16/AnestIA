@@ -46,6 +46,22 @@ export function canApprove(fields: DocumentJSON): ApprovalCheck {
     blockers.push(`Falta registrar en el examen físico: ${nombres}. Son datos medidos: deben ingresarse.`);
   }
 
+  // Escalas: una PENDIENTE **no** bloquea. Bloquear presionaría al médico a inventar la
+  // variable que falta para destrabar el PDF — el modo de falla que CS3 existe para prevenir,
+  // invertido. Lo que sí bloquea es una REVISION_CLINICA sin resolver: ese estado significa que
+  // el motor determinístico encontró una contradicción, y una contradicción hay que reconocerla.
+  for (const e of fields.escalas ?? []) {
+    if (e.estado === 'REVISION_CLINICA') {
+      blockers.push(
+        `${e.nombre} quedó en revisión clínica: ${e.motivo ?? 'discordancia detectada'}. ` +
+          `Resuélvela antes de aprobar.`,
+      );
+    }
+    if (e.estado === 'CALCULADA' && e.faltantes.length > 0) {
+      blockers.push(`${e.nombre} figura como calculada pero le faltan variables. Es incoherente.`);
+    }
+  }
+
   const id = fields.identificacion ?? {};
   for (const key of REQUIRED_ID_FIELDS) {
     const f = id[key];

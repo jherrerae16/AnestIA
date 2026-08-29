@@ -25,9 +25,9 @@ function baseDoc(over: Partial<DocumentJSON> = {}): DocumentJSON {
 }
 
 const sanoAnswers: AuditAnswers = {
-  '12': { value: 'no' }, '14': { value: 'no' }, '16': { value: 'no' },
-  '18': { value: 'no' }, '20': { value: 'no' }, '21': { value: 'no' },
-  '22': { value: 'no' }, '24': { value: 'no' }, '26': { value: 'no' },
+  AP00: { value: 'no' }, RX01: { value: 'no' }, AL01: { value: 'no' },
+  AN01: { value: 'no' }, TR01: { value: 'no' }, DE01: { value: 'no' },
+  HB01: { value: 'Nunca' }, HB05: { value: 'Nunca' }, HB06: { value: ['No'] },
 };
 
 describe('auditor — seguridad dura (bloqueante)', () => {
@@ -64,22 +64,29 @@ describe('auditor — seguridad dura (bloqueante)', () => {
 
 describe('auditor — contradicciones', () => {
   it('detecta negar enfermedad pero marcar patologías', () => {
-    const answers: AuditAnswers = { ...sanoAnswers, '12': { value: 'no' }, '13': { value: ['Hipertensión arterial'] } };
+    const answers: AuditAnswers = { ...sanoAnswers, AP00: { value: 'no' }, AG01: { value: ['Hipertensión arterial'] } };
     const r = auditDocument({ doc: baseDoc(), answers });
-    expect(r.findings.some((f) => f.category === 'contradiccion' && /P12/.test(f.message))).toBe(true);
+    expect(r.findings.some((f) => f.category === 'contradiccion' && /AP00/.test(f.message))).toBe(true);
     expect(r.blocked).toBe(false); // sólo advertencia: decide el médico
   });
 
   it('detecta negar medicamentos pero declarar semaglutida', () => {
-    const answers: AuditAnswers = { ...sanoAnswers, '14': { value: 'no' }, '15': { value: 'semaglutida' } };
+    const answers: AuditAnswers = { ...sanoAnswers, RX01: { value: 'no' }, RX02: { value: 'semaglutida' } };
     const r = auditDocument({ doc: baseDoc(), answers });
     expect(r.findings.some((f) => f.category === 'contradiccion' && /semaglutida/.test(f.message))).toBe(true);
   });
 
-  it('detecta negar fumar pero reportar cigarrillos/día', () => {
-    const answers: AuditAnswers = { ...sanoAnswers, '22': { value: 'no' }, '23': { value: '5' } };
+  it('detecta negar alergias pero especificar a qué', () => {
+    const answers: AuditAnswers = { ...sanoAnswers, AL01: { value: 'no' }, AL02: { value: ['Látex'] } };
     const r = auditDocument({ doc: baseDoc(), answers });
-    expect(r.findings.some((f) => f.category === 'contradiccion' && /P22/.test(f.message))).toBe(true);
+    expect(r.findings.some((f) => f.category === 'contradiccion' && /AL01/.test(f.message))).toBe(true);
+  });
+
+  it('"no sabe" NO cuenta como negación: no genera contradicción', () => {
+    // La especificación lo repite en los tres documentos: "no sabe" nunca equivale a "no".
+    const answers: AuditAnswers = { ...sanoAnswers, AL01: { value: 'no sabe' }, AL02: { value: ['Látex'] } };
+    const r = auditDocument({ doc: baseDoc(), answers });
+    expect(r.findings.some((f) => f.category === 'contradiccion' && /AL01/.test(f.message))).toBe(false);
   });
 });
 
@@ -263,7 +270,7 @@ describe('auditor — ASA vs comorbilidades', () => {
   it('marca ASA I con comorbilidades declaradas', () => {
     const doc = baseDoc();
     (doc.identificacion as Record<string, DocField>)['asa'] = ok('ASA I', 'derivado:IA');
-    const answers: AuditAnswers = { ...sanoAnswers, '12': { value: 'si' }, '13': { value: ['Hipertensión arterial'] } };
+    const answers: AuditAnswers = { ...sanoAnswers, AP00: { value: 'si' }, AG01: { value: ['Hipertensión arterial'] } };
     const r = auditDocument({ doc, answers });
     expect(r.findings.some((f) => f.category === 'coherencia' && /ASA/.test(f.message))).toBe(true);
   });
@@ -295,7 +302,7 @@ describe('auditor — ASA vs comorbilidades', () => {
 describe('auditor — interpretación de medicamentos de riesgo', () => {
   it('marca anticoagulante declarado no reflejado en la valoración', () => {
     const doc = baseDoc();
-    const answers: AuditAnswers = { ...sanoAnswers, '14': { value: 'si' }, '15': { value: 'warfarina' } };
+    const answers: AuditAnswers = { ...sanoAnswers, RX01: { value: 'si' }, RX02: { value: 'warfarina' } };
     const r = auditDocument({ doc, answers });
     expect(r.findings.some((f) => f.category === 'completitud' && /anticoagulante/.test(f.message))).toBe(true);
   });
@@ -303,7 +310,7 @@ describe('auditor — interpretación de medicamentos de riesgo', () => {
   it('no se queja si el manejo del anticoagulante ya aparece', () => {
     const doc = baseDoc();
     (doc.valoracion_plan as Record<string, DocField>)['recomendaciones'] = ok('Suspender warfarina 5 días antes; puente con heparina según riesgo.', 'derivado:IA');
-    const answers: AuditAnswers = { ...sanoAnswers, '14': { value: 'si' }, '15': { value: 'warfarina' } };
+    const answers: AuditAnswers = { ...sanoAnswers, RX01: { value: 'si' }, RX02: { value: 'warfarina' } };
     const r = auditDocument({ doc, answers });
     expect(r.findings.some((f) => /anticoagulante cumarínico/.test(f.message))).toBe(false);
   });

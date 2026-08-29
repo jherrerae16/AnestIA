@@ -56,6 +56,28 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
   standalone: true,
   imports: [FormsModule, NgTemplateOutlet],
   styles: [`
+    /* Escalas de riesgo: el estado se lee de un vistazo, junto al puntaje. */
+    .esc-panel { margin: 0 0 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .esc-panel-head { background: var(--it-50); padding: 9px 14px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; color: var(--primary); }
+    .esc-row { display: flex; gap: 11px; align-items: flex-start; padding: 11px 14px;
+      border-top: 1px solid var(--border); }
+    .esc-body { flex: 1; min-width: 0; }
+    .esc-nombre { font-size: 13px; font-weight: 600; color: var(--text); }
+    .esc-puntaje { font-size: 12.5px; color: var(--text); margin-top: 2px; }
+    .esc-retenida { font-size: 11.5px; color: var(--muted); font-style: italic; }
+    .esc-falta { font-size: 11.5px; color: #b54708; margin-top: 3px; }
+    .esc-ver { font-size: 10px; color: var(--muted2); white-space: nowrap; }
+    .esc-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .esc-calculada { background: #ecfdf3; color: #027a48; }
+    .esc-pendiente { background: #fffaeb; color: #b54708; }
+    .esc-revision_clinica { background: #fef3f2; color: #b42318; }
+
+    /* Programación incompleta: no bloquea nada, avisa de qué escalas quedarán pendientes. */
+    .agenda-faltante { margin: 0 0 16px; padding: 12px 15px; border-radius: 10px;
+      background: #fffaeb; border: 1px solid #fedf89; font-size: 12.5px; color: #93370d; }
+    .agenda-faltante strong { display: block; margin-bottom: 3px; }
+
     .page-head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; gap:16px; flex-wrap:wrap; }
     .page-head h2 { font-size:26px; letter-spacing:-0.6px; }
     .page-head p { font-size:13px; color:var(--muted); margin-top:3px; }
@@ -227,6 +249,8 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     @if (loading()) { <div class="empty">Cargando…</div> }
 
     @else if (approved()) {
+      <ng-container [ngTemplateOutlet]="agendaBanner" />
+      <ng-container [ngTemplateOutlet]="escalasPanel" />
       <ng-container [ngTemplateOutlet]="noteBanner" />
       <div class="page-head">
         <div><h2>Caso aprobado</h2><p>El documento final está firmado. Puedes reabrirlo para corregir un error.</p></div>
@@ -329,6 +353,8 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     }
 
     @else {
+      <ng-container [ngTemplateOutlet]="agendaBanner" />
+      <ng-container [ngTemplateOutlet]="escalasPanel" />
       <ng-container [ngTemplateOutlet]="noteBanner" />
       <div class="page-head">
         <div><h2>Revisión de valoración</h2><p>Verifica los datos antes de aprobar y firmar.</p></div>
@@ -347,7 +373,7 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
               <div class="field"><span class="k">Nombre</span><span class="v">{{ p.fullName }}</span></div>
               <div class="field"><span class="k">Documento</span><span class="v">{{ p.documentId || '—' }}</span></div>
               <div class="field"><span class="k">Edad</span><span class="v">{{ p.edad != null ? p.edad + ' años' : '—' }}</span></div>
-              <div class="field"><span class="k">Sexo</span><span class="v">{{ p.sex || '—' }}</span></div>
+              <div class="field"><span class="k">Sexo</span><span class="v">{{ sexoLabel(p.sexAtBirth) }}</span></div>
               <div class="field">
                 <span class="k">Teléfono</span>
                 <span class="v">@if (p.phone) { <a [href]="'tel:' + p.phone">{{ p.phone }}</a> } @else { — }</span>
@@ -557,6 +583,50 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
       </div>
     }
 
+    <!-- Escalas de riesgo. Se muestra el ESTADO junto al puntaje: una escala pendiente dice qué
+         falta, en vez de quedarse muda o parecer calculada. -->
+    <ng-template #escalasPanel>
+      @if (escalas().length) {
+        <div class="esc-panel" data-testid="review-escalas">
+          <div class="esc-panel-head">Estratificación perioperatoria</div>
+          @for (e of escalas(); track e.escala) {
+            <div class="esc-row">
+              <span class="esc-chip" [class]="'esc-chip esc-' + e.estado.toLowerCase()">
+                {{ etiquetaEstado(e.estado) }}
+              </span>
+              <div class="esc-body">
+                <div class="esc-nombre">{{ e.nombre }}</div>
+                @if (e.puntaje !== null) {
+                  <div class="esc-puntaje">
+                    {{ e.puntaje }}
+                    @if (e.categoria) { · {{ e.categoria }} }
+                    @else { <span class="esc-retenida">interpretación pendiente de validación institucional</span> }
+                  </div>
+                }
+                @if (e.faltantes.length) {
+                  <div class="esc-falta">Falta: {{ e.faltantes.join(', ') }}</div>
+                }
+                @if (e.motivo) { <div class="esc-falta">{{ e.motivo }}</div> }
+              </div>
+              <span class="esc-ver">{{ e.version }}</span>
+            </div>
+          }
+        </div>
+      }
+    </ng-template>
+
+    <!-- Programación quirúrgica. Se muestra lo que falta porque, mientras falte, las escalas
+         que dependen de esas variables quedan PENDIENTES en vez de calcularse con supuestos. -->
+    <ng-template #agendaBanner>
+      @if (agendaFaltante().length) {
+        <div class="agenda-faltante" data-testid="review-agenda-faltante">
+          <strong>Programación incompleta</strong>
+          Las escalas que dependan de esto quedarán pendientes, no se calcularán con supuestos.
+          Falta: {{ agendaFaltante().join(', ') }}.
+        </div>
+      }
+    </ng-template>
+
     <!-- Nota privada del médico sobre este paciente. Aparece sola (no hay que buscarla): arranca
          expandida; el médico puede colapsarla y la preferencia se recuerda en localStorage. -->
     <ng-template #noteBanner>
@@ -624,6 +694,33 @@ export class ReviewApprovalPage implements OnInit {
   savingEdit = signal(false);
   reopening = signal(false);
   /** Nota privada del médico sobre este paciente (o null). Aparece sola en el caso. */
+  /** Variables de la agenda que aún faltan. Vacío = programación completa. */
+  agendaFaltante = signal<string[]>([]);
+  /** Escalas de riesgo del caso. Las NO_INDICADA no llegan aquí. */
+  escalas = signal<{
+    escala: string; nombre: string; version: string; estado: string;
+    puntaje: number | null; categoria: string | null; faltantes: string[]; motivo: string | null;
+  }[]>([]);
+
+  /** Etiqueta del sexo registrado al nacer (el enum cambió con la especificación). */
+  sexoLabel(sexo: string | null | undefined): string {
+    if (!sexo) return '—';
+    return (
+      {
+        MUJER: 'Mujer', HOMBRE: 'Hombre', INTERSEXUAL: 'Intersexual',
+        NO_SABE: 'No sabe', PREFIERE_NO_RESPONDER: 'Prefiere no responder',
+        FEMENINO: 'Mujer', MASCULINO: 'Hombre',
+      }[sexo.toUpperCase()] ?? sexo
+    );
+  }
+
+  /** Etiqueta legible del estado de una escala. */
+  etiquetaEstado(e: string): string {
+    return (
+      { CALCULADA: 'Calculada', PENDIENTE: 'Pendiente', REVISION_CLINICA: 'Revisión clínica',
+        NO_INDICADA: 'No indicada' }[e] ?? e
+    );
+  }
   patientNote = signal<{ content: string; updatedAt: string } | null>(null);
   /** patientId del caso (para crear/editar la nota desde aquí). null si el caso no tiene paciente. */
   notePatientId = signal<string | null>(null);
@@ -643,7 +740,7 @@ export class ReviewApprovalPage implements OnInit {
     fullName: string;
     documentId?: string | null;
     edad?: number | null;
-    sex?: string | null;
+    sexAtBirth?: string | null;
     phone?: string | null;
     email?: string | null;
     insurer?: string | null;
@@ -819,6 +916,8 @@ export class ReviewApprovalPage implements OnInit {
     this.attachments.set(r.attachments ?? []);
     this.check.set(r.canApprove);
     this.patient.set(r.patient ?? null);
+    this.agendaFaltante.set(r.agendaFaltante ?? []);
+    this.escalas.set(r.escalas ?? []);
     this.patientNote.set(r.patientNote ?? null);
     this.notePatientId.set(r.patientId ?? null);
     this.setFindings(r.audit?.findings ?? []);

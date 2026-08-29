@@ -20,11 +20,16 @@ export interface ClinicalInput {
   labs: { analyte: string; value: string; unit?: string | null; flag: string; sourceRef?: string | null }[];
   glp1: { declared: boolean; drug?: string };
   imc: number | null;
-  /** Peso/talla reales del paciente (P5/P6), para forzar peso_talla_imc por código (CS2). */
+  /** Peso/talla reales del paciente (ID10/ID11), fuerzan peso_talla_imc por código (CS2). */
   pesoKg: number | null;
   tallaCm: number | null;
-  /** Edad en años (de P3 vs P10), para estimar signos vitales de referencia. */
+  /** Edad en años (ID03 contra la fecha del procedimiento). */
   edad?: number | null;
+  /** Datos de la agenda quirúrgica (PX01, PX03). No salen del formulario. */
+  procedimiento?: string | null;
+  /** PX02 — el diagnóstico preoperatorio lo aporta la programación, no el paciente. */
+  diagnosticoPreop?: string | null;
+  fechaProcedimiento?: string | null;
 }
 
 /**
@@ -135,6 +140,9 @@ export function enforceGuardrails(doc: DocumentJSON, vitals: Vitals | number | n
     paraclinicos: { ...doc.paraclinicos },
     examen_fisico: {},
     valoracion_plan: { ...doc.valoracion_plan },
+    // Las escalas pasan intactas: las calcula el código, no el modelo, así que no hay nada que
+    // guardar aquí. Reconstruir el documento clave por clave y olvidarlas las borraba entero.
+    escalas: doc.escalas ?? [],
   };
 
   // Examen físico SIEMPRE pendiente (CS3).

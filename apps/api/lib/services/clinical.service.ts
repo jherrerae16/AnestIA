@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../prisma';
+import { getScalesForCase } from './scales.service';
 import { activeModelLabel, getAIProvider, type ClinicalInput } from '../ai';
 import { logAudit } from '../audit';
 import {
@@ -16,6 +17,11 @@ import {
   PROMPT_MAESTRO_VERSION,
   type DocField,
   type FormAnswers,
+  CODES,
+  getMulti,
+  getClinicalText,
+  getText,
+  NOMBRE_ESCALA,
 } from '@anestia/shared';
 
 /** Carga el system prompt (prompt-maestro-v2) desde docs/. */
@@ -31,32 +37,42 @@ export async function loadPromptMaestro(): Promise<string> {
 export async function assembleInput(caseId: string): Promise<ClinicalInput> {
   const fr = await prisma.formResponse.findUnique({ where: { caseId } });
   const labs = await prisma.extractedLabResult.findMany({ where: { caseId } });
+  const kase = await prisma.case.findUnique({ where: { id: caseId }, include: { schedule: true } });
   const answers = (fr?.answers as FormAnswers) ?? {};
 
-  // GLP-1 se detecta del detalle de medicamentos (P15 ¿cuáles?).
-  const p15 = answers['15']?.value;
-  const glp1 = detectGLP1(typeof p15 === 'string' ? p15 : Array.isArray(p15) ? p15.join(' ') : '');
+  // GLP-1: ahora hay un módulo estructurado (GL01) además del texto libre de medicamentos.
+  // Se mira primero el módulo, y el texto libre queda como red de seguridad para lo que el
+  // paciente escriba por su cuenta.
+  const glp1Modulo = getMulti(answers, CODES.glp1).filter(
+    (o) => !/^(ninguno|no sabe)$/i.test(o.trim()),
+  );
+  const glp1 = glp1Modulo.length > 0
+    ? { declared: true, drug: glp1Modulo.join(', ') }
+    : detectGLP1(getClinicalText(answers, CODES.listaMedicamentos) + ' ' + getText(answers, CODES.naturales));
 
   // parseNumeric normaliza la coma decimal ("78,5"→78.5) — un paciente que teclea coma no
   // debe hacer que el IMC se caiga en silencio (C-3). Un solo helper compartido para todos
   // los sitios de lectura de peso/talla.
-  const peso = answers['5']?.value != null ? parseNumeric(answers['5'].value as string | number) : null;
-  const talla = answers['6']?.value != null ? parseNumeric(answers['6'].value as string | number) : null;
+  const peso = parseNumeric(getText(answers, CODES.peso));
+  const talla = parseNumeric(getText(answers, CODES.talla));
   const pesoKg = peso != null && peso > 0 ? peso : null;
   const tallaCm = talla != null && talla > 0 ? talla : null;
   const imc = pesoKg != null && tallaCm != null ? computeIMC(pesoKg, tallaCm) : null;
 
-  // Edad de P3 (nacimiento) vs P10 (fecha de cirugía) — misma base que el documento, sin Date.now.
-  const birth = answers['3']?.value;
-  const ref = answers['10']?.value;
-  const edad = computeAge(
-    typeof birth === 'string' ? birth : null,
-    typeof ref === 'string' ? ref : null,
-  );
+  // Edad: nacimiento (ID03) contra la fecha del procedimiento — misma base que el documento y
+  // sin Date.now. La fecha viene de la AGENDA, no del paciente: la Especificación es explícita
+  // en que el acto quirúrgico no lo describe el paciente.
+  const birth = getText(answers, CODES.fechaNacimiento) || null;
+  const agendaFecha = kase?.schedule?.fechaHora ?? kase?.procedureDate ?? null;
+  const ref = agendaFecha ? agendaFecha.toISOString().slice(0, 10) : null;
+  const edad = computeAge(birth, ref);
 
   return {
     caseId,
     answers,
+    procedimiento: kase?.schedule?.procedimiento ?? kase?.procedure ?? null,
+    diagnosticoPreop: kase?.schedule?.diagnosticoPreop ?? null,
+    fechaProcedimiento: ref,
     pesoKg,
     tallaCm,
     edad,
@@ -160,14 +176,16 @@ export async function generateForCase(caseId: string): Promise<void> {
   const existing = await prisma.generatedAssessment.findUnique({ where: { caseId } });
   if (existing) return;
 
+  const kase = await prisma.case.findUnique({ where: { id: caseId }, include: { schedule: true } });
   const input = await assembleInput(caseId);
   const raw = await getAIProvider().generateAssessment(input);
 
-  // Paraclínicos: los arma el CÓDIGO desde los labs realmente extraídos, nunca el modelo.
-  // Así los valores del documento son los del laboratorio, no los que el modelo recuerde (CS2).
+  // Paraclínicos y ESCALAS: los arma el CÓDIGO, nunca el modelo. Los valores del documento son
+  // los del laboratorio y los puntajes son determinísticos, no lo que el modelo recuerde (CS2).
   const withParaclinicos = {
     ...raw,
     paraclinicos: buildParaclinicos(input.labs, raw.paraclinicos, new Date().toISOString().slice(0, 10)),
+    escalas: await buildEscalas(caseId),
   };
 
   // Validación de contrato (rechaza malformado / campos prohibidos) — CS5.
@@ -175,25 +193,44 @@ export async function generateForCase(caseId: string): Promise<void> {
 
   // Guardarraíles (segunda línea) — CS2/CS3/CS4. peso/talla/IMC se fuerzan a los datos reales
   // del paciente: el modelo no decide esos números (evita el 71/188 fabricado sobre 78/193).
-  // Signos vitales: se estiman en standby SOLO si el paciente no declaró comorbilidades (P12);
-  // el estimado se etiqueta y sigue bloqueando la aprobación hasta que el médico lo confirme (CS3).
-  const declaraEnfermedad = String(input.answers['12']?.value ?? '')
-    .trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') === 'si';
+  //
+  // Los signos vitales YA NO se estiman. Antes se proponía un rango de referencia en standby
+  // cuando el paciente no declaraba comorbilidades, y ese texto incluía "SatO₂ ≥ 96 %" — una
+  // saturación verosímil que nadie midió, en el único punto del sistema que la escribe. La
+  // Especificación exige que la SpO2 se mida ("nunca inferirla") porque alimenta ARISCAT, y el
+  // campo bloqueaba la aprobación de todas formas, así que el estimado no aportaba nada.
   const doc = enforceGuardrails(parsed, {
     imc: input.imc ?? null,
     pesoKg: input.pesoKg,
     tallaCm: input.tallaCm,
     edad: input.edad ?? null,
-    estimarSignos: !declaraEnfermedad,
   });
+
+  // Capacidad funcional: se restituye desde el DASI, que SÍ la mide (D01-D12 con sus pesos
+  // originales). Antes se afirmaba "≥ 4 METs" derivándolo de que el paciente no declarara
+  // enfermedades — una invención. Ahora, o hay un DASI calculado que la sustente, o el campo
+  // queda sin reportar hasta la evaluación presencial (CS4).
+  const dasi = await prisma.scaleResult.findUnique({
+    where: { caseId_escala: { caseId, escala: 'DASI' } },
+  });
+  if (dasi?.estado === 'CALCULADA' && dasi.puntaje != null) {
+    doc.identificacion['capacidad_funcional'] = {
+      valor: `${dasi.puntaje.toFixed(1)} puntos DASI`,
+      estado: 'ok',
+      fuente: `escala:${dasi.version}`,
+      nota: dasi.categoria
+        ? dasi.categoria
+        : 'Interpretación pendiente de validación institucional de los puntos de corte.',
+    };
+  }
 
   // Procedimiento ambiguo ("operación de la nariz"): el modelo tiende a elegir una cirugía
   // específica (rinoplastia) por sesgo, pero eso es inventar el procedimiento — en anestesia el
-  // manejo depende de cuál sea. Guardarraíl determinístico: si el P9 del paciente es ambiguo, se
-  // conserva su texto original en procedimiento y diagnóstico, sin importar lo que puso el modelo.
-  const procOriginal = valorTexto(input.answers['9']?.value);
+  // manejo depende de cuál sea. Guardarraíl determinístico: si el procedimiento programado es
+  // ambiguo, se conserva su texto original, sin importar lo que puso el modelo.
+  const procOriginal = kase?.schedule?.procedimiento ?? kase?.procedure ?? null;
   if (procOriginal && isAmbiguousProcedure(procOriginal)) {
-    const fuente = 'formulario:P9';
+    const fuente = 'agenda:PX01';
     doc.identificacion['procedimiento'] = { valor: procOriginal, estado: 'ok', fuente };
     if (doc.identificacion['diagnostico_preoperatorio']) {
       doc.identificacion['diagnostico_preoperatorio'] = { valor: procOriginal, estado: 'ok', fuente };
@@ -235,4 +272,27 @@ export async function generateForCase(caseId: string): Promise<void> {
     entityId: caseId,
     meta: { modelUsed, ...(correcciones.length ? { terminologiaCorregida: correcciones } : {}) },
   });
+}
+
+/**
+ * Escalas del documento. Se leen de `ScaleResult`, que es la fuente de verdad; el documento es
+ * una proyección. Las `NO_INDICADA` se omiten del documento —no aportan nada al lector— pero se
+ * conservan en la base con su motivo, para poder auditar por qué no se aplicaron.
+ */
+async function buildEscalas(caseId: string) {
+  const filas = await getScalesForCase(caseId);
+  return filas
+    .filter((f) => f.estado !== 'NO_INDICADA')
+    .map((f) => ({
+      escala: f.escala,
+      nombre: NOMBRE_ESCALA[f.escala as keyof typeof NOMBRE_ESCALA] ?? f.escala,
+      version: f.version,
+      cortesVersion: f.cortesVersion,
+      estado: f.estado,
+      puntaje: f.puntaje,
+      categoria: f.categoria,
+      variables: (f.variables ?? []) as never,
+      faltantes: f.faltantes,
+      motivo: f.motivo,
+    }));
 }

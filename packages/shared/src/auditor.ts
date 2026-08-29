@@ -1,6 +1,7 @@
 import type { DocumentJSON, DocField } from './document';
 import { EXAM_FIELDS } from './clinical';
 import { toMedicalTerms, autoCorrectTerm } from './medical-terms';
+import { CODES, CODIGOS_ACORDEON, QUESTION_DICTIONARY } from './dictionary';
 
 /**
  * Auditor independiente del documento clínico (patrón generador + crítico).
@@ -40,7 +41,7 @@ export interface AuditReport {
   rulesVersion: string;
 }
 
-export const AUDITOR_RULES_VERSION = 'auditor-v2';
+export const AUDITOR_RULES_VERSION = 'auditor-v3';
 
 /**
  * Frases prohibidas por el Prompt Maestro (lenguaje de IA / hedging). El documento debe
@@ -103,7 +104,7 @@ const MEDICAMENTOS_RELEVANTES: { match: string[]; etiqueta: string }[] = [
   { match: ['sertralina', 'fluoxetina', 'escitalopram', 'venlafaxina', 'imao', 'tranilcipromina'], etiqueta: 'antidepresivo (interacción anestésica)' },
 ];
 
-/** Respuestas del formulario indexadas por order (string). */
+/** Respuestas del formulario indexadas por CÓDIGO de la especificación. */
 export type AuditAnswers = Record<string, { value: unknown; type?: string }>;
 
 export interface AuditInput {
@@ -117,16 +118,40 @@ export interface AuditInput {
 const norm = (v: unknown): string =>
   String(v ?? '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-const isYes = (a: AuditAnswers, order: string): boolean => norm(a[order]?.value) === 'si';
-const isNo = (a: AuditAnswers, order: string): boolean => norm(a[order]?.value) === 'no';
-const answered = (a: AuditAnswers, order: string): boolean => {
-  const v = a[order]?.value;
+const isYes = (a: AuditAnswers, code: string): boolean => norm(a[code]?.value) === 'si';
+// Ojo: `no_sabe` NO es `no`. Una negación explícita es lo único que autoriza a escribir
+// "Niega X" y lo único que puede contradecir un detalle (CS2).
+const isNo = (a: AuditAnswers, code: string): boolean => norm(a[code]?.value) === 'no';
+const answered = (a: AuditAnswers, code: string): boolean => {
+  const v = a[code]?.value;
   if (Array.isArray(v)) return v.length > 0;
   return String(v ?? '').trim() !== '';
 };
-const listOf = (a: AuditAnswers, order: string): string => {
-  const v = a[order]?.value;
+const listOf = (a: AuditAnswers, code: string): string => {
+  const v = a[code]?.value;
   return Array.isArray(v) ? v.join(', ') : String(v ?? '');
+};
+
+/**
+ * Medicamentos declarados, en texto. `RX02` es un repetidor: sus filas van serializadas, y
+ * compararlas en crudo hacía que el auditor buscara el nombre del fármaco dentro de las llaves.
+ */
+const medicamentosDeclarados = (a: AuditAnswers): string => {
+  const v = a[CODES.listaMedicamentos]?.value;
+  if (!Array.isArray(v)) return String(v ?? '');
+  return v.map((raw) => {
+    try {
+      const o: unknown = JSON.parse(String(raw));
+      if (o && typeof o === 'object') return Object.values(o as Record<string, unknown>).join(' ');
+    } catch { /* fila en texto suelto */ }
+    return String(raw);
+  }).join(' · ');
+};
+
+/** ¿Declara consumo actual o pasado de tabaco/vapeo? "Nunca" no cuenta (HB01). */
+const fuma = (a: AuditAnswers): boolean => {
+  const v = norm(a[CODES.tabaco]?.value);
+  return v !== '' && v !== 'nunca';
 };
 
 /** Texto plano de un campo, o '' si no está en estado ok. */
@@ -184,40 +209,16 @@ export function auditDocument(input: AuditInput): AuditReport {
   }
 
   // ── 3. Contradicciones respuesta ↔ respuesta (ADVERTENCIA) ──────
-  // Niega enfermedad pero marcó patologías.
-  if (isNo(a, '12') && answered(a, '13')) {
-    add('advertencia', 'contradiccion',
-      `El paciente negó sufrir enfermedades (P12) pero marcó patologías en el checklist (P13): ${listOf(a, '13')}.`);
-  }
-  // Niega medicamentos pero declaró cuáles.
-  if (isNo(a, '14') && answered(a, '15')) {
-    add('advertencia', 'contradiccion',
-      `El paciente negó tomar medicamentos (P14) pero especificó: "${listOf(a, '15')}" (P15).`);
-  }
-  // Niega alergias pero especificó a qué.
-  if (isNo(a, '16') && answered(a, '17')) {
-    add('advertencia', 'contradiccion',
-      `El paciente negó alergias (P16) pero especificó: "${listOf(a, '17')}" (P17).`);
-  }
-  // Niega cirugías previas pero las detalló.
-  if (isNo(a, '18') && answered(a, '19')) {
-    add('advertencia', 'contradiccion',
-      `El paciente negó cirugías previas (P18) pero detalló: "${listOf(a, '19')}" (P19).`);
-  }
-  // Niega fumar pero reportó cigarrillos/día.
-  if (isNo(a, '22') && answered(a, '23')) {
-    add('advertencia', 'contradiccion',
-      `El paciente negó fumar o vapear (P22) pero reportó consumo diario: "${listOf(a, '23')}" (P23).`);
-  }
-  // Niega alcohol pero especificó frecuencia.
-  if (isNo(a, '24') && answered(a, '25')) {
-    add('advertencia', 'contradiccion',
-      `El paciente negó consumir alcohol (P24) pero especificó frecuencia: "${listOf(a, '25')}" (P25).`);
-  }
-  // Niega sustancias psicoactivas pero especificó cuáles.
-  if (isNo(a, '26') && answered(a, '27')) {
-    add('advertencia', 'contradiccion',
-      `El paciente negó consumir sustancias psicoactivas (P26) pero especificó: "${listOf(a, '27')}" (P27).`);
+  // Se DERIVAN del diccionario en vez de escribirse a mano. Antes había siete pares cableados
+  // (P12/P13, P14/P15, …) que había que recordar ampliar cada vez que se añadía una pregunta
+  // condicional. Ahora, toda pregunta cuya regla sea "el padre respondió Sí" genera su propia
+  // comprobación: si el padre dijo No y el hijo tiene contenido, hay contradicción.
+  for (const { padre, hijo, hijoLabel } of paresCondicionales()) {
+    if (isNo(a, padre) && answered(a, hijo)) {
+      add('advertencia', 'contradiccion',
+        `El paciente respondió "No" en ${padre} pero ${hijo} ("${hijoLabel}") tiene contenido: ` +
+        `${listOf(a, hijo)}.`);
+    }
   }
 
   // ── 4. Coherencia respuesta ↔ documento (ADVERTENCIA) ───────────
@@ -261,7 +262,7 @@ export function auditDocument(input: AuditInput): AuditReport {
     }
   }
   // Prótesis dental → debe considerarse en la vía aérea (concepto o recomendaciones).
-  if (isYes(a, '21')) {
+  if (isYes(a, CODES.protesisDental)) {
     const vp = (doc.valoracion_plan ?? {}) as Record<string, DocField>;
     const blob = norm(text(vp['concepto']) + ' ' + text(vp['recomendaciones']) + ' ' + text(ant['protesis_dental']));
     if (!/via aerea|protesis|dental|sonrisa/.test(blob)) {
@@ -376,7 +377,12 @@ export function auditDocument(input: AuditInput): AuditReport {
   const asaEsUno = /\bASA\s*(1|I)\b/.test(asaNum) || /^\s*(1|I)\s*$/.test(asaNum);
   if (asaRaw) {
     const declaraComorbilidad =
-      isYes(a, '12') || answered(a, '13') || isYes(a, '14') || isYes(a, '22');
+      isYes(a, CODES.tieneEnfermedad) ||
+      CODIGOS_ACORDEON.some((c) => answered(a, c)) ||
+      isYes(a, CODES.tomaMedicamentos) ||
+      // El tabaco dejó de ser un sí/no: la spec separa nunca / exfumador / cigarrillo / vapeo.
+      // "Nunca" es una respuesta, no un antecedente — `answered` lo contaría como comorbilidad.
+      fuma(a);
     if (asaEsUno && declaraComorbilidad) {
       add('advertencia', 'coherencia',
         `El ASA registrado es I (paciente sano) pero el paciente declaró comorbilidades, medicación o tabaquismo. Revisar la clasificación ASA.`,
@@ -408,8 +414,8 @@ export function auditDocument(input: AuditInput): AuditReport {
 
   // ── 12. Interpretar medicamentos de riesgo anestésico (ADVERTENCIA) ──
   // Si P15 declara un fármaco con manejo perioperatorio, debe reflejarse en concepto/recomendaciones.
-  if (answered(a, '15')) {
-    const declarados = norm(listOf(a, '15'));
+  if (answered(a, CODES.listaMedicamentos)) {
+    const declarados = norm(medicamentosDeclarados(a));
     const vp = (doc.valoracion_plan ?? {}) as Record<string, DocField>;
     const proseVP = norm(text(vp['concepto']) + ' ' + text(vp['recomendaciones']) + ' ' + text(ant['medicamentos']));
     for (const med of MEDICAMENTOS_RELEVANTES) {
@@ -431,4 +437,20 @@ export function auditDocument(input: AuditInput): AuditReport {
     blocked: findings.some((f) => f.level === 'bloqueante'),
     rulesVersion: AUDITOR_RULES_VERSION,
   };
+}
+
+/**
+ * Pares padre→hijo derivados del diccionario: toda pregunta cuya activación sea exactamente
+ * "el padre respondió Sí". Es la forma declarativa de las contradicciones que antes se
+ * mantenían a mano, y crece sola cuando la especificación añade una rama condicional.
+ */
+function paresCondicionales(): { padre: string; hijo: string; hijoLabel: string }[] {
+  const out: { padre: string; hijo: string; hijoLabel: string }[] = [];
+  for (const q of QUESTION_DICTIONARY) {
+    const r = q.activacion;
+    if (r?.kind === 'answer' && r.op === 'equals' && String(r.value).toLowerCase() === 'si') {
+      out.push({ padre: r.code, hijo: q.code, hijoLabel: q.label });
+    }
+  }
+  return out;
 }

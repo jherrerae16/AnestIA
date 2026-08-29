@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
+import { logger } from '../logger';
+import { computeScalesForCase, getScalesForCase } from './scales.service';
 import { renderPdf } from '../pdf/renderer';
 import { getStorageProvider } from '../storage';
 import { logAudit } from '../audit';
@@ -20,6 +22,8 @@ import {
   groupLabsToProse,
   formatReportDate,
   normalizeGrupo,
+  faltantesDeAgenda,
+  NOMBRE_ESCALA,
   type Branding,
   type DocumentJSON,
   type AuditReport,
@@ -43,7 +47,7 @@ function patientSummary(p: {
   fullName: string;
   documentId: string;
   birthDate: Date | null;
-  sex: string | null;
+  sexAtBirth: string | null;
   phone: string | null;
   email: string | null;
   insurer: string | null;
@@ -54,7 +58,7 @@ function patientSummary(p: {
     documentId: p.documentId,
     birthDate: p.birthDate ? p.birthDate.toISOString().slice(0, 10) : null,
     edad: edadDesde(p.birthDate, new Date()),
-    sex: p.sex,
+    sexAtBirth: p.sexAtBirth,
     phone: p.phone,
     email: p.email,
     insurer: p.insurer,
@@ -77,6 +81,7 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
       attachments: true,
       approval: true,
       patient: true,
+      schedule: true,
     },
   });
   if (!kase) return null;
@@ -84,9 +89,31 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
   // Nota privada del médico sobre este paciente: se muestra "sola" en la pantalla del caso.
   // Nunca entra al PDF ni a la distribución — sólo viaja a la UI de revisión.
   const patientNote = await getNoteForCase(anesthesiologistId, kase.patientId);
+  // Agenda quirúrgica y lo que falta de ella. Lo que falta importa: mientras no esté, las
+  // escalas que dependen de esas variables quedan PENDIENTE en vez de calcularse con supuestos,
+  // y el médico debe poder verlo y completarlo desde la revisión.
+  const schedule = kase.schedule
+    ? {
+        procedimiento: kase.schedule.procedimiento,
+        diagnosticoPreop: kase.schedule.diagnosticoPreop,
+        fechaHora: kase.schedule.fechaHora ? kase.schedule.fechaHora.toISOString().slice(0, 10) : null,
+        especialidad: kase.schedule.especialidad,
+        modalidad: kase.schedule.modalidad,
+        prioridad: kase.schedule.prioridad,
+        sitioQuirurgico: kase.schedule.sitioQuirurgico,
+        duracionEstimada: kase.schedule.duracionEstimada,
+        altoRiesgoRcri: kase.schedule.altoRiesgoRcri,
+        anestesiaProbable: kase.schedule.anestesiaProbable,
+        opioidesPostop: kase.schedule.opioidesPostop,
+      }
+    : null;
+
   return {
     caseId,
     status: kase.status,
+    schedule,
+    agendaFaltante: faltantesDeAgenda(schedule),
+    escalas: (kase.assessment?.fields as DocumentJSON | null)?.escalas ?? [],
     fields,
     // patientId para poder crear/editar la nota privada desde la pantalla de revisión.
     patientId: kase.patientId,
@@ -208,7 +235,51 @@ export async function setExam(
   const next = { ...loaded.fields, examen_fisico };
   await prisma.generatedAssessment.update({ where: { id: loaded.assessmentId }, data: { fields: next as never } });
   await logAudit({ action: 'assessment.exam_confirmed', entity: 'Case', entityId: caseId, meta: { mode: 'manual' } });
+
+  // Registrar el examen puede destrabar escalas: ARISCAT espera la SpO2, y STOP-Bang el cuello.
+  // Sin recalcular, quedaban PENDIENTES para siempre aunque el médico ya hubiera medido.
+  await refrescarEscalas(caseId);
   await auditForCase(caseId);
+}
+
+/**
+ * Recalcula las escalas y vuelve a proyectarlas en el documento.
+ *
+ * Se llama tras el examen y tras editar la agenda: son los dos momentos en que aparecen
+ * variables que antes faltaban. Falla en silencio a propósito — que una escala no se refresque
+ * no puede tumbar el guardado del examen, que es el dato clínico.
+ */
+export async function refrescarEscalas(caseId: string): Promise<void> {
+  try {
+    await computeScalesForCase(caseId);
+    const assessment = await prisma.generatedAssessment.findUnique({ where: { caseId } });
+    if (!assessment) return;
+    const filas = await getScalesForCase(caseId);
+    const fields = assessment.fields as DocumentJSON;
+    const escalas = filas
+      .filter((f) => f.estado !== 'NO_INDICADA')
+      .map((f) => ({
+        escala: f.escala,
+        nombre: NOMBRE_ESCALA[f.escala as keyof typeof NOMBRE_ESCALA] ?? f.escala,
+        version: f.version,
+        cortesVersion: f.cortesVersion,
+        estado: f.estado,
+        puntaje: f.puntaje,
+        categoria: f.categoria,
+        variables: f.variables as never,
+        faltantes: f.faltantes,
+        motivo: f.motivo,
+      }));
+    await prisma.generatedAssessment.update({
+      where: { caseId },
+      data: { fields: { ...fields, escalas } as never },
+    });
+  } catch (err) {
+    logger.warn(
+      { caseId, err: err instanceof Error ? err.message : 'unknown' },
+      'scales_refresh_failed',
+    );
+  }
 }
 
 /**

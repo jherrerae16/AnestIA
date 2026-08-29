@@ -3,7 +3,18 @@ import { prisma } from '../prisma';
 import { getAIProvider, type FileRef } from '../ai';
 import { logAudit } from '../audit';
 import { logger } from '../logger';
-import { flagLab, detectGLP1, normalizeGrupo, type FormAnswers } from '@anestia/shared';
+import {
+  CODES,
+  detectGLP1,
+  flagLab,
+  getMulti,
+  getClinicalText,
+  getText,
+  canonicalAnalyte,
+  convertirUnidad,
+  normalizeGrupo,
+  type FormAnswers,
+} from '@anestia/shared';
 
 /**
  * Borde de validación de la extracción (CS2/CS6). Un lab sin `sourceRef` no es
@@ -18,8 +29,18 @@ const extractedLabSchema = z.object({
   grupo: z.string().nullish(),
   reportDate: z.string().nullish(),
   sourceRef: z.string().min(1),
-  // Lo pone el adaptador (no el modelo): la capa que produjo este lab.
+  // Nombre y valor tal como están IMPRESOS. Se conservan siempre junto al normalizado: la
+  // Especificación §15 exige "valor original, valor normalizado, unidad y rango del laboratorio".
+  analyteRaw: z.string().nullish(),
+  valueRaw: z.string().nullish(),
+  institucion: z.string().nullish(),
+  // Página del informe y confianza de la lectura. Los aporta el extractor.
+  page: z.number().int().positive().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+  // Lo ponen el adaptador y el servicio (NO el modelo): la capa que produjo este lab y el
+  // archivo del que salió. El modelo no puede conocer el id del adjunto.
   extractionLayer: z.enum(['texto', 'vision']).nullish(),
+  attachmentId: z.string().nullish(),
 });
 
 /**
@@ -103,6 +124,12 @@ function extractionMode(): LabExtractionMode {
  * `forceMethod` fija el método (modo comparativo persiste todo como 'vision'); si no, se toma
  * la capa que produjo cada lab (`extractionLayer`), así el método queda fiel por analito.
  */
+/**
+ * Umbral de confianza. Por debajo, el resultado va a revisión humana en vez de darse por bueno.
+ * La Especificación no fija un número; 0.7 es conservador y el Dr. puede ajustarlo.
+ */
+const CONFIANZA_MINIMA = 0.7;
+
 async function persistLab(
   caseId: string,
   candidate: unknown,
@@ -116,12 +143,36 @@ async function persistLab(
   }
   const lab = parsed.data;
   const method = forceMethod ?? lab.extractionLayer ?? 'vision';
+
+  // Un resultado ilegible, sin unidad, discordante o de baja confianza pasa a revisión humana
+  // (Especificación §15). No se descarta —perderlo sería peor— pero tampoco alimenta escalas
+  // ni alertas hasta que el médico lo confirme.
+  // Conversión de unidades SÓLO con reglas validadas; sin regla, el valor se deja como vino.
+  // El original se conserva en `valueRaw`/`unitRaw` incluso cuando sí se convierte.
+  const conv = convertirUnidad(lab.analyte, lab.value, lab.unit);
+
+  const confianza = lab.confidence ?? null;
+  const dudoso =
+    (confianza != null && confianza < CONFIANZA_MINIMA) ||
+    !lab.unit ||
+    lab.attachmentId == null;
+
   await prisma.extractedLabResult.create({
     data: {
       caseId,
-      analyte: lab.analyte,
-      value: lab.value,
-      unit: lab.unit ?? null,
+      attachmentId: lab.attachmentId ?? null,
+      page: lab.page ?? null,
+      analyte: canonicalAnalyte(lab.analyte) ?? lab.analyte,
+      // El nombre impreso se conserva SIEMPRE: es la trazabilidad al informe original.
+      analyteRaw: lab.analyteRaw ?? lab.analyte,
+      value: conv.value,
+      valueRaw: lab.valueRaw ?? conv.valueRaw,
+      unit: conv.unit,
+      unitRaw: conv.unitRaw,
+      conversionRule: conv.conversionRule,
+      institucion: lab.institucion ?? null,
+      confidence: confianza,
+      estadoExtraccion: dudoso ? 'PENDIENTE_CONFIRMACION' : 'AUTOMATICO',
       refRange: lab.refRange ?? null,
       grupo: normalizeGrupo(lab.grupo),
       reportDate: parseReportDate(lab.reportDate, now),
@@ -151,7 +202,15 @@ export async function extractForCase(caseId: string): Promise<void> {
   if (existing > 0) return; // idempotencia
 
   const attachments = await prisma.attachment.findMany({ where: { caseId } });
-  const files: FileRef[] = attachments.map((a) => ({ key: a.url, type: a.type, filename: a.url }));
+  // `attachmentId` viaja con cada archivo para poder devolverlo en cada valor extraído. Antes
+  // se pasaba la clave de almacenamiento como "filename" y el id se perdía, así que un lab no
+  // se podía rastrear a su PDF.
+  const files: FileRef[] = attachments.map((a) => ({
+    key: a.url,
+    type: a.type,
+    filename: a.filename ?? a.url,
+    attachmentId: a.id,
+  }));
   const provider = getAIProvider();
   const mode = extractionMode();
   const now = new Date();
@@ -197,13 +256,16 @@ export async function extractForCase(caseId: string): Promise<void> {
     });
   }
 
-  // GLP-1: se detecta del DETALLE de medicamentos (P15 "¿cuáles?"), no de P14, que es el
-  // sí/no. Leyendo P14 el detector recibía la cadena "si" y no encontraba un fármaco nunca:
-  // la alerta de vaciamiento gástrico jamás llegaba al audit log (CS8).
+  // GLP-1: el módulo estructurado (GL01) es la fuente principal; el texto libre de medicamentos
+  // queda como red de seguridad para lo que el paciente escriba por su cuenta. Nunca se lee el
+  // sí/no de RX01: el detector recibiría la cadena "si" y no encontraría un fármaco jamás, así
+  // que la alerta de vaciamiento gástrico no llegaría al audit log (CS8).
   const fr = await prisma.formResponse.findUnique({ where: { caseId } });
   const answers = (fr?.answers as FormAnswers) ?? {};
-  const p15 = answers['15']?.value;
-  const glp1 = detectGLP1(typeof p15 === 'string' ? p15 : Array.isArray(p15) ? p15.join(' ') : '');
+  const modulo = getMulti(answers, CODES.glp1).filter((o) => !/^(ninguno|no sabe)$/i.test(o.trim()));
+  const glp1 = modulo.length > 0
+    ? { declared: true, drug: modulo.join(', ') }
+    : detectGLP1(getClinicalText(answers, CODES.listaMedicamentos) + ' ' + getText(answers, CODES.naturales));
   if (glp1.declared) {
     await logAudit({ action: 'glp1.detected', entity: 'Case', entityId: caseId, meta: { drug: glp1.drug } });
   }

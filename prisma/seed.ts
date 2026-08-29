@@ -1,95 +1,38 @@
-import { PrismaClient, QuestionType } from '@prisma/client';
+import { PrismaClient, type FuenteDato, type Obligacion } from '@prisma/client';
 import argon2 from 'argon2';
 import { randomBytes } from 'node:crypto';
+import {
+  QUESTION_DICTIONARY,
+  validateDictionary,
+  type DictQuestion,
+} from '../packages/shared/src/dictionary/index';
 
 const prisma = new PrismaClient();
+
+/** Códigos de obligatoriedad de la spec → enum de la BD. */
+const OBLIGACION: Record<DictQuestion['obligacion'], Obligacion> = {
+  O: 'OBLIGATORIA',
+  C: 'CONDICIONAL',
+  S: 'SISTEMA',
+  V: 'VERIFICA',
+};
+
+/** Origen del dato de la spec (P/S/D/C) → enum de la BD. */
+const FUENTE: Record<DictQuestion['fuente'], FuenteDato> = {
+  P: 'PACIENTE',
+  S: 'SISTEMA',
+  D: 'DOCUMENTO',
+  C: 'CLINICO',
+};
 
 const SEED_EMAIL = 'jherrerae16@gmail.com';
 
 /**
- * Las 28 preguntas del preset base "Preanestésica general" (docs/form-mapping.md / Anexo A).
- * order = número de pregunta. conditional/options en JSON.
+ * El cuestionario se materializa desde `QUESTION_DICTIONARY` — la Especificación de Datos
+ * Mínimos del Dr. Luquetta. Este archivo YA NO define preguntas: antes había tres copias
+ * sincronizadas a mano del mismo diccionario (aquí, en el bloque `PREGUNTAS` del prompt
+ * clínico y en `docs/form-mapping.md`) y se desincronizaban. Ahora hay una sola fuente.
  */
-// Patologías del Google Form real del doctor (SELECCION_MULTIPLE).
-const PATOLOGIAS = [
-  'Hipertensión arterial', 'Diabetes mellitus', 'Hipotiroidismo', 'Hipertiroidismo',
-  'Arritmia cardiaca', 'Infarto de miocardio', 'EPOC', 'Asma', 'Hipertensión pulmonar',
-  'Apnea del sueño', 'Litiasis renal', 'Infección renal a repetición', 'Insuficiencia renal',
-  'Gastritis', 'Migraña', 'Enfermedades articulares', 'Otra',
-];
-
-const GRUPOS_SANGUINEOS = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-
-type QDef = {
-  order: number;
-  label: string;
-  type: QuestionType;
-  required?: boolean;
-  options?: unknown;
-  conditional?: unknown;
-};
-
-/**
- * Preguntas EXACTAS del Google Form del Dr. Luquetta. Todas requeridas.
- * Condicionales (showIf): patologías (P12=Sí), medicamentos (P14), alergias (P16),
- * cirugías (P18), cigarrillos (P22), frecuencia de alcohol (P24), sustancias (P26).
- * El correo (P28) lo agrega la plataforma para registrar/contactar al paciente.
- */
-const QUESTIONS: QDef[] = [
-  { order: 1, label: 'Nombre completo', type: 'TEXTO_CORTO', required: true },
-  { order: 2, label: 'Número de documento de identificación', type: 'TEXTO_CORTO', required: true },
-  { order: 3, label: 'Fecha de nacimiento', type: 'FECHA', required: true },
-  { order: 4, label: 'Sexo', type: 'SELECCION_UNICA', required: true, options: ['Hombre', 'Mujer', 'Prefiero no decirlo'] },
-  { order: 5, label: 'Peso (kg)', type: 'NUMERO', required: true },
-  { order: 6, label: 'Estatura (cm)', type: 'NUMERO', required: true },
-  { order: 7, label: 'Teléfono de contacto', type: 'TEXTO_CORTO', required: true },
-  { order: 8, label: 'Entidad aseguradora', type: 'SELECCION_UNICA', required: true, options: ['Particular', 'Otra'] },
-  { order: 9, label: 'Cirugía o procedimiento que le van a realizar', type: 'TEXTO_CORTO', required: true },
-  { order: 10, label: 'Fecha de cirugía o procedimiento', type: 'FECHA', required: true },
-  { order: 11, label: 'Grupo sanguíneo', type: 'SELECCION_UNICA', required: true, options: GRUPOS_SANGUINEOS },
-  { order: 12, label: '¿Sufre de alguna enfermedad?', type: 'SI_NO', required: true },
-  {
-    order: 13, label: 'Seleccione una o varias de las siguientes patologías según su caso',
-    type: 'SELECCION_MULTIPLE', required: true, options: PATOLOGIAS,
-    conditional: { showIf: { questionOrder: 12, equals: 'si' } },
-  },
-  { order: 14, label: '¿Está en tratamiento o utiliza algún medicamento actualmente?', type: 'SI_NO', required: true },
-  {
-    order: 15, label: '¿Cuáles medicamentos? (especifique)', type: 'TEXTO_CORTO', required: true,
-    conditional: { showIf: { questionOrder: 14, equals: 'si' } },
-  },
-  { order: 16, label: '¿Es alérgico a algún medicamento o sustancia?', type: 'SI_NO', required: true },
-  {
-    order: 17, label: '¿A qué es alérgico? (especifique)', type: 'TEXTO_CORTO', required: true,
-    conditional: { showIf: { questionOrder: 16, equals: 'si' } },
-  },
-  { order: 18, label: '¿Le han realizado alguna cirugía o procedimiento bajo anestesia previamente?', type: 'SI_NO', required: true },
-  {
-    order: 19, label: '¿Cuáles cirugías o procedimientos? (especifique)', type: 'TEXTO_CORTO', required: true,
-    conditional: { showIf: { questionOrder: 18, equals: 'si' } },
-  },
-  { order: 20, label: '¿Le han realizado alguna transfusión sanguínea?', type: 'SI_NO', required: true },
-  { order: 21, label: '¿Utiliza prótesis dental o tiene diseño de sonrisa?', type: 'SI_NO', required: true },
-  { order: 22, label: '¿Fuma o utiliza vapeadores actualmente?', type: 'SI_NO', required: true },
-  {
-    order: 23, label: '¿Cuántos cigarrillos fuma o cuántas veces usa el vapeador al día? (especifique)',
-    type: 'TEXTO_CORTO', required: true,
-    conditional: { showIf: { questionOrder: 22, equals: 'si' } },
-  },
-  { order: 24, label: '¿Consume alcohol?', type: 'SI_NO', required: true },
-  {
-    order: 25, label: '¿Cuántas veces a la semana consume alcohol? (especifique)',
-    type: 'TEXTO_CORTO', required: true,
-    conditional: { showIf: { questionOrder: 24, equals: 'si' } },
-  },
-  { order: 26, label: '¿Consume alguna sustancia psicoactiva?', type: 'SI_NO', required: true },
-  {
-    order: 27, label: '¿Cuáles sustancias psicoactivas? (especifique)',
-    type: 'TEXTO_CORTO', required: true,
-    conditional: { showIf: { questionOrder: 26, equals: 'si' } },
-  },
-  { order: 28, label: 'Correo electrónico', type: 'TEXTO_CORTO', required: true },
-];
 
 async function main() {
   // --- Password de Luquetta (SECURITY-12: sin credencial en repo) ---
@@ -127,18 +70,39 @@ async function main() {
     });
   }
 
-  // --- 28 preguntas (idempotente: borra y recrea para el preset base) ---
+  // --- Preguntas del diccionario (idempotente: borra y recrea para el preset base) ---
+  // Se valida ANTES de escribir: un diccionario con un código duplicado o una regla que
+  // referencia un código inexistente produce ramas que nunca se abren y fuentes equivocadas
+  // en el documento. Fallar aquí es barato; fallar en un documento firmado no lo es.
+  const errores = validateDictionary();
+  if (errores.length > 0) {
+    throw new Error(`Diccionario inválido, no se siembra:\n- ${errores.join('\n- ')}`);
+  }
+
   await prisma.question.deleteMany({ where: { presetId: preset.id } });
-  for (const q of QUESTIONS) {
+  for (const q of QUESTION_DICTIONARY) {
     await prisma.question.create({
       data: {
         presetId: preset.id,
+        code: q.code,
         order: q.order,
         label: q.label,
         type: q.type,
-        required: q.required ?? false,
-        options: (q.options ?? undefined) as never,
-        conditional: (q.conditional ?? undefined) as never,
+        // Solo lo obligatorio para continuar bloquea el envío. Lo condicional se vuelve
+        // obligatorio únicamente cuando su rama está abierta (lo resuelve `validateAnswers`).
+        required: q.obligacion === 'O',
+        obligacion: OBLIGACION[q.obligacion],
+        fuente: FUENTE[q.fuente],
+        seccion: q.seccion,
+        grupo: q.grupo ?? null,
+        modulo: q.modulo ?? null,
+        ayuda: q.ayuda ?? null,
+        alimenta: [...(q.alimenta ?? [])],
+        repiteSobre: q.repiteSobre ?? null,
+        campos: (q.campos ?? undefined) as never,
+        validacion: (q.validacion ?? undefined) as never,
+        options: (q.opciones ?? undefined) as never,
+        conditional: (q.activacion ?? undefined) as never,
       },
     });
   }
