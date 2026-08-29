@@ -48,12 +48,28 @@ Cada resultado guarda de dónde salió y con qué seguridad se leyó:
 | `institucion` | Laboratorio que emite el informe. |
 | `confidence` | Confianza de la lectura, 0-1. La aporta el extractor. |
 | `estadoExtraccion` | `AUTOMATICO` · `PENDIENTE_CONFIRMACION` · `CONFIRMADO`. |
-| `identityMatch` | Si la identidad del informe concuerda con la del caso. |
+| `collectedAt` | Fecha de **toma** de la muestra, distinta de la de emisión. |
+| `identityMatch` | `COINCIDE` · `NO_COINCIDE` · `NO_VERIFICABLE`. |
+
+### Verificación de identidad
+
+La Especificación §15 abre el procesamiento con *"verificar paciente, documento y fecha"*. El
+riesgo es concreto: un paciente sube por error el examen de un familiar, y esos valores
+alimentarían las escalas y las alertas de otra persona.
+
+El **documento manda**: si coincide, coincide, aunque el nombre esté escrito distinto. Sin
+documento en el informe se cae al nombre, tolerando el orden y las partículas ("URIBE GONZALEZ
+ROBERTO MARIO" concuerda con "Roberto Mario Uribe González"). Sin ninguno de los dos queda
+`NO_VERIFICABLE`, que **no es** lo mismo que "no coincide": el resultado se conserva y se marca
+para revisión, en vez de descartarlo o darlo por bueno.
+
+Un `NO_COINCIDE` va siempre a revisión humana, por buena que sea la lectura, y no alimenta
+escalas.
 
 ### Qué pasa a revisión humana
 
-Un resultado va a `PENDIENTE_CONFIRMACION` si tiene **confianza < 0.7**, **no trae unidad** o
-**no se pudo asociar a un archivo**. No se descarta —perderlo sería peor— pero **no alimenta
+Un resultado va a `PENDIENTE_CONFIRMACION` si tiene **confianza < 0.7**, **no trae unidad**,
+**no se pudo asociar a un archivo** o **la identidad no concuerda**. No se descarta —perderlo sería peor— pero **no alimenta
 escalas ni alertas** hasta que el médico lo confirme. Dejar una escala pendiente es correcto;
 puntuarla con un número dudoso, no.
 

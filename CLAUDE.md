@@ -238,6 +238,18 @@ cubierta por tests; el componente de Angular es un renderizador.
   no se convierte. Las reglas usan el nombre canónico del analito.
 - **Metadatos del archivo** (nombre, tipo, tamaño) que se descartaban al subirlo.
 
+**Cierre de pendientes:**
+
+- **Verificación de identidad de los informes** (§15): el documento manda; sin él, el nombre
+  tolerando orden y partículas. `NO_VERIFICABLE` no es "no coincide" — se conserva y se marca.
+  Una discordancia va siempre a revisión y no alimenta escalas.
+- **`AP01` se repite por enfermedad** (§5): una instancia `AP01#<slug>` por cada diagnóstico
+  marcado. El documento distingue lo controlado de lo que no, que es lo que cambia el ASA.
+- **`collectedAt`**: fecha de toma de la muestra, distinta de la de emisión.
+- **Jobs huérfanos**: un caso borrado ya no reintenta en bucle; el job se descarta.
+- **`diffPresetVsDiccionario` comparaba cadenas** y Postgres reordena las claves de JSONB, así
+  que avisaba siempre. Ahora compara estructuras.
+
 Las cuatro fases de la especificación del Dr. Luquetta están completas.
 
 **Pendientes conocidos:** editor de cuestionarios propios; reconciliador de casos atascados;

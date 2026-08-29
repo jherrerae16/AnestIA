@@ -8,6 +8,7 @@ import {
   type Facts,
 } from './rules';
 import type { FormAnswers } from './form';
+import { controlesFaltantes, instanciasDe } from './dictionary/instancias';
 
 /**
  * Motor de presentación del formulario: qué se muestra, en qué pantalla y qué falta.
@@ -23,6 +24,11 @@ export interface Screen {
   /** Módulo o grupo que comparten las preguntas de la pantalla, si aplica. */
   modulo: string | null;
   questions: QuestionDef[];
+  /**
+   * Instancias de una pregunta repetible (`AP01` por cada enfermedad marcada). Vacío en las
+   * pantallas normales. La clave de respuesta es `code#slug`, no `code`.
+   */
+  instancias?: { key: string; label: string }[];
 }
 
 /**
@@ -77,6 +83,21 @@ export function buildScreens(
       last.seccion === (q.seccion ?? 'otros') &&
       last.modulo === modulo &&
       last.questions.length < MAX_POR_PANTALLA;
+
+    // Una pregunta repetible se expande en una pantalla propia con una instancia por enfermedad
+    // marcada. La Especificación §5 pide el control "para cada enfermedad seleccionada": una
+    // sola respuesta para el conjunto no distingue la hipertensión controlada de la diabetes
+    // que no lo está, y esa diferencia cambia el ASA y el plan.
+    if (q.repiteSobre) {
+      const instancias = instanciasDe(q.code, answers);
+      if (instancias.length === 0) { ultimaSola = true; continue; }
+      screens.push({
+        seccion: q.seccion ?? 'otros', modulo, questions: [q],
+        instancias: instancias.map((i) => ({ key: i.key, label: i.label })),
+      });
+      ultimaSola = true;
+      continue;
+    }
 
     if (puedeAgrupar) last!.questions.push(q);
     else screens.push({ seccion: q.seccion ?? 'otros', modulo, questions: [q] });
@@ -133,6 +154,18 @@ export function summaryRows(
   for (const q of visibleQuestions(questions, answers, facts)) {
     const a = answers[q.code];
     const respondida = hasValue(a as AnswerLike | undefined);
+
+    // Una repetible no se juzga por su clave base: lo que falta es el control de cada
+    // enfermedad marcada, con su nombre, para que el paciente sepa cuál le falta.
+    if (q.repiteSobre) {
+      for (const i of controlesFaltantes(answers)) {
+        rows.push({
+          code: i.key, label: `${q.label} — ${i.label}`, seccion: q.seccion ?? 'otros',
+          motivo: 'falta', detalle: 'Falta responder',
+        });
+      }
+      continue;
+    }
 
     if (q.required && !respondida) {
       rows.push({

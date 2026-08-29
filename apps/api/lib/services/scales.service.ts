@@ -48,6 +48,8 @@ async function labsDeEscala(caseId: string): Promise<Record<string, number | nul
       estadoExtraccion: { not: 'PENDIENTE_CONFIRMACION' },
       // Y tampoco si el sistema no pudo leer el rango: ahí el flagging es ciego.
       rangeUnparsed: false,
+      // Ni si el informe es de otra persona: alimentaría una escala con datos ajenos.
+      identityMatch: { not: 'NO_COINCIDE' },
     },
     orderBy: { reportDate: 'desc' },
   });

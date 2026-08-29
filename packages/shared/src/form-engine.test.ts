@@ -27,6 +27,9 @@ const DICT: QuestionDef[] = QUESTION_DICTIONARY.map((q) => ({
   ayuda: q.ayuda ?? null,
   alimenta: [...(q.alimenta ?? [])],
   options: q.opciones ? [...q.opciones] : null,
+  repiteSobre: q.repiteSobre ?? null,
+  campos: q.campos ? [...q.campos] : null,
+  validacion: q.validacion ?? null,
   conditional: q.activacion ?? null,
 }));
 
@@ -191,5 +194,55 @@ describe('progreso', () => {
       ),
       { numRuns: 100 },
     );
+  });
+});
+
+describe('preguntas repetidas por enfermedad (AP01)', () => {
+  const conEnfermedades = (patologias: string[]): FormAnswers => ({
+    ...adulto,
+    [CODES.tieneEnfermedad]: { value: 'si', type: 'SI_NO_NOSABE' },
+    AG01: { value: patologias, type: 'ACORDEON_MULTIPLE' },
+  });
+
+  it('genera una instancia por cada enfermedad marcada', () => {
+    // La Especificación §5 pide el control "para cada enfermedad seleccionada": una sola
+    // respuesta no distingue la hipertensión controlada de la diabetes que no lo está.
+    const a = conEnfermedades(['Hipertensión arterial', 'Arritmia']);
+    const pantalla = buildScreens(DEL_PACIENTE, a, factsDe(a)).find((s) =>
+      s.questions.some((q) => q.code === 'AP01'),
+    );
+    expect(pantalla?.instancias).toHaveLength(2);
+    expect(pantalla?.instancias?.map((i) => i.key)).toEqual([
+      'AP01#hipertension_arterial',
+      'AP01#arritmia',
+    ]);
+  });
+
+  it('no genera instancias para las opciones de cierre', () => {
+    const a = conEnfermedades(['Ninguna de las anteriores']);
+    const pantalla = buildScreens(DEL_PACIENTE, a, factsDe(a)).find((s) =>
+      s.questions.some((q) => q.code === 'AP01'),
+    );
+    // Sin enfermedades marcadas, la pregunta no se muestra en absoluto.
+    expect(pantalla).toBeUndefined();
+  });
+
+  it('el resumen nombra qué enfermedad falta por responder, no "AP01"', () => {
+    const a = conEnfermedades(['Hipertensión arterial', 'Arritmia']);
+    a['AP01#hipertension_arterial'] = { value: 'Controlada', type: 'SELECCION_UNICA' };
+    const filas = summaryRows(DEL_PACIENTE, a, factsDe(a)).filter((r) => r.code.startsWith('AP01'));
+    expect(filas).toHaveLength(1);
+    expect(filas[0]!.label).toContain('Arritmia');
+  });
+
+  it('no duplica una enfermedad marcada en dos acordeones', () => {
+    const a: FormAnswers = {
+      ...conEnfermedades(['Hipertensión arterial']),
+      AG02: { value: ['Hipertensión arterial'], type: 'ACORDEON_MULTIPLE' },
+    };
+    const pantalla = buildScreens(DEL_PACIENTE, a, factsDe(a)).find((s) =>
+      s.questions.some((q) => q.code === 'AP01'),
+    );
+    expect(pantalla?.instancias).toHaveLength(1);
   });
 });

@@ -17,6 +17,8 @@ const DICT: QuestionDef[] = QUESTION_DICTIONARY.filter((q) => q.fuente === 'P').
   required: q.obligacion === 'O', obligacion: q.obligacion, seccion: q.seccion,
   grupo: q.grupo ?? null, modulo: q.modulo ?? null, ayuda: q.ayuda ?? null,
   alimenta: [...(q.alimenta ?? [])], options: q.opciones ? [...q.opciones] : null,
+  repiteSobre: q.repiteSobre ?? null, campos: q.campos ? [...q.campos] : null,
+  validacion: q.validacion ?? null,
   conditional: q.activacion ?? null,
 }));
 

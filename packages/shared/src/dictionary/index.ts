@@ -22,6 +22,7 @@ import { dictQuestionSchema, type DictQuestion, type SeccionKey } from './types'
 export * from './types';
 export * from './codes';
 export * from './groups';
+export * from './instancias';
 export { QUESTION_DICTIONARY, CODIGOS_SISTEMA } from './questions';
 
 /** Índice código → pregunta. */
@@ -284,8 +285,12 @@ export function diffPresetVsDiccionario(
       out.push(`${q.code} está en el diccionario pero no en la base. Falta re-sembrar.`);
       continue;
     }
-    const esperada = JSON.stringify(q.activacion ?? null);
-    const enBase = JSON.stringify(fila.conditional ?? null);
+    // Comparación SEMÁNTICA, no por cadena: Postgres guarda `Json` como JSONB y reordena las
+    // claves alfabéticamente al leerlas, así que `JSON.stringify` difiere aunque la regla sea
+    // idéntica. Comparar cadenas hacía que la guarda avisara siempre, y una guarda que siempre
+    // grita se termina ignorando.
+    const esperada = estable(q.activacion ?? null);
+    const enBase = estable(fila.conditional ?? null);
     if (esperada !== enBase) {
       out.push(`${q.code}: la regla de activación de la base no coincide con el diccionario.`);
     }
@@ -296,6 +301,16 @@ export function diffPresetVsDiccionario(
     }
   }
   return out;
+}
+
+/** Serializa con las claves ordenadas, para comparar estructuras independientes del orden. */
+function estable(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v ?? null);
+  if (Array.isArray(v)) return `[${v.map(estable).join(',')}]`;
+  const entradas = Object.entries(v as Record<string, unknown>)
+    .filter(([, val]) => val !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+  return `{${entradas.map(([k, val]) => `${JSON.stringify(k)}:${estable(val)}`).join(',')}}`;
 }
 
 /** Lanza si el diccionario no es válido. Para el arranque del worker. */

@@ -134,6 +134,10 @@ const extractionJsonSchema = {
           // Página del informe (1-based) y confianza de la lectura (0-1).
           page: { type: 'integer' },
           confidence: { type: 'number' },
+          // Identidad impresa en la cabecera del informe y fecha de TOMA de la muestra.
+          pacienteNombre: { type: 'string' },
+          pacienteDocumento: { type: 'string' },
+          collectedAt: { type: 'string' },
         },
         required: [
           'analyte', 'value', 'unit', 'refRange', 'grupo', 'reportDate', 'sourceRef',
@@ -163,6 +167,9 @@ const extractionSchema = z.object({
       institucion: z.string().nullish(),
       page: z.number().int().positive().nullish(),
       confidence: z.number().min(0).max(1).nullish(),
+      pacienteNombre: z.string().nullish(),
+      pacienteDocumento: z.string().nullish(),
+      collectedAt: z.string().nullish(),
     }),
   ),
 });
@@ -239,6 +246,11 @@ PROCEDENCIA (obligatoria en cada valor):
   cortado o ambiguo debe llevar confianza baja. Marcarlo bajo hace que un humano lo revise;
   inflarlo hace que se use un número dudoso en un documento firmado.
 - "institucion": el laboratorio que emite el informe, si aparece.
+- "pacienteNombre" y "pacienteDocumento": la identidad IMPRESA en la cabecera del informe, tal
+  cual. No la deduzcas ni la copies de ningún otro sitio: sirve para comprobar que el informe
+  sea de este paciente y no del familiar que subió el archivo por error.
+- "collectedAt": fecha de TOMA de la muestra en formato AAAA-MM-DD, si el informe la distingue
+  de la fecha de emisión. Si sólo hay una fecha, deja este campo vacío.
 
 Extrae los analitos de laboratorio con su valor, unidad y rango de referencia si aparecen.
 Si el documento no es un laboratorio (p. ej. un ECG o un ecocardiograma), devuelve una lista vacía.

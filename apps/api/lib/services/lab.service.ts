@@ -12,6 +12,7 @@ import {
   getText,
   canonicalAnalyte,
   convertirUnidad,
+  verificarIdentidad,
   normalizeGrupo,
   type FormAnswers,
 } from '@anestia/shared';
@@ -41,6 +42,10 @@ const extractedLabSchema = z.object({
   // archivo del que salió. El modelo no puede conocer el id del adjunto.
   extractionLayer: z.enum(['texto', 'vision']).nullish(),
   attachmentId: z.string().nullish(),
+  // Identidad impresa en el informe y fecha de toma de la muestra.
+  pacienteNombre: z.string().nullish(),
+  pacienteDocumento: z.string().nullish(),
+  collectedAt: z.string().nullish(),
 });
 
 /**
@@ -135,6 +140,7 @@ async function persistLab(
   candidate: unknown,
   now: Date,
   forceMethod?: 'texto' | 'vision',
+  identidadCaso?: { fullName: string; documentId: string } | null,
 ): Promise<number> {
   const parsed = extractedLabSchema.safeParse(candidate);
   if (!parsed.success) {
@@ -151,11 +157,26 @@ async function persistLab(
   // El original se conserva en `valueRaw`/`unitRaw` incluso cuando sí se convierte.
   const conv = convertirUnidad(lab.analyte, lab.value, lab.unit);
 
+  // ¿Es de este paciente? Un informe de otra persona no puede alimentar escalas ni alertas
+  // (Especificación §15: "identidad del paciente y concordancia con el caso activo").
+  const identidad = identidadCaso
+    ? verificarIdentidad(identidadCaso, {
+        nombre: lab.pacienteNombre,
+        documento: lab.pacienteDocumento,
+      })
+    : { match: 'NO_VERIFICABLE' as const, motivo: 'El caso no tiene paciente vinculado todavía.' };
+
   const confianza = lab.confidence ?? null;
   const dudoso =
     (confianza != null && confianza < CONFIANZA_MINIMA) ||
     !lab.unit ||
-    lab.attachmentId == null;
+    lab.attachmentId == null ||
+    // Una discordancia de identidad SIEMPRE va a revisión humana, por buena que sea la lectura.
+    identidad.match === 'NO_COINCIDE';
+
+  if (identidad.match === 'NO_COINCIDE') {
+    logger.warn({ caseId, analyte: lab.analyte, motivo: identidad.motivo }, 'lab_identidad_discordante');
+  }
 
   await prisma.extractedLabResult.create({
     data: {
@@ -171,6 +192,8 @@ async function persistLab(
       unitRaw: conv.unitRaw,
       conversionRule: conv.conversionRule,
       institucion: lab.institucion ?? null,
+      collectedAt: parseReportDate(lab.collectedAt, now),
+      identityMatch: identidad.match,
       confidence: confianza,
       estadoExtraccion: dudoso ? 'PENDIENTE_CONFIRMACION' : 'AUTOMATICO',
       refRange: lab.refRange ?? null,
@@ -201,6 +224,14 @@ export async function extractForCase(caseId: string): Promise<void> {
   const existing = await prisma.extractedLabResult.count({ where: { caseId } });
   if (existing > 0) return; // idempotencia
 
+  // Identidad del caso, para comprobar que cada informe sea de este paciente. Si el caso aún no
+  // tiene paciente vinculado, la comprobación queda en NO_VERIFICABLE en vez de darse por buena.
+  const kaseIdent = await prisma.case.findUnique({
+    where: { id: caseId },
+    select: { patient: { select: { fullName: true, documentId: true } } },
+  });
+  const identidadCaso = kaseIdent?.patient ?? null;
+
   const attachments = await prisma.attachment.findMany({ where: { caseId } });
   // `attachmentId` viaja con cada archivo para poder devolverlo en cada valor extraído. Antes
   // se pasaba la clave de almacenamiento como "filename" y el id se perdía, así que un lab no
@@ -224,7 +255,7 @@ export async function extractForCase(caseId: string): Promise<void> {
     ]);
 
     let persisted = 0;
-    for (const c of visionRes.labs) persisted += await persistLab(caseId, c, now, 'vision');
+    for (const c of visionRes.labs) persisted += await persistLab(caseId, c, now, 'vision', identidadCaso);
 
     const diff =
       'error' in capasRes
@@ -247,7 +278,7 @@ export async function extractForCase(caseId: string): Promise<void> {
     // método persistido es fiel por analito, no una aproximación del caso.
     const res = await provider.extractLabs(files, mode);
     let persisted = 0;
-    for (const c of res.labs) persisted += await persistLab(caseId, c, now);
+    for (const c of res.labs) persisted += await persistLab(caseId, c, now, undefined, identidadCaso);
     await logAudit({
       action: 'extraction.done',
       entity: 'Case',

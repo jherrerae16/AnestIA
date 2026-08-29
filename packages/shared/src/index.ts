@@ -13,6 +13,7 @@ export * from './consent';
 export * from './lab';
 export * from './lab-groups';
 export * from './lab-units';
+export * from './lab-identity';
 export * from './glp1';
 export * from './clinical';
 export * from './pdf-template';

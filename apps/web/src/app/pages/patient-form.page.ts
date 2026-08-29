@@ -275,6 +275,10 @@ const draftKey = (token: string) => `anestia:draft:${token}`;
     /* Las opciones de cierre ("Ninguna", "No sabe") se separan de los diagnósticos. */
     .acc-none { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
 
+    /* Instancias de una pregunta repetida por enfermedad. */
+    .inst { margin-bottom: 18px; padding-left: 14px; border-left: 3px solid var(--it-200); }
+    .inst-label { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+
     /* ── REPETIDOR (medicamentos) ──────────────────────────────────────────── */
     .rep-item { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px; margin-bottom: 10px; }
     .rep-item-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
@@ -403,6 +407,28 @@ const draftKey = (token: string) => `anestia:draft:${token}`;
             <div class="q q-big" [id]="'q-' + q.code">
               <div class="q-label">{{ q.label }}@if (q.required) { <span class="req">*</span> }</div>
               @if (q.ayuda) { <div class="q-help">{{ q.ayuda }}</div> }
+
+              @if (sc.instancias?.length) {
+                <!--
+                  Pregunta repetida por enfermedad marcada. La Especificación §5 la pide "para
+                  cada enfermedad seleccionada": una sola respuesta para el conjunto no distingue
+                  la hipertensión controlada de la diabetes que no lo está.
+                -->
+                @for (inst of sc.instancias ?? []; track inst.key) {
+                  <div class="inst">
+                    <div class="inst-label">{{ inst.label }}</div>
+                    <div class="opts" role="radiogroup">
+                      @for (o of q.options ?? []; track o) {
+                        <button type="button" class="opt" role="radio"
+                                [attr.aria-checked]="valueOf(inst.key) === o"
+                                [class.sel]="valueOf(inst.key) === o"
+                                (click)="setInstancia(q, inst.key, o)"
+                                [attr.data-testid]="'q-' + inst.key">{{ o }}</button>
+                      }
+                    </div>
+                  </div>
+                }
+              } @else {
 
               @switch (q.type) {
                 @case ('SI_NO_NOSABE') {
@@ -604,6 +630,7 @@ const draftKey = (token: string) => `anestia:draft:${token}`;
                          [attr.data-testid]="'q-' + q.code" placeholder="Escribe aquí…" />
                 }
               }
+              }
             </div>
           }
         </div>
@@ -799,6 +826,23 @@ export class PatientFormPage implements OnInit {
    * guardado y se enviaba igual — que es lo que disparaba contradicciones del auditor sobre
    * datos fantasma.
    */
+  /**
+   * Responde una instancia de pregunta repetible (`AP01#hipertension_arterial`).
+   *
+   * Comparte la limpieza de ramas de `setAnswer`, pero escribe bajo la clave de instancia: la
+   * clave base no se usa nunca en una repetible.
+   */
+  setInstancia(q: Q, key: string, value: Valor) {
+    this.answers.update((a) => {
+      const next: Respuestas = { ...a, [key]: { value, type: q.type } };
+      return pruneHiddenAnswers(
+        this.questions().map((x) => ({ code: x.code, activacion: x.conditional ?? null })),
+        next,
+        buildFacts({ answers: next, schedule: this.schedule(), refDateISO: this.procedureDate() || null }),
+      ) as Respuestas;
+    });
+  }
+
   setAnswer(q: Q, value: Valor) {
     this.answers.update((a) => {
       const next: Respuestas = { ...a, [q.code]: { value, type: q.type } };

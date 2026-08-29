@@ -1,12 +1,14 @@
 import {
   CODES,
   CODIGOS_ACORDEON,
+  noControladas,
   formatDocumentId,
   medicalTerm,
   parseNumeric,
   suggestASA,
   type DocField,
   type DocumentJSON,
+  type FormAnswers,
 } from '@anestia/shared';
 
 /**
@@ -48,6 +50,11 @@ export interface ExtractedLab {
   institucion?: string | null;
   /** Id del archivo del que salió. Lo pone el adaptador, no el modelo. */
   attachmentId?: string | null;
+  /** Identidad impresa en la cabecera del informe, para comprobar de quién es. */
+  pacienteNombre?: string | null;
+  pacienteDocumento?: string | null;
+  /** Fecha de TOMA de la muestra, distinta de la de emisión (`reportDate`). */
+  collectedAt?: string | null;
   /** Fecha del informe (AAAA-MM-DD) leída del examen, no la de carga. Vacía si no la trae. */
   reportDate?: string | null;
   sourceRef?: string | null;
@@ -320,8 +327,18 @@ export class StubAIProvider implements AIProvider {
     // síntomas hoy. "No tengo enfermedad diagnosticada" no es "Asintomático" — afirmarlo
     // sería una observación clínica que nadie hizo (CS2). Sin enfermedad declarada se deja
     // sin reportar; lo determina el médico en el examen.
+    // Condición actual: distingue lo controlado de lo que no. Antes decía "En seguimiento por X"
+    // para todo por igual; la Especificación §5 pregunta el control por CADA enfermedad, y una
+    // diabetes no controlada no es lo mismo que una hipertensión controlada para el ASA.
+    const sinControl = noControladas(input.answers as FormAnswers).map((i) => i.label);
     const condicionActual: DocField = isYes(CODES.tieneEnfermedad) && patologias()
-      ? derived(`En seguimiento por ${patologias()!.toLocaleLowerCase('es')}`, 'formulario:AP00, AG01-AG11')
+      ? derived(
+          sinControl.length > 0
+            ? `En seguimiento por ${patologias()!.toLocaleLowerCase('es')}. ` +
+              `Sin control declarado: ${sinControl.join(', ').toLocaleLowerCase('es')}.`
+            : `En seguimiento por ${patologias()!.toLocaleLowerCase('es')}`,
+          'formulario:AP00, AG01-AG11, AP01',
+        )
       : noRep();
 
     // ASA: sugerido desde comorbilidades declaradas (P13 patologías). Marcado como derivado

@@ -53,7 +53,7 @@ Total: **134 ítems**, de los cuales **12** no se le preguntan al paciente.
 | `AG09` | Huesos, músculos y articulaciones | ACORDEON_MULTIPLE | Condicional | Paciente | AP00 equals "si" | — |
 | `AG10` | Salud mental | ACORDEON_MULTIPLE | Condicional | Paciente | AP00 equals "si" | — |
 | `AG11` | Otras condiciones | ACORDEON_MULTIPLE | Condicional | Paciente | AP00 equals "si" | — |
-| `AP01` | Para cada enfermedad seleccionada: ¿está controlada? | SELECCION_UNICA | Condicional | Paciente | AP00 equals "si" | — |
+| `AP01` | ¿Está controlada? | SELECCION_UNICA | Condicional | Paciente | AP00 equals "si" | — |
 | `AP02` | ¿Ha sido hospitalizado por esta enfermedad en los últimos 6 meses? | SI_NO_NOSABE | Condicional | Paciente | AP00 equals "si" | — |
 | `AP03` | ¿Presenta actualmente alguno de estos síntomas? | SELECCION_MULTIPLE | Obligatoria | Paciente | ruta in ["ADULTO","ADULTO_MAYOR"] | DASI, RCRI |
 | `AP04` | Durante el último mes, ¿ha tenido infección respiratoria? | SELECCION_UNICA | Obligatoria | Paciente | — | ARISCAT |

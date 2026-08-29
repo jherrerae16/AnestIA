@@ -269,9 +269,12 @@ const ACORDEONES: DictQuestion[] = GRUPOS_PATOLOGIAS.map((g, i) => ({
 
 const ACLARATORIAS: DictQuestion[] = [
   {
-    code: 'AP01', order: ord(), label: 'Para cada enfermedad seleccionada: ¿está controlada?',
+    code: 'AP01', order: ord(), label: '¿Está controlada?',
     type: 'SELECCION_UNICA', obligacion: 'C', fuente: 'P', seccion: 'antecedentes',
     opciones: ['Controlada', 'No controlada', 'No sabe'],
+    // Se repite sobre TODOS los acordeones: la Especificación §5 pide el control "para cada
+    // enfermedad seleccionada", no una sola vez para el conjunto. Cada instancia se guarda como
+    // `AP01#<slug>` (p. ej. `AP01#hipertension_arterial`).
     repiteSobre: 'AG01',
     activacion: si('AP00'),
     ayuda: 'Se pregunta una vez por cada condición que marcó.',

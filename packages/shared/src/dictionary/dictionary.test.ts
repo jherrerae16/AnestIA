@@ -340,3 +340,29 @@ describe('valores de hecho en las reglas', () => {
     expect(errores).toEqual([]);
   });
 });
+
+describe('la comparación con la base es independiente del orden de claves', () => {
+  it('no reporta diferencia si sólo cambia el orden de las claves', () => {
+    // Postgres guarda Json como JSONB y reordena las claves al leerlas. Comparar cadenas hacía
+    // que la guarda avisara SIEMPRE, y una guarda que siempre grita se termina ignorando.
+    // Reordena las claves al revés en todos los niveles, que es lo que hace JSONB al leer.
+    const reordenar = (v: unknown): unknown => {
+      if (v === null || typeof v !== 'object') return v;
+      if (Array.isArray(v)) return v.map(reordenar);
+      const e = Object.entries(v as Record<string, unknown>).sort(([a], [b]) => b.localeCompare(a));
+      return Object.fromEntries(e.map(([k, val]) => [k, reordenar(val)]));
+    };
+    const filas = QUESTION_DICTIONARY.map((q) => ({
+      code: q.code,
+      conditional: q.activacion ? reordenar(q.activacion) : null,
+    }));
+    expect(diffPresetVsDiccionario(filas)).toEqual([]);
+  });
+
+  it('sigue detectando una diferencia real', () => {
+    const filas = QUESTION_DICTIONARY.map((q) => ({ code: q.code, conditional: q.activacion ?? null }));
+    const objetivo = filas.find((f) => f.conditional != null)!;
+    objetivo.conditional = { kind: 'never' };
+    expect(diffPresetVsDiccionario(filas).length).toBeGreaterThan(0);
+  });
+});
