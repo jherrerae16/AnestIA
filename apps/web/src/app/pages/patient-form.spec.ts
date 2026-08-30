@@ -392,3 +392,60 @@ describe('carga de exámenes', () => {
     expect(bloque.querySelector('textarea')).toBeNull();
   });
 });
+
+describe('preguntas propias del anestesiólogo', () => {
+  /**
+   * Las suyas se añaden al final, se le muestran a todos y no alimentan escalas. El riesgo que
+   * cubre este test es que el formulario las ignore en silencio: `buildScreens` agrupa por
+   * sección y una pregunta sin sección tiene que caer en "Otros datos", no desaparecer.
+   */
+  const PROPIA: QuestionDef = {
+    code: 'PR01',
+    order: 900,
+    label: '¿Quién lo acompaña el día de la cirugía?',
+    type: 'TEXTO_CORTO',
+    required: false,
+    obligacion: 'C',
+    seccion: null,
+    grupo: null,
+    modulo: null,
+    ayuda: 'Nos ayuda a coordinar la salida.',
+    alimenta: [],
+    repiteSobre: null,
+    campos: null,
+    conditional: null,
+    validacion: null,
+    options: null,
+  } as QuestionDef;
+
+  it('una pregunta propia llega al paciente y renderiza', async () => {
+    api.getForm.mockResolvedValue({
+      caseId: 'c1',
+      branding: { logo: null, doctor: 'Dr. Luquetta' },
+      questions: [...PREGUNTAS_PACIENTE, PROPIA],
+      consent: { text: 'Autorizo…' },
+      answers: nacido('1975-04-02'),
+      procedureDate: '2026-09-15',
+      schedule: AGENDA_MAYOR,
+      consentAccepted: true,
+      submitted: false,
+    });
+    TestBed.configureTestingModule({
+      imports: [PatientFormPage],
+      providers: [
+        provideExperimentalZonelessChangeDetection(),
+        { provide: ApiService, useValue: api },
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: new Map([['token', 'tok-1']]) } } },
+      ],
+    });
+    const f = TestBed.createComponent(PatientFormPage);
+    f.detectChanges();
+    await new Promise((r) => setTimeout(r, 0));
+    await estabilizar(f);
+
+    await irA(f, 'PR01');
+    const bloque = qq(f, '.q').find((b) => b.id === 'q-PR01')!;
+    expect(bloque.textContent).toContain('¿Quién lo acompaña el día de la cirugía?');
+    expect(bloque.querySelector('input[type="text"]')).toBeTruthy();
+  });
+});

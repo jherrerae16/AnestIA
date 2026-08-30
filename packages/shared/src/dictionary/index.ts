@@ -274,10 +274,15 @@ function detectCycles(dict: readonly DictQuestion[]): string[] {
  * Devuelve las diferencias (vacío = coherente).
  */
 export function diffPresetVsDiccionario(
-  filas: readonly { code: string; conditional?: unknown; label?: string }[],
+  filas: readonly { code: string; conditional?: unknown; label?: string; origen?: string }[],
 ): string[] {
   const out: string[] = [];
-  const enBd = new Map(filas.map((f) => [f.code, f]));
+  // Las preguntas propias del anestesiólogo no están en el diccionario a propósito y no son un
+  // desajuste: sin este filtro, la guarda gritaría en cada arranque por cada pregunta que él
+  // añada, y una guarda que siempre grita se termina ignorando.
+  const enBd = new Map(
+    filas.filter((f) => f.origen !== 'PROPIA').map((f) => [f.code, f]),
+  );
 
   for (const q of QUESTION_DICTIONARY) {
     const fila = enBd.get(q.code);

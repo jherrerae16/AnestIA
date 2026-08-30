@@ -89,6 +89,15 @@ export class ApiService {
       ),
     );
   }
+  /** Preguntas propias del anestesiólogo en un cuestionario suyo. */
+  listPropias(presetId: string): Promise<{ propias: any[] }> {
+    return firstValueFrom(this.http.get<{ propias: any[] }>(`/api/panel/presets/${presetId}/propias`));
+  }
+  savePropias(presetId: string, propias: unknown[]): Promise<{ errores: string[]; guardadas: number }> {
+    return firstValueFrom(
+      this.http.put<{ errores: string[]; guardadas: number }>(`/api/panel/presets/${presetId}/propias`, { propias }),
+    );
+  }
   /** Re-corre el auditor determinístico sobre el borrador actual. Cero tokens. */
   reaudit(caseId: string): Promise<{ audit: { findings: { level: string; category: string; message: string }[] } | null }> {
     return firstValueFrom(this.http.post<{ audit: { findings: { level: string; category: string; message: string }[] } | null }>(`/api/panel/cases/${caseId}/reaudit`, {}));

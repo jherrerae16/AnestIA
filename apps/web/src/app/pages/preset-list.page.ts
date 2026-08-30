@@ -1,9 +1,11 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { ApiService } from '../core/api.service';
 
 @Component({
   selector: 'app-preset-list',
   standalone: true,
+  imports: [RouterLink],
   styles: [`
     .wrap { max-width: 720px; }
     .page-heading { font-family: var(--font-display); font-size: 22px; font-weight: 600; letter-spacing: -0.5px; color: var(--text); margin-bottom: 4px; }
@@ -19,6 +21,7 @@ import { ApiService } from '../core/api.service';
     .preset-version { font-family: var(--font-mono); font-size: 11px; color: var(--muted2); }
     .preset-count { font-size: 12px; color: var(--muted); }
     .note { font-size: 12px; color: var(--muted); margin-top: 20px; line-height: 1.6; }
+    .preset-edit { font-size: 12.5px; color: var(--brand); white-space: nowrap; }
   `],
   template: `
     <div class="wrap" data-testid="preset-list">
@@ -38,13 +41,20 @@ import { ApiService } from '../core/api.service';
             @if (p.isDefault) {
               <span class="card-badge badge-green">Por defecto</span>
             }
+            <a class="preset-edit" [routerLink]="['/presets', p.id, 'preguntas']"
+               [attr.data-testid]="'editar-' + p.id">Mis preguntas →</a>
           </div>
         } @empty {
           <div class="empty">Aún no hay cuestionarios.</div>
         }
       </div>
 
-      <p class="note">El constructor visual de preguntas llega en una iteración posterior; el preset base ya está sembrado.</p>
+      <p class="note">
+        Las preguntas de la Especificación del Dr. Luquetta no se editan: de ellas dependen la
+        trazabilidad de cada dato del documento y las variables de las ocho escalas de riesgo.
+        En <b>Mis preguntas</b> puedes añadir las tuyas, que se muestran a todos los pacientes y
+        no alimentan ninguna escala.
+      </p>
     </div>
   `,
 })

@@ -16,6 +16,7 @@ export * from './lab-units';
 export * from './lab-identity';
 export * from './lab-trend';
 export * from './estudios';
+export * from './preguntas-propias';
 export * from './glp1';
 export * from './clinical';
 export * from './pdf-template';

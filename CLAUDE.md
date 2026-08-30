@@ -281,6 +281,20 @@ mordieron: el repetidor que mandaba la dosis a otra fila, el acordeón con "Ning
 El script de test de `apps/web` era `echo … && exit 0`: `npm test` pasaba en verde con cero
 tests. `workspaces.guard.test.ts` falla si alguno vuelve a "pasar" sin ejecutar nada.
 
-**Pendientes conocidos:** editor de cuestionarios propios; reconciliador de casos atascados;
-Manual Clínico sin firmar (las ocho escalas siguen `SIN_VALIDAR`); rotar la key cuando toque —
-procedimiento en `docs/secretos.md`.
+**Lecturas retenidas, con salida.** Un laboratorio o un estudio con confianza baja, sin unidad
+o con identidad discordante queda `PENDIENTE_CONFIRMACION` y no alimenta escalas ni tendencias.
+Eso ya funcionaba; lo que faltaba era la salida — nadie escribía nunca `CONFIRMADO` y el dato
+quedaba retenido para siempre, invisible. `confirmarLectura()` es HITL sobre la **extracción**
+(«ahí dice 9.8»), distinto del veredicto clínico («esto es normal»): queda en el audit log y
+recalcula las escalas que esperaban el dato. La revisión dice cuántas hay y **por qué** —
+confianza baja se resuelve mirando el PDF, identidad discordante puede ser el examen de otro.
+
+**Preguntas propias del anestesiólogo** (`PR01`–`PR99`). El diccionario **no es editable**: de él
+salen el prompt clínico, la trazabilidad por código y las variables de las ocho escalas. Las
+propias son informativas, se muestran a todos, van al final y **nunca alimentan una escala**. La
+garantía no es disciplina: el servicio sólo lee y escribe filas `origen = PROPIA`, y
+`diffPresetVsDiccionario` las ignora para no gritar en cada arranque.
+
+**Pendientes conocidos:** Manual Clínico sin firmar (las ocho escalas siguen `SIN_VALIDAR` —
+hoja de decisiones en `docs/manual-clinico-decisiones.md`); rotar la key cuando corresponda
+(`docs/secretos.md`).

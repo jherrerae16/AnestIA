@@ -1,5 +1,10 @@
 import { prisma } from '../prisma';
-import type { PresetDef } from '@anestia/shared';
+import {
+  propiaAQuestionDef,
+  validarPropias,
+  type PreguntaPropia,
+  type PresetDef,
+} from '@anestia/shared';
 
 /** Lista los presets del anesthesiologist. */
 export function listPresets(anesthesiologistId: string) {
@@ -104,3 +109,68 @@ const OBLIGACION = {
   S: 'SISTEMA',
   V: 'VERIFICA',
 } as const;
+
+/** Las preguntas propias del anestesiólogo en un preset suyo. */
+export async function listPropias(anesthesiologistId: string, presetId: string) {
+  const preset = await prisma.questionnairePreset.findFirst({
+    where: { id: presetId, ownerId: anesthesiologistId },
+    select: { id: true },
+  });
+  if (!preset) return null;
+  return prisma.question.findMany({
+    where: { presetId, origen: 'PROPIA' },
+    orderBy: { order: 'asc' },
+  });
+}
+
+/**
+ * Reemplaza las preguntas propias de un preset.
+ *
+ * **Sólo toca filas `PROPIA`.** Las del diccionario no se leen, no se borran y no se reescriben:
+ * la garantía de que una pantalla no puede corromper la Especificación del Dr. es el `where` de
+ * este `deleteMany`, no la disciplina de quien llame. De ellas dependen el prompt clínico, la
+ * trazabilidad por código y las variables de las ocho escalas.
+ *
+ * Tampoco versiona el preset. Una pregunta propia es informativa y no cambia el significado de
+ * ninguna respuesta anterior: los casos ya enviados conservan las suyas, y los que estén a medias
+ * simplemente ven la pregunta nueva.
+ */
+export async function savePropias(
+  anesthesiologistId: string,
+  presetId: string,
+  propias: PreguntaPropia[],
+): Promise<{ errores: string[]; guardadas: number }> {
+  const preset = await prisma.questionnairePreset.findFirst({
+    where: { id: presetId, ownerId: anesthesiologistId },
+    select: { id: true },
+  });
+  if (!preset) return { errores: ['El cuestionario no existe o no es tuyo.'], guardadas: 0 };
+
+  const errores = validarPropias(propias);
+  if (errores.length > 0) return { errores, guardadas: 0 };
+
+  await prisma.$transaction([
+    prisma.question.deleteMany({ where: { presetId, origen: 'PROPIA' } }),
+    prisma.question.createMany({
+      data: propias.map((q, i) => {
+        const def = propiaAQuestionDef(q, i);
+        return {
+          presetId,
+          origen: 'PROPIA' as const,
+          code: def.code,
+          order: def.order,
+          label: def.label,
+          type: def.type as never,
+          required: def.required,
+          obligacion: 'CONDICIONAL' as const,
+          fuente: 'PACIENTE' as const,
+          ayuda: def.ayuda,
+          alimenta: [],
+          options: (def.options ?? undefined) as never,
+        };
+      }),
+    }),
+  ]);
+
+  return { errores: [], guardadas: propias.length };
+}

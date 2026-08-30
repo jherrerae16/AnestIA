@@ -765,14 +765,19 @@ Si algún punto falla, corrige antes de emitir. No entregues una salida que no c
 
 ### Pendientes conocidos
 
-- Editor de cuestionarios propios (hoy sólo el preset base; el selector al crear caso ya existe).
-- Reconciliador de casos atascados si falla el `publish` a la cola (hoy se recupera a mano).
+- ~~Editor de cuestionarios propios~~ — **resuelto el 2026-08-30.** El anestesiólogo añade sus
+  propias preguntas (`PR01`–`PR99`) desde *Mis preguntas*; las de la Especificación **no son
+  editables** y el servidor sólo escribe filas `PROPIA`, así que una pantalla no puede
+  desincronizar el prompt clínico, la trazabilidad ni las variables de las escalas.
+- ~~Reconciliador de casos atascados~~ — **ya existe** (`reconciler.service.ts`, corre al arrancar
+  el worker). Este documento lo listaba como pendiente por error.
 - ~~Decisión sobre la exportación opcional a Google Sheets~~ — **resuelta el 2026-08-30: se elimina.**
   Nunca se configuró (el botón sólo devolvía "no está configurado"), Postgres es la fuente de
   verdad y mantener una credencial de service account viva para una función que nadie usó es
   superficie de riesgo sin contrapartida. Si el Dr. pide un listado, se hace un CSV local sin
   sacar datos de pacientes a Google.
-- Rotar la `ANTHROPIC_API_KEY` (hoy en claro en `.env`, no versionada).
+- Rotar la `ANTHROPIC_API_KEY` cuando corresponda. Auditado el 2026-08-30: nunca entró al
+  repositorio ni al historial. Procedimiento en `docs/secretos.md`.
 
 ### Notas de dominio pendientes de validación del Dr. Luquetta
 

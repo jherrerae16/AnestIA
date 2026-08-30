@@ -33,6 +33,10 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/preset-list.page').then((m) => m.PresetListPage),
       },
       {
+        path: 'presets/:id/preguntas',
+        loadComponent: () => import('./pages/preset-editor.page').then((m) => m.PresetEditorPage),
+      },
+      {
         path: 'cases/:id/review',
         loadComponent: () => import('./pages/review-approval.page').then((m) => m.ReviewApprovalPage),
       },

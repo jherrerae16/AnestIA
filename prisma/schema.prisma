@@ -119,6 +119,11 @@ model Question {
   /// trazabilidad: el motor clínico cita `formulario:CF01`. Renombrar un código rompe la
   /// trazabilidad de todo documento que ya lo referencie.
   code        String
+  /// De dónde sale la pregunta. `DICCIONARIO` es la Especificación del Dr. Luquetta y **no se
+  /// edita desde la interfaz**: cambiarla desincronizaría el prompt clínico, el mapeo de
+  /// trazabilidad y las escalas que la consumen. `PROPIA` es una pregunta añadida por el
+  /// anestesiólogo, informativa, que nunca alimenta una escala.
+  origen      OrigenPregunta @default(DICCIONARIO)
   /// Orden de presentación. SOLO display — dejó de ser trazabilidad.
   order       Int
   label       String
@@ -634,6 +639,12 @@ enum AttachmentType {
 }
 
 /// Estado de una extracción de laboratorio (Especificación §15).
+/// De dónde sale una pregunta del cuestionario.
+enum OrigenPregunta {
+  DICCIONARIO
+  PROPIA
+}
+
 /// Tipo de informe diagnóstico no-laboratorio. Cerrado a propósito: `OTRO` conserva el nombre
 /// impreso en `tipoRaw` en vez de inventar una categoría.
 enum TipoEstudio {
