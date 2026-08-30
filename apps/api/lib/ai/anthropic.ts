@@ -2,7 +2,13 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
-import { documentSchema, LAB_GRUPOS, type DocumentJSON } from '@anestia/shared';
+import {
+  documentSchema,
+  LAB_GRUPOS,
+  QUESTION_DICTIONARY,
+  TIPOS_ESTUDIO,
+  type DocumentJSON,
+} from '@anestia/shared';
 import { logger } from '../logger';
 import { mimeFor } from '../mime';
 import { readPdfText } from './pdf-text';
@@ -10,6 +16,7 @@ import { getStorageProvider } from '../storage';
 import type {
   AIProvider,
   ClinicalInput,
+  ExtractedEstudio,
   ExtractedLab,
   ExtractionMethod,
   ExtractLabsResult,
@@ -63,18 +70,19 @@ const ANTECEDENTES_FIELDS = [
 const PLAN_FIELDS = ['concepto', 'plan', 'recomendaciones'] as const;
 
 /**
- * Mapa de preguntas del formulario. El modelo NO puede adivinar la numeración: sin esto
- * cita fuentes equivocadas (`formulario:P18` para alergias, que en realidad es P16) y la
- * trazabilidad —que es el punto de CS2— queda inservible.
+ * Mapa de preguntas del formulario. El modelo NO puede adivinar los códigos: sin esto cita
+ * fuentes equivocadas y la trazabilidad —que es el punto de CS2— queda inservible.
+ *
+ * Se GENERA del diccionario. Antes era un literal escrito a mano que había que recordar
+ * actualizar junto al seed y a `docs/form-mapping.md`; tres copias de la misma lista es
+ * exactamente cómo se llega a citar `formulario:P18` para una alergia que era P16.
  */
-const PREGUNTAS = `P1 nombre · P2 documento · P3 fecha de nacimiento · P4 sexo · P5 peso (kg) ·
-P6 estatura (cm) · P7 teléfono · P8 aseguradora · P9 cirugía o procedimiento · P10 fecha de cirugía ·
-P11 grupo sanguíneo · P12 ¿sufre alguna enfermedad? · P13 patologías (checklist) ·
-P14 ¿toma medicamentos? · P15 ¿cuáles medicamentos? · P16 ¿es alérgico? · P17 ¿a qué es alérgico? ·
-P18 ¿cirugía o anestesia previa? · P19 ¿cuáles cirugías? · P20 ¿transfusión previa? ·
-P21 ¿prótesis dental o diseño de sonrisa? · P22 ¿fuma o vapea? · P23 cigarrillos por día ·
-P24 ¿consume alcohol? · P25 ¿cuántas veces por semana consume alcohol? ·
-P26 ¿sustancias psicoactivas? · P27 ¿cuáles sustancias psicoactivas? · P28 correo`;
+function buildPreguntasBlock(): string {
+  return QUESTION_DICTIONARY.filter((q) => q.obligacion !== 'S')
+    .map((q) => `${q.code} ${q.label}`)
+    .join(' · ');
+}
+const PREGUNTAS = buildPreguntasBlock();
 
 /**
  * Contrato de salida del motor clínico, descrito en el prompt.
@@ -91,7 +99,7 @@ function contractSpec(): string {
     'Devuelve ÚNICAMENTE un objeto JSON con esta forma exacta, sin texto alrededor y sin ```:',
     '',
     'Campo = { "valor": string, "estado": "ok"|"no_reportado", "fuente": string }',
-    '  - Con sustento     → estado "ok", valor con el dato, fuente citada (formulario:Pn | lab:... | derivado:IA).',
+    '  - Con sustento     → estado "ok", valor con el dato, fuente citada (formulario:<CODIGO> | lab:... | agenda:<CODIGO> | derivado:IA).',
     '  - Sin sustento     → estado "no_reportado", valor "", fuente "".',
     '',
     '{',
@@ -121,13 +129,54 @@ const extractionJsonSchema = {
           // Cadena vacía si el informe no la reporta (evita uniones nullable).
           reportDate: { type: 'string' },
           sourceRef: { type: 'string' },
+          // Nombre y valor tal como están IMPRESOS, antes de normalizar.
+          analyteRaw: { type: 'string' },
+          valueRaw: { type: 'string' },
+          institucion: { type: 'string' },
+          // Página del informe (1-based) y confianza de la lectura (0-1).
+          page: { type: 'integer' },
+          confidence: { type: 'number' },
+          // Identidad impresa en la cabecera del informe y fecha de TOMA de la muestra.
+          pacienteNombre: { type: 'string' },
+          pacienteDocumento: { type: 'string' },
+          collectedAt: { type: 'string' },
         },
-        required: ['analyte', 'value', 'unit', 'refRange', 'grupo', 'reportDate', 'sourceRef'],
+        required: [
+          'analyte', 'value', 'unit', 'refRange', 'grupo', 'reportDate', 'sourceRef',
+          'analyteRaw', 'valueRaw', 'page', 'confidence',
+        ],
+        additionalProperties: false,
+      },
+    },
+    estudios: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          tipo: { type: 'string', enum: [...TIPOS_ESTUDIO] },
+          tipoRaw: { type: 'string' },
+          // Los cuatro campos que la Especificación §16 nombra para el ECG. Cadena vacía si el
+          // informe no los trae (evita uniones nullable).
+          ritmo: { type: 'string' },
+          frecuencia: { type: 'string' },
+          intervalos: { type: 'string' },
+          conclusion: { type: 'string' },
+          hallazgos: { type: 'string' },
+          institucion: { type: 'string' },
+          collectedAt: { type: 'string' },
+          reportDate: { type: 'string' },
+          page: { type: 'integer' },
+          confidence: { type: 'number' },
+          pacienteNombre: { type: 'string' },
+          pacienteDocumento: { type: 'string' },
+          sourceRef: { type: 'string' },
+        },
+        required: ['tipo', 'conclusion', 'sourceRef', 'page', 'confidence'],
         additionalProperties: false,
       },
     },
   },
-  required: ['labs'],
+  required: ['labs', 'estudios'],
   additionalProperties: false,
 } as const;
 
@@ -142,8 +191,41 @@ const extractionSchema = z.object({
       grupo: z.string().nullish(),
       reportDate: z.string().nullish(),
       sourceRef: z.string().min(1),
+      analyteRaw: z.string().nullish(),
+      valueRaw: z.string().nullish(),
+      institucion: z.string().nullish(),
+      page: z.number().int().positive().nullish(),
+      confidence: z.number().min(0).max(1).nullish(),
+      pacienteNombre: z.string().nullish(),
+      pacienteDocumento: z.string().nullish(),
+      collectedAt: z.string().nullish(),
     }),
   ),
+  /**
+   * Informes no-laboratorio (§16). Opcional en el borde: un modelo que devuelva sólo `labs` no
+   * debe tumbar la extracción entera — el resultado es que no hay estudios, que es lo cierto.
+   */
+  estudios: z
+    .array(
+      z.object({
+        tipo: z.string().nullish(),
+        tipoRaw: z.string().nullish(),
+        ritmo: z.string().nullish(),
+        frecuencia: z.string().nullish(),
+        intervalos: z.string().nullish(),
+        conclusion: z.string().nullish(),
+        hallazgos: z.string().nullish(),
+        institucion: z.string().nullish(),
+        collectedAt: z.string().nullish(),
+        reportDate: z.string().nullish(),
+        page: z.number().int().positive().nullish(),
+        confidence: z.number().min(0).max(1).nullish(),
+        pacienteNombre: z.string().nullish(),
+        pacienteDocumento: z.string().nullish(),
+        sourceRef: z.string().min(1),
+      }),
+    )
+    .nullish(),
 });
 
 /**
@@ -209,8 +291,33 @@ REGLA DE ORO — NUNCA FABRICAR:
 - Nunca infieras, estimes ni completes valores "esperables".
 - Cada valor lleva sourceRef indicando dónde se leyó (p. ej. "hemograma:hemoglobina", "coagulacion:INR").
 
-Extrae los analitos de laboratorio con su valor, unidad y rango de referencia si aparecen.
-Si el documento no es un laboratorio (p. ej. un ECG o un ecocardiograma), devuelve una lista vacía.
+PROCEDENCIA (obligatoria en cada valor):
+- "analyteRaw" y "valueRaw": el nombre y el valor TAL COMO ESTÁN IMPRESOS, sin normalizar.
+  Si el informe dice "HB" y "15,9", eso es lo que va ahí, aunque en "analyte"/"value" pongas
+  la forma canónica. El original nunca se pierde.
+- "page": número de página del documento donde leíste el valor, empezando en 1.
+- "confidence": qué tan seguro estás de la lectura, entre 0 y 1. Sé honesto: un valor borroso,
+  cortado o ambiguo debe llevar confianza baja. Marcarlo bajo hace que un humano lo revise;
+  inflarlo hace que se use un número dudoso en un documento firmado.
+- "institucion": el laboratorio que emite el informe, si aparece.
+- "pacienteNombre" y "pacienteDocumento": la identidad IMPRESA en la cabecera del informe, tal
+  cual. No la deduzcas ni la copies de ningún otro sitio: sirve para comprobar que el informe
+  sea de este paciente y no del familiar que subió el archivo por error.
+- "collectedAt": fecha de TOMA de la muestra en formato AAAA-MM-DD, si el informe la distingue
+  de la fecha de emisión. Si sólo hay una fecha, deja este campo vacío.
+
+Extrae los analitos de laboratorio con su valor, unidad y rango de referencia si aparecen, en "labs".
+
+INFORMES QUE NO SON DE LABORATORIO ("estudios"):
+- Un ECG, un ecocardiograma, una radiografía de tórax o una espirometría NO van en "labs": van en
+  "estudios", que es una lista aparte.
+- De un ECG transcribe "ritmo", "frecuencia", "intervalos" y "conclusion" tal como los diga el
+  informe. De los demás estudios basta "conclusion" y, si el informe los separa, "hallazgos".
+- TRANSCRIBE, NO INTERPRETES. No decidas si el estudio es normal, no traduzcas un hallazgo a un
+  diagnóstico y no saques conclusiones que el informe no escriba. La lectura clínica la hace el
+  anestesiólogo; tu trabajo es que le llegue el texto, no un juicio.
+- "tipoRaw": el nombre del estudio tal como está impreso ("EKG de 12 derivaciones").
+- Si el documento no es ni laboratorio ni un estudio legible, devuelve ambas listas vacías.
 
 TIPO DE ESTUDIO (campo "grupo"):
 - Asigna cada analito al estudio bajo el cual aparece en el informe, usando los encabezados
@@ -247,12 +354,19 @@ export class AnthropicAIProvider implements AIProvider {
    * Un documento ilegible produce lista vacía — nunca valores inventados (CS2).
    */
   async extractLabs(files: FileRef[], method: ExtractionMethod = 'capas'): Promise<ExtractLabsResult> {
-    if (!files || files.length === 0) return { labs: [], perFile: [] };
+    if (!files || files.length === 0) return { labs: [], estudios: [], perFile: [] };
 
     if (method === 'vision') {
-      const raw = await this.extractByVision(files);
-      const labs = raw.map((l) => ({ ...l, extractionLayer: 'vision' as const }));
-      return { labs, perFile: files.map((f) => ({ file: f.filename, layer: 'vision' })) };
+      // Un archivo por llamada: con varios juntos no se sabe de cuál salió cada valor, y sin eso
+      // no hay procedencia que persistir (Especificación §15).
+      const labs: ExtractedLab[] = [];
+      const estudios: ExtractedEstudio[] = [];
+      for (const f of files) {
+        const raw = await this.extractByVision([f]);
+        labs.push(...raw.labs.map((l) => ({ ...l, extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null })));
+        estudios.push(...raw.estudios.map((e) => ({ ...e, extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null })));
+      }
+      return { labs, estudios, perFile: files.map((f) => ({ file: f.filename, layer: 'vision' })) };
     }
 
     // Modo capas: decidir capa archivo por archivo.
@@ -276,23 +390,31 @@ export class AnthropicAIProvider implements AIProvider {
     }
 
     const labs: ExtractedLab[] = [];
+    const estudios: ExtractedEstudio[] = [];
     // Capa 3: los archivos con texto usable, extraídos por Haiku (uno por archivo para no
     // mezclar sourceRef entre informes distintos). Cada lab lleva su método de origen.
     for (const f of textFiles) {
       const t = await readPdfText(await storage.get(f.key), f.filename);
       const fromText = await this.extractFromText(t.text, f.filename);
-      labs.push(...fromText.map((l) => ({ ...l, extractionLayer: 'texto' as const })));
+      const marca = { extractionLayer: 'texto' as const, attachmentId: f.attachmentId ?? null };
+      labs.push(...fromText.labs.map((l) => ({ ...l, ...marca })));
+      estudios.push(...fromText.estudios.map((e) => ({ ...e, ...marca })));
     }
-    // Capa 4: fallback a visión para lo que el texto no resolvió.
-    if (visionFiles.length > 0) {
-      const byVision = await this.extractByVision(visionFiles);
-      labs.push(...byVision.map((l) => ({ ...l, extractionLayer: 'vision' as const })));
+    // Capa 4: fallback a visión, también archivo por archivo, para conservar la procedencia.
+    for (const f of visionFiles) {
+      const byVision = await this.extractByVision([f]);
+      const marca = { extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null };
+      labs.push(...byVision.labs.map((l) => ({ ...l, ...marca })));
+      estudios.push(...byVision.estudios.map((e) => ({ ...e, ...marca })));
     }
-    return { labs, perFile };
+    return { labs, estudios, perFile };
   }
 
   /** Capa 3 — extracción a JSON con Haiku sobre el TEXTO ya extraído (cero imagen). */
-  private async extractFromText(text: string, label: string): Promise<ExtractedLab[]> {
+  private async extractFromText(
+    text: string,
+    label: string,
+  ): Promise<{ labs: ExtractedLab[]; estudios: ExtractedEstudio[] }> {
     // Sin thinking: Haiku 4.5 no soporta adaptive thinking, y transcribir una tabla ya en
     // texto plano a JSON no lo necesita — es lectura estructurada, no razonamiento.
     const stream = this.client.messages.stream({
@@ -300,21 +422,26 @@ export class AnthropicAIProvider implements AIProvider {
       max_tokens: EXTRACTION_MAX_TOKENS,
       system: EXTRACTION_SYSTEM,
       output_config: { format: { type: 'json_schema', schema: extractionJsonSchema as never } },
-      messages: [{ role: 'user', content: `Extrae los laboratorios de este informe:\n\n${text}` }],
+      messages: [
+        { role: 'user', content: `Extrae los laboratorios y los estudios de este informe:\n\n${text}` },
+      ],
     });
     const response = await stream.finalMessage();
     this.guardResponse(response, `texto:${label}`);
     const parsed = extractionSchema.parse(parseJson(firstText(response)));
     logger.info(
       { label, layer: 'texto', model: TEXT_EXTRACTION_MODEL_ID, labs: parsed.labs.length,
+        estudios: parsed.estudios?.length ?? 0,
         inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
       'anthropic_extract_done',
     );
-    return parsed.labs;
+    return { labs: parsed.labs, estudios: parsed.estudios ?? [] };
   }
 
   /** Capa 4 — extracción por visión sobre los archivos (PDF como documento, imagen como imagen). */
-  private async extractByVision(files: FileRef[]): Promise<ExtractedLab[]> {
+  private async extractByVision(
+    files: FileRef[],
+  ): Promise<{ labs: ExtractedLab[]; estudios: ExtractedEstudio[] }> {
     const storage = getStorageProvider();
     const content: Anthropic.ContentBlockParam[] = [];
     for (const f of files) {
@@ -330,8 +457,8 @@ export class AnthropicAIProvider implements AIProvider {
         content.push({ type: 'image', source: { type: 'base64', media_type: mime as 'image/png', data } });
       }
     }
-    if (content.length === 0) return [];
-    content.push({ type: 'text', text: 'Extrae los laboratorios de estos documentos.' });
+    if (content.length === 0) return { labs: [], estudios: [] };
+    content.push({ type: 'text', text: 'Extrae los laboratorios y los estudios de estos documentos.' });
 
     // Streaming + max_tokens alto: por encima de ~16k una petición no-streaming se cae por
     // timeout HTTP del SDK, y con poco margen el JSON se corta a medias (CS2).
@@ -348,10 +475,11 @@ export class AnthropicAIProvider implements AIProvider {
     const parsed = extractionSchema.parse(parseJson(firstText(response)));
     logger.info(
       { files: files.length, layer: 'vision', model: VISION_EXTRACTION_MODEL_ID, labs: parsed.labs.length,
+        estudios: parsed.estudios?.length ?? 0,
         inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
       'anthropic_extract_done',
     );
-    return parsed.labs;
+    return { labs: parsed.labs, estudios: parsed.estudios ?? [] };
   }
 
   /** Rechazo o truncamiento: se falla explícito. Un JSON a medias no se parsea (CS2). */
@@ -386,7 +514,7 @@ export class AnthropicAIProvider implements AIProvider {
       'No generes el examen físico, los signos vitales ni los paraclínicos: los aporta el',
       'anestesiólogo y el sistema.',
       '',
-      'PREGUNTAS DEL FORMULARIO (cita la fuente con este número exacto):',
+      'PREGUNTAS DEL FORMULARIO (cita la fuente con este código exacto, p. ej. formulario:CF01):',
       PREGUNTAS,
       '',
       'FORMATO DE ALGUNOS CAMPOS:',
@@ -395,11 +523,9 @@ export class AnthropicAIProvider implements AIProvider {
       '  reales del paciente. NO transcribas ni estimes peso/talla/IMC tú.',
       '- fecha_procedimiento: dd-mm-aaaa.',
       '- fecha_valoracion: déjalo en no_reportado; lo pone el sistema al renderizar.',
-      '- capacidad_funcional: el formulario NO la pregunta. Es una SUGERENCIA editable, no una',
-      '  afirmación. Si el paciente NO declara comorbilidades (P12=no), ofrécela como estimado de',
-      '  tamizaje: valor "≥ 4 METs (estimado — confirmar en examen)", estado ok, fuente derivado:IA,',
-      '  nota que aclare que es estimado a confirmar. Si declara comorbilidad (P12=sí) o cualquier',
-      '  dato que sugiera limitación, déjala en no_reportado: la evalúa el anestesiólogo presencial.',
+      '- capacidad_funcional: déjala SIEMPRE en no_reportado. NO la estimes ni la infieras de la',
+      '  ausencia de comorbilidades: que alguien no declare enfermedades no mide su tolerancia al',
+      '  ejercicio. Se obtiene de CF01/CF02 y del DASI (D01-D12), y la calcula el sistema.',
       '- asa: formato CONCISO — el grado + los hallazgos clave en frases cortas, p. ej.',
       '  "ASA II: Anemia leve (Hb 10.3 g/dL). Tratamiento con isotretinoína." SIN muletillas',
       '  ("paciente joven sin comorbilidades declaradas, con … como factores clínicos relevantes").',

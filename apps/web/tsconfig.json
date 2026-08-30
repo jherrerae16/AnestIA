@@ -13,8 +13,22 @@
     "moduleResolution": "bundler",
     "target": "ES2022",
     "module": "ES2022",
-    "lib": ["ES2022", "dom"]
+    "lib": ["ES2022", "dom"],
+    // El paquete compartido se compila DENTRO de la app: es el mismo esquema Zod validando
+    // frontend, API e IA (regla de CLAUDE.md). Sin el mapeo, el compilador de Angular no
+    // encuentra los fuentes del workspace y falla al resolver `@anestia/shared`.
+    "paths": {
+      "@anestia/shared": ["../../packages/shared/src/index.ts"]
+    }
   },
+  "include": ["src/**/*.ts", "../../packages/shared/src/**/*.ts"],
+  // Los tests no entran al bundle de la aplicación: usan `vitest` y sus tipos, y compilarlos
+  // aquí rompe el build con errores que sólo existen en el arnés de pruebas.
+  "exclude": [
+    "../../packages/shared/src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/test-setup.ts"
+  ],
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
     "strictInjectionParameters": true,

@@ -279,7 +279,7 @@ El diferenciador central es un **motor clínico de IA con guardarraíles estrict
 
 - **RF-12.1** Cada anestesiólogo mantiene su **directorio de contactos** para el envío de reportes (médicos, clínicas, aseguradoras, pacientes frecuentes).
 - **RF-12.2** Cada contacto guarda: **nombre/etiqueta**, **correo**, tipo (médico / clínica / aseguradora / otro) y notas.
-  - *Ej.:* `Doctor Lozano — anestesiologo@ejemplo.com` · `Clínica Portoazul — coordinadora@ejemplo.com`
+  - *Ej.:* `Doctor Lozano — d.lozano@auna.com` · `Clínica Portoazul — karen.garcia@clinicaportoazul.com`
 - **RF-12.3** Al distribuir un documento (Módulo 8), el anestesiólogo **selecciona destinatarios del directorio** en lugar de escribir correos a mano; puede elegir varios a la vez.
 - **RF-12.4** Alta rápida de un contacto nuevo desde la pantalla de envío (queda guardado para próximas veces).
 - **RF-12.5** La **aseguradora capturada en el formulario (P8)** se sugiere automáticamente como destinatario y puede vincularse a un contacto del directorio.
@@ -765,10 +765,19 @@ Si algún punto falla, corrige antes de emitir. No entregues una salida que no c
 
 ### Pendientes conocidos
 
-- Editor de cuestionarios propios (hoy sólo el preset base; el selector al crear caso ya existe).
-- Reconciliador de casos atascados si falla el `publish` a la cola (hoy se recupera a mano).
-- Decisión sobre la exportación opcional a Google Sheets (funciona, disparo manual; poco uso real).
-- Rotar la `ANTHROPIC_API_KEY` (hoy en claro en `.env`, no versionada).
+- ~~Editor de cuestionarios propios~~ — **resuelto el 2026-08-30.** El anestesiólogo añade sus
+  propias preguntas (`PR01`–`PR99`) desde *Mis preguntas*; las de la Especificación **no son
+  editables** y el servidor sólo escribe filas `PROPIA`, así que una pantalla no puede
+  desincronizar el prompt clínico, la trazabilidad ni las variables de las escalas.
+- ~~Reconciliador de casos atascados~~ — **ya existe** (`reconciler.service.ts`, corre al arrancar
+  el worker). Este documento lo listaba como pendiente por error.
+- ~~Decisión sobre la exportación opcional a Google Sheets~~ — **resuelta el 2026-08-30: se elimina.**
+  Nunca se configuró (el botón sólo devolvía "no está configurado"), Postgres es la fuente de
+  verdad y mantener una credencial de service account viva para una función que nadie usó es
+  superficie de riesgo sin contrapartida. Si el Dr. pide un listado, se hace un CSV local sin
+  sacar datos de pacientes a Google.
+- Rotar la `ANTHROPIC_API_KEY` cuando corresponda. Auditado el 2026-08-30: nunca entró al
+  repositorio ni al historial. Procedimiento en `docs/secretos.md`.
 
 ### Notas de dominio pendientes de validación del Dr. Luquetta
 

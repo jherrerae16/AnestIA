@@ -41,7 +41,17 @@ export const POST = apiHandler(async (req: NextRequest, ctx: { params: Promise<{
     : 'OTRO';
 
   const attachment = await prisma.attachment.create({
-    data: { caseId: kase.id, type: attachmentType as never, url: key, fileHash: hash },
+    // Nombre, tipo y tamaño estaban a mano y se descartaban. Sin el nombre, la procedencia de
+    // un laboratorio apunta a una clave de almacenamiento que no le dice nada al médico.
+    data: {
+      caseId: kase.id,
+      type: attachmentType as never,
+      url: key,
+      fileHash: hash,
+      filename: file.name || null,
+      mimeType: file.type || null,
+      sizeBytes: Number.isFinite(file.size) ? file.size : null,
+    },
   });
 
   return NextResponse.json({ id: attachment.id, type: attachment.type }, { status: 201 });

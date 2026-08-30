@@ -1,5 +1,6 @@
-import type { DocumentJSON, DocField } from './document';
+import type { DocumentJSON, DocField, ScaleSnapshot } from './document';
 import { grupoLabel, isLabGrupo } from './lab-groups';
+import { CLAVE_ESTUDIO, NOMBRE_ESTUDIO, type TipoEstudio } from './estudios';
 
 export interface Branding {
   logoUrl?: string | null;
@@ -141,11 +142,19 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   const draft = opts.draft || isExamPending(doc);
   const id: Record<string, DocField> = { ...(doc.identificacion ?? {}) };
   // Fecha de valoración: si el documento no la trae, usar la que pasa el renderer (sin Date.now en shared).
-  if ((id.fecha_valoracion == null || id.fecha_valoracion.estado !== 'ok') && opts.fechaValoracion) {
-    id.fecha_valoracion = { valor: opts.fechaValoracion, estado: 'ok', fuente: 'sistema:render' };
+  if ((id['fecha_valoracion'] == null || id['fecha_valoracion'].estado !== 'ok') && opts.fechaValoracion) {
+    id['fecha_valoracion'] = { valor: opts.fechaValoracion, estado: 'ok', fuente: 'sistema:render' };
   }
+  const escalasHtml = renderEscalas(doc.escalas ?? []);
   const ant = doc.antecedentes ?? {};
   const vp = doc.valoracion_plan ?? {};
+
+  // Etiqueta de un informe no-laboratorio. Sin esto, "radiografia_torax" se imprimiría sin
+  // tilde en un documento firmado.
+  const etiquetaEstudio = (clave: string): string | null => {
+    const tipo = (Object.keys(CLAVE_ESTUDIO) as TipoEstudio[]).find((t) => CLAVE_ESTUDIO[t] === clave);
+    return tipo ? NOMBRE_ESTUDIO[tipo] : null;
+  };
 
   // Paraclínicos: una fila por tipo de estudio. Las claves ya vienen agrupadas desde el
   // motor (clinical.service); las de documentos antiguos (una clave por analito) siguen
@@ -153,8 +162,11 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   const paraclinicos = Object.entries(doc.paraclinicos ?? {})
     .map(([k, f], i) => {
       const shade = i % 2 === 1 ? ' class="alt"' : '';
-      const label = isLabGrupo(k) ? grupoLabel(k) : sentenceCase(k.replace(/_/g, ' '));
-      return `<tr${shade}><th class="estudio">${escapeHtml(label)}</th><td${alertClass(f, draft)}>${fieldVal(f)}</td></tr>`;
+      const label = isLabGrupo(k) ? grupoLabel(k) : (etiquetaEstudio(k) ?? sentenceCase(k.replace(/_/g, ' ')));
+      // La nota va bajo el valor: es donde viven la evolución entre informes sucesivos (§16) y
+      // el aviso de una lectura sin confirmar. Sin esto se calculaban y se perdían en el render.
+      const nota = f?.nota ? `<div class="nota">${escapeHtml(f.nota)}</div>` : '';
+      return `<tr${shade}><th class="estudio">${escapeHtml(label)}</th><td${alertClass(f, draft)}>${fieldVal(f)}${nota}</td></tr>`;
     })
     .join('') || '<tr><td colspan="2">No se cargaron paraclínicos.</td></tr>';
 
@@ -173,6 +185,15 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   header .title h1 { margin: 0; font-size: 15px; color: #0b5c6b; letter-spacing: 1px; }
   header .title p { margin: 2px 0 0; font-size: 9px; color: #5b6b73; }
   h2.band { background: #084651; color: #fff; font-size: 10.5px; font-weight: 700; padding: 5px 9px; margin: 13px 0 0; letter-spacing: .6px; border-radius: 3px 3px 0 0; }
+  /* Escalas de riesgo: el estado se lee de un vistazo, junto al puntaje. */
+  .esc-chip { display: inline-block; font-size: 8px; font-weight: 700; padding: 1px 6px; border-radius: 8px; letter-spacing: .3px; margin-right: 5px; vertical-align: middle; }
+  .esc-calculada { background: #ecfdf3; color: #027a48; }
+  .esc-pendiente { background: #fffaeb; color: #b54708; }
+  .esc-revision_clinica { background: #fef3f2; color: #b42318; }
+  .esc-no_indicada { background: #f2f4f7; color: #475467; }
+  .esc-falta { font-size: 8.5px; color: #b54708; margin-top: 2px; }
+  .esc-nota { font-size: 8.5px; color: #667085; font-style: italic; }
+  .esc-ver { font-size: 7.5px; color: #98a2b3; margin-top: 1px; }
   table { width: 100%; border-collapse: collapse; background: #fbfdfd; border: 1px solid #d9e6e8; border-top: none; }
   th, td { text-align: left; padding: 3px 9px; vertical-align: top; }
   th { width: 34%; color: #0a3b44; font-weight: 700; }
@@ -224,6 +245,8 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   <h2 class="band">Paraclínicos disponibles</h2>
   <table>${paraclinicos}</table>
 
+  ${escalasHtml}
+
   <h2 class="band">Examen físico</h2>
   <table>${rows(doc.examen_fisico ?? {}, [
     ['peso_talla_imc','Peso / Talla / IMC'],
@@ -264,3 +287,46 @@ export function buildFooterTemplate(branding: Branding, opts: BuildOpts = {}): s
 
 /** Cabecera vacía: Chromium exige un template si displayHeaderFooter está activo. */
 export const EMPTY_HEADER_TEMPLATE = '<div></div>';
+
+const ETIQUETA_ESTADO_PDF: Record<string, string> = {
+  NO_INDICADA: 'No indicada',
+  PENDIENTE: 'Pendiente',
+  CALCULADA: 'Calculada',
+  REVISION_CLINICA: 'Revisión clínica',
+};
+
+/**
+ * Banda de escalas de riesgo (Especificación §17).
+ *
+ * Se muestra el ESTADO junto al puntaje, no sólo el número: una escala pendiente dice qué falta,
+ * en vez de quedarse muda o —peor— parecer calculada. La categoría sólo aparece cuando los
+ * puntos de corte están validados institucionalmente; mientras tanto se publica el puntaje y se
+ * retiene la interpretación.
+ */
+function renderEscalas(escalas: readonly ScaleSnapshot[]): string {
+  if (escalas.length === 0) return '';
+  const filas = escalas
+    .map((e) => {
+      const chip =
+        `<span class="esc-chip esc-${e.estado.toLowerCase()}">` +
+        `${ETIQUETA_ESTADO_PDF[e.estado] ?? e.estado}</span>`;
+      const puntaje = e.puntaje != null ? `<strong>${e.puntaje}</strong>` : '&mdash;';
+      const categoria = e.categoria
+        ? ` &middot; ${escapeHtml(e.categoria)}`
+        : e.puntaje != null
+          ? ' &middot; <span class="esc-nota">interpretaci\u00f3n pendiente de validaci\u00f3n institucional</span>'
+          : '';
+      const detalle =
+        e.estado === 'PENDIENTE' && e.faltantes.length
+          ? `<div class="esc-falta">Falta: ${escapeHtml(e.faltantes.join(', '))}</div>`
+          : e.motivo
+            ? `<div class="esc-falta">${escapeHtml(e.motivo)}</div>`
+            : '';
+      return (
+        `<tr><th>${escapeHtml(e.nombre)}</th><td>${chip} ${puntaje}${categoria}${detalle}` +
+        `<div class="esc-ver">${escapeHtml(e.version)}</div></td></tr>`
+      );
+    })
+    .join('');
+  return `<h2 class="band">Estratificaci\u00f3n perioperatoria</h2><table>${filas}</table>`;
+}

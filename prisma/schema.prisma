@@ -57,7 +57,9 @@ model Patient {
   fullName    String
   documentId  String
   birthDate   DateTime?
-  sex         Sex?
+  /// Sexo registrado al nacer (ID04). Lo consumen STOP-Bang, Apfel y Caprini; la spec es
+  /// explícita en que es el dato "usado para escalas clínicas y embarazo".
+  sexAtBirth  SexoNacimiento?
   phone       String?
   email       String?   // correo del paciente (P23) — para envío opcional del documento
   insurer     String?   // entidad aseguradora (P8)
@@ -113,12 +115,125 @@ model Question {
   id          String   @id @default(cuid())
   preset      QuestionnairePreset @relation(fields: [presetId], references: [id])
   presetId    String
+  /// Código estable de la especificación ("ID01", "SB03", "D07"). Es la unidad de
+  /// trazabilidad: el motor clínico cita `formulario:CF01`. Renombrar un código rompe la
+  /// trazabilidad de todo documento que ya lo referencie.
+  code        String
+  /// De dónde sale la pregunta. `DICCIONARIO` es la Especificación del Dr. Luquetta y **no se
+  /// edita desde la interfaz**: cambiarla desincronizaría el prompt clínico, el mapeo de
+  /// trazabilidad y las escalas que la consumen. `PROPIA` es una pregunta añadida por el
+  /// anestesiólogo, informativa, que nunca alimenta una escala.
+  origen      OrigenPregunta @default(DICCIONARIO)
+  /// Orden de presentación. SOLO display — dejó de ser trazabilidad.
   order       Int
   label       String
   type        QuestionType
   required    Boolean  @default(false)
+  obligacion  Obligacion @default(CONDICIONAL)
+  /// Quién aporta el dato: P paciente · S sistema/agenda · D documento · C clínico.
+  /// Es el discriminante real de "esto se le pregunta al paciente": la obligatoriedad no basta,
+  /// porque PX10/PX11 son de agenda pero los VERIFICA el anestesiólogo (obligacion V).
+  fuente      FuenteDato @default(PACIENTE)
+  /// Sección del formulario. Las pantallas se derivan de aquí, no de rangos cableados.
+  seccion     String?
+  /// Grupo de acordeón de antecedentes ("cardiovascular", "respiratorio"…).
+  grupo       String?
+  /// Módulo condicional: "glp1", "stop_bang", "caprini", "dasi"…
+  modulo      String?
+  /// Texto de apoyo en lenguaje no técnico, bajo la etiqueta.
+  ayuda       String?
+  /// Escalas que consumen este ítem.
+  alimenta    String[] @default([])
+  /// Código cuya multiselección genera las instancias del repetidor.
+  repiteSobre String?
+  /// Campos estructurados de un REPETIDOR.
+  campos      Json?
+  /// Reglas de validación: min, max, unidad, patrón.
+  validacion  Json?
   options     Json?    // para select / multiselect
-  conditional Json?    // lógica condicional (p. ej. mostrar si P20 = sí)
+  /// Árbol de reglas de activación (ver `packages/shared/src/rules.ts`). La composición vive
+  /// en datos; los hechos derivados (edad, banda etaria, ruta, agenda) se calculan en código.
+  conditional Json?
+
+  /// El código es único por preset: es la clave con la que se indexan las respuestas.
+  @@unique([presetId, code])
+  /// Órdenes duplicados producían pantallas ambiguas y no había nada que lo impidiera.
+  @@unique([presetId, order])
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// Resultado de una escala de riesgo (Especificación §17).
+///
+/// Guarda las VARIABLES EXACTAS que sustentan el resultado, no sólo el número: el Doc 2 exige
+/// que cada escala conserve "nombre y versión, aplicabilidad, variables usadas, puntaje o
+/// categoría y datos pendientes". Un puntaje sin sus variables no es auditable.
+/// ─────────────────────────────────────────────────────────────
+model ScaleResult {
+  id     String @id @default(cuid())
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String
+
+  escala        ScaleKey
+  /// Versión del instrumento ("DASI@1"). Un puntaje sin versión no es reproducible.
+  version       String
+  /// Versión de la tabla de cortes usada. null mientras no haya categoría.
+  cortesVersion String?
+  estado        EstadoEscala
+  puntaje       Float?
+  /// null mientras los puntos de corte no estén validados institucionalmente.
+  categoria     String?
+  /// [{ nombre, origen, valor, fuente, puntos }]
+  variables     Json
+  /// Variables indispensables que faltan, en lenguaje de humano.
+  faltantes     String[] @default([])
+  /// Por qué quedó NO_INDICADA o REVISION_CLINICA.
+  motivo        String?
+
+  /// Quién resolvió una REVISION_CLINICA y cuándo.
+  resueltoPor   String?
+  resueltoAt    DateTime?
+
+  computedAt DateTime @default(now())
+
+  @@unique([caseId, escala])
+}
+
+/// ─────────────────────────────────────────────────────────────
+/// Agenda quirúrgica (PX01–PX11 de la Especificación §4).
+///
+/// Va en su propia tabla y no como columnas de `Case` por tres razones: tiene procedencia
+/// propia (`fuente`, `registradoPor`), su ciclo de vida es distinto —se puede llenar después de
+/// crear el caso y antes de que el paciente responda—, y una relación 1:1 opcional convierte
+/// "sin agenda, estas escalas quedan PENDIENTE" en un solo chequeo de null en vez de once.
+///
+/// Principio de la Especificación: "El paciente no debe decidir si una cirugía es de alto
+/// riesgo, cuánto durará o qué tipo de incisión tendrá."
+/// ─────────────────────────────────────────────────────────────
+model CaseSchedule {
+  id     String @id @default(cuid())
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String @unique
+
+  procedimiento       String              // PX01
+  diagnosticoPreop    String?             // PX02
+  fechaHora           DateTime?           // PX03
+  especialidad        Especialidad?       // PX04
+  modalidad           Modalidad?          // PX05 — alimenta Caprini
+  prioridad           Prioridad?          // PX06 — alimenta ARISCAT
+  sitioQuirurgico     SitioAriscat?       // PX07 — alimenta ARISCAT
+  duracionEstimada    DuracionEstimada?   // PX08 — alimenta ARISCAT y POVOC
+  /// PX09 — cirugía cardiovascular de alto riesgo. null = pendiente de clasificación.
+  altoRiesgoRcri      Boolean?
+  anestesiaProbable   AnestesiaProbable?  // PX10 — alimenta Apfel
+  /// PX11 — opioides posoperatorios previstos. null = por definir; lo fija el plan anestésico.
+  opioidesPostop      Boolean?
+
+  /// De dónde salió: precargado de la agenda o escrito por el anestesiólogo.
+  fuente        FuenteAgenda @default(ANESTESIOLOGO)
+  registradoPor String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// ─────────────────────────────────────────────────────────────
@@ -140,9 +255,19 @@ model Case {
   procedure      String?
   procedureDate  DateTime?
 
+  /// Ruta clínica que efectivamente recorrió el caso. Se DERIVA de la fecha de nacimiento, pero
+  /// se persiste: el registro debe mostrar por qué rama pasó este paciente, y un valor derivado
+  /// al leer cambiaría en silencio si cambia el constructor de hechos.
+  ruta               RutaClinica?
+  /// Menor de edad o paciente dependiente: las respuestas provienen del acudiente.
+  requiereAcudiente  Boolean @default(false)
+
+  schedule       CaseSchedule?
+  scaleResults   ScaleResult[]
   formResponse   FormResponse?
   attachments    Attachment[]
   labResults     ExtractedLabResult[]
+  estudios       ExtractedStudy[]
   assessment     GeneratedAssessment?
   approval       ApprovalRecord?
   deliveries     DeliveryRecord[]
@@ -168,9 +293,65 @@ model Attachment {
   case      Case     @relation(fields: [caseId], references: [id])
   caseId    String
   type      AttachmentType
-  url       String   // object storage (URL firmada)
+  url       String   // clave en el almacenamiento
   fileHash  String?
+  /// Metadatos del archivo original. Estaban disponibles al subirlo y se descartaban.
+  filename  String?
+  mimeType  String?
+  sizeBytes Int?
+  pageCount Int?
+  labResults ExtractedLabResult[]
+  estudios   ExtractedStudy[]
   createdAt DateTime @default(now())
+}
+
+/// Informe diagnóstico que NO es de laboratorio: electrocardiograma, ecocardiograma, radiografía,
+/// espirometría. La Especificación §16 pide "ritmo, frecuencia, intervalos y conclusión; otros
+/// informes diagnósticos" con "interpretación clínica; no autocalcular escalas".
+///
+/// Va en su propia tabla y no en `ExtractedLabResult` porque no es analito/valor/rango: es un
+/// informe con conclusión en prosa. Meterlo ahí lo dejaría a un `findMany` de distancia de
+/// alimentar una escala, y la spec lo prohíbe explícitamente.
+model ExtractedStudy {
+  id     String @id @default(cuid())
+  case   Case   @relation(fields: [caseId], references: [id])
+  caseId String
+
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id])
+  attachmentId String?
+  /// Página del documento donde se leyó (1-based).
+  page         Int?
+
+  tipo    TipoEstudio
+  /// Nombre del estudio tal como está impreso ("EKG de 12 derivaciones").
+  tipoRaw String?
+
+  /// Campos que la Especificación §16 nombra uno por uno para el ECG. Cada uno es texto: son lo
+  /// que dice el informe, no una medición que el sistema pueda interpretar.
+  ritmo       String?
+  frecuencia  String?
+  intervalos  String?
+  /// La conclusión del informe, transcrita. Es lo único que el médico lee de un vistazo.
+  conclusion  String?
+  /// Hallazgos adicionales transcritos, cuando el informe los separa de la conclusión.
+  hallazgos   String?
+
+  institucion String?
+  /// Fecha de realización del estudio, distinta de la de emisión del informe.
+  collectedAt DateTime?
+  reportDate  DateTime?
+
+  confidence       Float?
+  estadoExtraccion EstadoExtraccion @default(AUTOMATICO)
+  identityMatch    IdentityMatch    @default(NO_VERIFICABLE)
+
+  /// Trazabilidad al informe original (CS2). Sin esto el estudio se descarta.
+  sourceRef        String
+  extractionMethod String?
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId])
 }
 
 /// Valor de laboratorio extraído (NUNCA fabricado). Guarda la referencia a la fuente.
@@ -178,10 +359,36 @@ model ExtractedLabResult {
   id         String   @id @default(cuid())
   case       Case     @relation(fields: [caseId], references: [id])
   caseId     String
-  analyte    String   // "Hemoglobina", "Plaquetas", ...
+
+  /// De qué archivo salió. Sin esto un valor no se puede rastrear al PDF que lo produjo, que es
+  /// lo que la Especificación §15 exige ("archivo y página de procedencia").
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id])
+  attachmentId String?
+  /// Página del documento donde se leyó (1-based).
+  page         Int?
+
+  analyte    String   // nombre CANÓNICO: "Hemoglobina", "Plaquetas", ...
+  /// Nombre tal como aparece impreso en el informe. Se conserva siempre.
+  analyteRaw String?
   value      String
+  /// Valor tal como está impreso, antes de cualquier normalización.
+  valueRaw   String?
   unit       String?
+  /// Unidad impresa y unidad normalizada. La conversión sólo ocurre con reglas validadas, y el
+  /// original NUNCA se pierde (Especificación §15).
+  unitRaw        String?
+  conversionRule String?
   refRange   String?
+  /// Institución que emitió el informe.
+  institucion String?
+  /// Fecha de TOMA de la muestra. Distinta de `reportDate`, que es la de emisión.
+  collectedAt DateTime?
+  /// Confianza de la extracción (0-1). Por debajo del umbral pasa a revisión humana.
+  confidence  Float?
+  /// Estado de la extracción, independiente de la capa usada (`extractionMethod`).
+  estadoExtraccion EstadoExtraccion @default(AUTOMATICO)
+  /// ¿La identidad del informe concuerda con la del caso?
+  identityMatch    IdentityMatch    @default(NO_VERIFICABLE)
   grupo      String?  // tipo de estudio leído del informe: "hemograma", "coagulacion", ...
   reportDate DateTime? // fecha del informe leída del propio examen (NO la de carga): un
                        // examen viejo cambia la lectura clínica y el médico debe verla.
@@ -277,12 +484,6 @@ model AuditLog {
 /// ─────────────────────────────────────────────────────────────
 /// Enums
 /// ─────────────────────────────────────────────────────────────
-enum Sex {
-  MASCULINO
-  FEMENINO
-  OTRO
-}
-
 enum QuestionType {
   TEXTO_CORTO
   TEXTO_LARGO
@@ -292,6 +493,129 @@ enum QuestionType {
   NUMERO
   SI_NO
   ARCHIVO
+  // Tipos de la Especificación de Datos Mínimos del Dr. Luquetta.
+  // SI_NO es binario y no puede expresar el tercer estado que exigen los tres documentos:
+  // "'No sabe', campo vacío o documento ilegible nunca se convierte en 'No'".
+  SI_NO_NOSABE
+  ACORDEON_MULTIPLE // grupo de antecedentes; "Ninguna" es excluyente
+  REPETIDOR         // lista con campos estructurados (medicamentos, última dosis…)
+  FECHA_HORA
+  // Tipos con semántica de entrada propia: el formulario deja de adivinarla por el TEXTO de la
+  // etiqueta (hoy un regex sobre el label decide si un campo es teléfono o documento, así que
+  // reescribir una pregunta cambia cómo se renderiza).
+  TELEFONO
+  CORREO
+  DOCUMENTO_ID
+}
+
+/// Obligatoriedad de un ítem. Leyenda de la Especificación, página 1.
+enum Obligacion {
+  OBLIGATORIA  // O — obligatorio para continuar
+  CONDICIONAL  // C — aparece solo si se activa
+  SISTEMA      // S — dato de agenda o documento; NO se pregunta al paciente
+  VERIFICA     // V — debe ser verificado por el anestesiólogo
+}
+
+/// Sexo registrado al nacer. Es lo que consumen STOP-Bang, Apfel y Caprini; el enum anterior
+/// (MASCULINO/FEMENINO/OTRO) no podía expresar intersexual ni desconocido.
+enum SexoNacimiento {
+  MUJER
+  HOMBRE
+  INTERSEXUAL
+  NO_SABE
+  PREFIERE_NO_RESPONDER
+}
+
+/// Origen del dato. "Cómo interpretar las fuentes", documento de módulos del Dr. Luquetta.
+enum FuenteDato {
+  PACIENTE  // P — paciente o acudiente
+  SISTEMA   // S — agenda: precargado o derivado; no se vuelve a preguntar
+  DOCUMENTO // D — laboratorio o informe extraído y validado
+  CLINICO   // C — medición o juicio profesional presencial
+}
+
+enum ScaleKey {
+  DASI
+  STOP_BANG
+  APFEL
+  FRAIL
+  CAPRINI
+  RCRI
+  ARISCAT
+  POVOC
+}
+
+/// Los cuatro estados de la Especificación §17.
+/// PENDIENTE no bloquea la aprobación; un REVISION_CLINICA sin resolver sí.
+enum EstadoEscala {
+  NO_INDICADA
+  PENDIENTE
+  CALCULADA
+  REVISION_CLINICA
+}
+
+enum Especialidad {
+  ORL
+  PLASTICA
+  GENERAL
+  BARIATRICA
+  GINECOLOGIA
+  ORTOPEDIA
+  COLUMNA
+  OFTALMOLOGIA
+  CARDIOVASCULAR
+  UROLOGIA
+  MAXILOFACIAL
+  ENDOSCOPIA
+  OTRA
+}
+
+enum Modalidad {
+  AMBULATORIA
+  HOSPITALIZACION
+  NO_DEFINIDA
+}
+
+enum Prioridad {
+  ELECTIVA
+  URGENTE
+  EMERGENCIA
+}
+
+/// Sitio quirúrgico según ARISCAT. No lo decide el paciente.
+enum SitioAriscat {
+  PERIFERICO
+  ABDOMINAL_SUPERIOR
+  INTRATORACICO
+}
+
+enum DuracionEstimada {
+  MENOR_2H
+  ENTRE_2_Y_3H
+  MAYOR_3H
+  NO_DEFINIDA
+}
+
+enum AnestesiaProbable {
+  GENERAL
+  REGIONAL
+  SEDACION
+  LOCAL
+  COMBINADA
+  POR_DEFINIR
+}
+
+enum FuenteAgenda {
+  AGENDA
+  ANESTESIOLOGO
+}
+
+/// Ruta clínica derivada de la fecha de nacimiento. El paciente nunca la elige.
+enum RutaClinica {
+  PEDIATRICA
+  ADULTO
+  ADULTO_MAYOR
+  OBSTETRICA_GINECOLOGICA
 }
 
 enum CaseStatus {
@@ -312,6 +636,36 @@ enum AttachmentType {
   ECG
   ECOCARDIOGRAMA
   OTRO
+}
+
+/// Estado de una extracción de laboratorio (Especificación §15).
+/// De dónde sale una pregunta del cuestionario.
+enum OrigenPregunta {
+  DICCIONARIO
+  PROPIA
+}
+
+/// Tipo de informe diagnóstico no-laboratorio. Cerrado a propósito: `OTRO` conserva el nombre
+/// impreso en `tipoRaw` en vez de inventar una categoría.
+enum TipoEstudio {
+  ECG
+  ECOCARDIOGRAMA
+  RADIOGRAFIA_TORAX
+  ESPIROMETRIA
+  OTRO
+}
+
+enum EstadoExtraccion {
+  AUTOMATICO
+  PENDIENTE_CONFIRMACION
+  CONFIRMADO
+}
+
+/// ¿La identidad del informe concuerda con la del paciente del caso?
+enum IdentityMatch {
+  COINCIDE
+  NO_COINCIDE
+  NO_VERIFICABLE
 }
 
 enum LabFlag {

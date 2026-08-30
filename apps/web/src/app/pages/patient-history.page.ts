@@ -248,11 +248,11 @@ export class PatientHistoryPage {
   }
 
   /** "54 años / Masculino". Omite lo que el paciente no reportó — nunca lo rellena (CS2). */
-  edadSexo(p: { birthDate?: string | null; sex?: string | null }): string {
+  edadSexo(p: { birthDate?: string | null; sexAtBirth?: string | null }): string {
     const partes: string[] = [];
     const edad = this.edadDe(p.birthDate);
     if (edad != null) partes.push(`${edad} años`);
-    if (p.sex) partes.push(this.sexoLabel(p.sex));
+    if (p.sexAtBirth) partes.push(this.sexoLabel(p.sexAtBirth));
     return partes.length ? partes.join(' / ') : '—';
   }
 
@@ -267,8 +267,23 @@ export class PatientHistoryPage {
     return edad >= 0 && edad < 130 ? edad : null;
   }
 
-  private sexoLabel(sex: string): string {
-    const s = sex.toUpperCase();
-    return s === 'MASCULINO' ? 'Masculino' : s === 'FEMENINO' ? 'Femenino' : sex;
+  /**
+   * Etiqueta del sexo registrado al nacer. El enum cambió al adoptar la especificación:
+   * MASCULINO/FEMENINO/OTRO no podía expresar intersexual ni "no sabe", que STOP-Bang y Apfel
+   * necesitan distinguir. Se aceptan los valores antiguos por si quedara algún dato viejo.
+   */
+  private sexoLabel(sexo: string): string {
+    const s = sexo.toUpperCase();
+    return (
+      {
+        MUJER: 'Mujer',
+        HOMBRE: 'Hombre',
+        INTERSEXUAL: 'Intersexual',
+        NO_SABE: 'No sabe',
+        PREFIERE_NO_RESPONDER: 'Prefiere no responder',
+        FEMENINO: 'Mujer',
+        MASCULINO: 'Hombre',
+      }[s] ?? sexo
+    );
   }
 }

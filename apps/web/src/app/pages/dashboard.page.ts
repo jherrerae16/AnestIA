@@ -12,7 +12,6 @@ import { statusLabel, badgeClass } from '../core/case-status';
     .head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:6px; gap:16px; flex-wrap:wrap; }
     .head h2 { font-size:26px; letter-spacing:-0.6px; }
     .head p { font-size:13px; color:var(--muted); margin-top:3px; }
-    .export-msg { font-size:12px; color:var(--muted); margin:0 0 8px; }
 
     .kpi-row { grid-template-columns: repeat(3, 1fr); }
     /* En móvil 3 columnas dejan ~110px por tarjeta y "PENDIENTE REVISIÓN" se cortaba.
@@ -60,11 +59,7 @@ import { statusLabel, badgeClass } from '../core/case-status';
           <h2>Casos</h2>
           <p>Valoraciones preanestésicas de tus pacientes</p>
         </div>
-        <button class="btn btn-primary btn-sm" (click)="exportSheets()" data-testid="export-sheets-button">
-          Exportar a Sheets
-        </button>
       </div>
-      @if (exportMsg()) { <p class="export-msg" role="status" aria-live="polite">{{ exportMsg() }}</p> }
 
       <div class="kpi-row" style="margin-top:16px">
         <div class="kpi-card k-blue">
@@ -154,13 +149,7 @@ import { statusLabel, badgeClass } from '../core/case-status';
 export class DashboardPage implements OnInit {
   private api = inject(ApiService);
   data = signal<any>(null);
-  exportMsg = signal('');
   async ngOnInit() { this.data.set(await this.api.dashboard()); }
   label(s: string) { return statusLabel(s); }
   badge(s: string) { return badgeClass(s); }
-  async exportSheets() {
-    this.exportMsg.set('Exportando…');
-    const res = await this.api.exportSheets();
-    this.exportMsg.set(res.ok ? `✔ Exportados ${res.count} casos a Sheets.` : `⚠ ${res.error}`);
-  }
 }

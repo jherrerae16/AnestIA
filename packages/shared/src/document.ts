@@ -66,6 +66,38 @@ function sectionSchema(allowed: readonly string[]) {
 }
 
 /**
+ * Instantánea de una escala dentro del documento. Refleja `ScaleResult` sin depender de él,
+ * para que el contrato del documento no arrastre el módulo de escalas entero.
+ */
+export const scaleSnapshotSchema = z.object({
+  escala: z.string(),
+  nombre: z.string(),
+  version: z.string(),
+  cortesVersion: z.string().nullable(),
+  estado: z.enum(['NO_INDICADA', 'PENDIENTE', 'CALCULADA', 'REVISION_CLINICA']),
+  puntaje: z.number().nullable(),
+  categoria: z.string().nullable(),
+  variables: z.array(
+    z.object({
+      nombre: z.string(),
+      origen: z.string(),
+      valor: z.union([z.string(), z.number(), z.boolean(), z.null()]),
+      fuente: z.string(),
+      puntos: z.number().optional(),
+    }),
+  ),
+  faltantes: z.array(z.string()),
+  motivo: z.string().nullable(),
+  /**
+   * Quién resolvió una `REVISION_CLINICA` y cuándo. Mientras sea null, esa escala bloquea la
+   * aprobación: la contradicción que detectó el motor sigue sin que nadie la reconozca.
+   */
+  resueltoPor: z.string().nullable().optional(),
+  resueltoAt: z.string().nullable().optional(),
+});
+export type ScaleSnapshot = z.infer<typeof scaleSnapshotSchema>;
+
+/**
  * documentSchema — contrato del documento clínico, fiel al Diseño Oficial. Secciones con
  * claves restringidas (CS5) salvo `paraclinicos` (claves dinámicas por tipo de estudio).
  */
@@ -75,5 +107,21 @@ export const documentSchema = z.object({
   paraclinicos: z.record(docFieldSchema).default({}),
   examen_fisico: sectionSchema(ALLOWED_EXAM_FIELDS).default({}),
   valoracion_plan: sectionSchema(ALLOWED_PLAN_FIELDS).default({}),
+  /**
+   * Escalas de riesgo. Clave de PRIMER NIVEL con esquema propio, no una sexta sección de
+   * `DocField`: un `DocField` es `{valor, estado, fuente}` y una escala es versión + versión de
+   * cortes + puntaje + categoría + N variables cada una con su valor, fuente y puntos, más la
+   * lista de faltantes. Aplanarla a un string perdería justo la trazabilidad que el Doc 2 exige.
+   *
+   * Las arma el CÓDIGO, nunca el modelo — igual que `paraclinicos`.
+   */
+  escalas: z.array(scaleSnapshotSchema).default([]),
 });
-export type DocumentJSON = z.infer<typeof documentSchema>;
+/**
+ * `escalas` es opcional en el TIPO aunque `documentSchema` lo rellene con `[]` al parsear: un
+ * documento generado antes de la Fase 3 no la trae, y exigirla obligaría a tocar cada lugar que
+ * construye un documento parcial (empezando por los tests) sin ganar nada.
+ */
+export type DocumentJSON = Omit<z.infer<typeof documentSchema>, 'escalas'> & {
+  escalas?: ScaleSnapshot[];
+};

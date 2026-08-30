@@ -3,6 +3,15 @@ import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { ScheduleFormComponent } from '../core/schedule-form.component';
+import type { ScheduleDef } from '@anestia/shared';
+
+/** Agenda en blanco, para abrir el editor cuando el caso aún no tiene programación. */
+const AGENDA_VACIA: ScheduleDef = {
+  procedimiento: '', diagnosticoPreop: null, fechaHora: null, especialidad: null,
+  modalidad: null, prioridad: null, sitioQuirurgico: null, duracionEstimada: null,
+  altoRiesgoRcri: null, anestesiaProbable: null, opioidesPostop: null,
+};
 
 const SECTION_LABELS: Record<string, string> = {
   paciente: 'Paciente', documento: 'Documento', edad: 'Edad', sexo: 'Sexo',
@@ -54,8 +63,43 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
 @Component({
   selector: 'app-review-approval',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet],
+  imports: [FormsModule, NgTemplateOutlet, ScheduleFormComponent],
   styles: [`
+    /* Escalas de riesgo: el estado se lee de un vistazo, junto al puntaje. */
+    .esc-panel { margin: 0 0 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    .esc-panel-head { background: var(--it-50); padding: 9px 14px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .06em; color: var(--primary); }
+    .esc-row { display: flex; gap: 11px; align-items: flex-start; padding: 11px 14px;
+      border-top: 1px solid var(--border); }
+    .esc-body { flex: 1; min-width: 0; }
+    .esc-nombre { font-size: 13px; font-weight: 600; color: var(--text); }
+    .esc-puntaje { font-size: 12.5px; color: var(--text); margin-top: 2px; }
+    .esc-retenida { font-size: 11.5px; color: var(--muted); font-style: italic; }
+    .esc-falta { font-size: 11.5px; color: #b54708; margin-top: 3px; }
+    .esc-ver { font-size: 10px; color: var(--muted2); white-space: nowrap; }
+    .esc-resolver { margin-top: 8px; }
+    .esc-resolver-acciones { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+    .esc-btn { margin-top: 5px; background: none; border: none; color: #b42318; font-weight: 700;
+      text-decoration: underline; cursor: pointer; font-size: 11.5px; padding: 0; }
+    .esc-resuelta { font-size: 11.5px; color: #027a48; margin-top: 3px; }
+    .esc-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
+    .esc-calculada { background: #ecfdf3; color: #027a48; }
+    .esc-pendiente { background: #fffaeb; color: #b54708; }
+    .esc-revision_clinica { background: #fef3f2; color: #b42318; }
+
+    .btn-completar { display: inline-block; margin-left: 8px; background: none; border: none;
+      color: #93370d; font-weight: 700; text-decoration: underline; cursor: pointer; font-size: 12.5px; }
+    .agenda-editor { margin: 0 0 16px; padding: 16px 18px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg2, #fff); }
+    .agenda-editor-head { font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--primary); margin-bottom: 10px; }
+    .agenda-editor-acciones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+    /* Programación incompleta: no bloquea nada, avisa de qué escalas quedarán pendientes. */
+    .agenda-faltante { margin: 0 0 16px; padding: 12px 15px; border-radius: 10px;
+      background: #fffaeb; border: 1px solid #fedf89; font-size: 12.5px; color: #93370d; }
+    .agenda-faltante strong { display: block; margin-bottom: 3px; }
+
     .page-head { display:flex; align-items:flex-end; justify-content:space-between; margin-bottom:18px; gap:16px; flex-wrap:wrap; }
     .page-head h2 { font-size:26px; letter-spacing:-0.6px; }
     .page-head p { font-size:13px; color:var(--muted); margin-top:3px; }
@@ -101,6 +145,7 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .edit-actions { display:flex; gap:8px; }
     .field.derivado { border-left:3px solid var(--gold); padding-left:9px; margin-left:-9px; }
     .v.alerta { color:var(--red-text); font-weight:700; }
+    .field-nota { display:block; font-size:11.5px; color:var(--muted); font-style:italic; margin-top:3px; }
     .v.pending { color:var(--amber-text); font-weight:600; }
     .lab-flag { font-family:var(--font-mono); font-size:11px; }
     /* #2 capacidad funcional: hint de UX en pantalla (NO va al PDF). */
@@ -145,6 +190,22 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lab-row.sev-pendiente { background:transparent; border-left-color:var(--border2); }
     .lab-row.sev-pendiente .lr-value { color:var(--muted); }
     .lr-unparsed { font-size:11px; color:var(--muted2); cursor:help; margin-left:3px; }
+    .lab-retenido { background:var(--sev-alerta-bg); border:1px solid var(--sev-alerta-line);
+      color:var(--sev-alerta); border-radius:8px; padding:9px 12px; font-size:12.5px; margin-bottom:8px; }
+    .lr-confirm { flex-shrink:0; font-size:11.5px; padding:4px 9px; border-radius:6px;
+      border:1px solid var(--border2); background:var(--card); color:var(--text); cursor:pointer; }
+    .lr-confirm:hover { border-color:var(--brand); color:var(--brand); }
+    .lr-confirm:disabled { opacity:.5; cursor:default; }
+    .lr-confirmado { flex-shrink:0; font-size:11px; color:var(--muted2); }
+    .est-head { margin:18px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase;
+      letter-spacing:.07em; color:var(--muted); }
+    .est-row { display:flex; align-items:flex-start; gap:10px; padding:9px;
+      border:1px solid var(--border2); border-radius:8px; margin-bottom:6px; }
+    .est-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+    .est-titulo { font-weight:500; color:var(--text); font-size:13px; }
+    .est-fecha { font-weight:400; color:var(--muted2); }
+    .est-texto { font-size:12px; color:var(--muted); line-height:1.45; }
+
     /* Marca de verdicto manual del médico */
     .lr-manual { font-size:10px; color:var(--primary); background:var(--it-50); border-radius:100px; padding:1px 7px; white-space:nowrap; }
     .lr-review { font-size:10px; color:var(--sev-stale); background:var(--sev-stale-bg); border:1px solid var(--sev-stale-line); border-radius:100px; padding:1px 7px; white-space:nowrap; }
@@ -227,6 +288,8 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     @if (loading()) { <div class="empty">Cargando…</div> }
 
     @else if (approved()) {
+      <ng-container [ngTemplateOutlet]="agendaBanner" />
+      <ng-container [ngTemplateOutlet]="escalasPanel" />
       <ng-container [ngTemplateOutlet]="noteBanner" />
       <div class="page-head">
         <div><h2>Caso aprobado</h2><p>El documento final está firmado. Puedes reabrirlo para corregir un error.</p></div>
@@ -329,6 +392,8 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     }
 
     @else {
+      <ng-container [ngTemplateOutlet]="agendaBanner" />
+      <ng-container [ngTemplateOutlet]="escalasPanel" />
       <ng-container [ngTemplateOutlet]="noteBanner" />
       <div class="page-head">
         <div><h2>Revisión de valoración</h2><p>Verifica los datos antes de aprobar y firmar.</p></div>
@@ -347,7 +412,7 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
               <div class="field"><span class="k">Nombre</span><span class="v">{{ p.fullName }}</span></div>
               <div class="field"><span class="k">Documento</span><span class="v">{{ p.documentId || '—' }}</span></div>
               <div class="field"><span class="k">Edad</span><span class="v">{{ p.edad != null ? p.edad + ' años' : '—' }}</span></div>
-              <div class="field"><span class="k">Sexo</span><span class="v">{{ p.sex || '—' }}</span></div>
+              <div class="field"><span class="k">Sexo</span><span class="v">{{ sexoLabel(p.sexAtBirth) }}</span></div>
               <div class="field">
                 <span class="k">Teléfono</span>
                 <span class="v">@if (p.phone) { <a [href]="'tel:' + p.phone">{{ p.phone }}</a> } @else { — }</span>
@@ -445,6 +510,9 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                       @else { — }
                       <span class="edit-pencil">✎</span>
                     </span>
+                    <!-- Evolución entre informes sucesivos y avisos de lectura sin confirmar.
+                         Se calculaban y no se mostraban en ningún lado. -->
+                    @if (f.v?.nota) { <span class="field-nota">{{ f.v.nota }}</span> }
                   }
                 </div>
               }
@@ -475,6 +543,19 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
               </div>
             }
 
+            @if (retenidos().length) {
+              <!--
+                Un resultado con confianza baja, sin unidad o con identidad dudosa no alimenta
+                escalas ni tendencias. Antes eso pasaba en silencio: el médico no sabía que
+                existía y no había forma de rescatarlo. Ahora se dice y se puede confirmar.
+              -->
+              <div class="lab-retenido" data-testid="labs-retenidos">
+                ⚠ {{ retenidos().length }} lectura{{ retenidos().length === 1 ? '' : 's' }} sin
+                confirmar. No alimentan escalas ni tendencias hasta que verifiques contra el
+                informe original.
+              </div>
+            }
+
             @for (l of sortedLabs(); track l.id) {
               <div class="lab-row" [class]="'lab-row sev-' + sevClass(l)" [attr.data-testid]="'lab-row'">
                 <div class="lr-main">
@@ -486,9 +567,20 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                   </span>
                   <span class="lr-meta">
                     {{ grupoLabel(l.grupo) }}@if (l.refRange) { · ref {{ l.refRange }} }
+                    @if (sinConfirmar(l)) { · {{ motivoRetencion(l) }} }
                   </span>
                 </div>
                 <span class="lr-value">{{ l.value }} {{ l.unit }}</span>
+                @if (sinConfirmar(l)) {
+                  <button class="lr-confirm" (click)="confirmar('lab', l.id, true)"
+                          [disabled]="confirmando() === l.id"
+                          title="Confirmo que el informe dice este valor"
+                          [attr.data-testid]="'confirmar-lab-' + l.id">Confirmar lectura</button>
+                } @else if (l.estadoExtraccion === 'CONFIRMADO') {
+                  <span class="lr-confirmado" title="Lectura verificada por ti contra el informe">
+                    lectura confirmada
+                  </span>
+                }
                 @if (needsVerdict(l)) {
                   @if (l.manualFlag) {
                     <span class="lr-manual" [title]="manualTitle(l)">tu veredicto</span>
@@ -506,6 +598,27 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
             }
           } @else {
             <div class="empty">Sin laboratorios cargados.</div>
+          }
+
+          @if (estudios().length) {
+            <!-- ECG y demás informes diagnósticos: se transcriben, no se interpretan, y no
+                 alimentan ninguna escala (§16). La lectura clínica es del anestesiólogo. -->
+            <div class="est-head">Otros estudios</div>
+            @for (e of estudios(); track e.id) {
+              <div class="est-row" [attr.data-testid]="'estudio-row'">
+                <div class="est-main">
+                  <span class="est-titulo">
+                    {{ e.titulo }}@if (e.fecha) { <span class="est-fecha"> · {{ formatFecha(e.fecha) }}</span> }
+                  </span>
+                  <span class="est-texto">{{ e.texto }}</span>
+                </div>
+                @if (e.estadoExtraccion === 'PENDIENTE_CONFIRMACION') {
+                  <button class="lr-confirm" (click)="confirmar('estudio', e.id, true)"
+                          [disabled]="confirmando() === e.id"
+                          [attr.data-testid]="'confirmar-estudio-' + e.id">Confirmar lectura</button>
+                }
+              </div>
+            }
           }
         </div>
         </div>
@@ -556,6 +669,94 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
         </div>
       </div>
     }
+
+    <!-- Escalas de riesgo. Se muestra el ESTADO junto al puntaje: una escala pendiente dice qué
+         falta, en vez de quedarse muda o parecer calculada. -->
+    <ng-template #escalasPanel>
+      @if (escalas().length) {
+        <div class="esc-panel" data-testid="review-escalas">
+          <div class="esc-panel-head">Estratificación perioperatoria</div>
+          @for (e of escalas(); track e.escala) {
+            <div class="esc-row">
+              <span class="esc-chip" [class]="'esc-chip esc-' + e.estado.toLowerCase()">
+                {{ etiquetaEstado(e.estado) }}
+              </span>
+              <div class="esc-body">
+                <div class="esc-nombre">{{ e.nombre }}</div>
+                @if (e.puntaje !== null) {
+                  <div class="esc-puntaje">
+                    {{ e.puntaje }}
+                    @if (e.categoria) { · {{ e.categoria }} }
+                    @else { <span class="esc-retenida">interpretación pendiente de validación institucional</span> }
+                  </div>
+                }
+                @if (e.faltantes.length) {
+                  <div class="esc-falta">Falta: {{ e.faltantes.join(', ') }}</div>
+                }
+                @if (e.motivo) { <div class="esc-falta">{{ e.motivo }}</div> }
+                @if (e.estado === 'REVISION_CLINICA' && !e.resueltoAt) {
+                  <!-- Sin esto la escala bloqueaba la aprobación y no había forma de levantarla:
+                       el caso quedaba trabado sin salida. -->
+                  @if (resolviendo() === e.escala) {
+                    <div class="esc-resolver">
+                      <input class="ki-input" [ngModel]="notaResolucion()"
+                             (ngModelChange)="notaResolucion.set($event)"
+                             placeholder="¿Qué decidiste? Queda en el documento."
+                             [attr.data-testid]="'esc-nota-' + e.escala" />
+                      <div class="esc-resolver-acciones">
+                        <button class="btn btn-sm" (click)="resolviendo.set(null)">Cancelar</button>
+                        <button class="btn btn-primary btn-sm"
+                                [disabled]="notaResolucion().trim().length < 3"
+                                (click)="resolverEscala(e.escala)"
+                                [attr.data-testid]="'esc-resolver-' + e.escala">Resolver</button>
+                      </div>
+                    </div>
+                  } @else {
+                    <button class="esc-btn" (click)="abrirResolucion(e.escala)"
+                            [attr.data-testid]="'esc-abrir-' + e.escala">Resolver esta discordancia</button>
+                  }
+                }
+                @if (e.resueltoAt) {
+                  <div class="esc-resuelta">Resuelta por el anestesiólogo.</div>
+                }
+              </div>
+              <span class="esc-ver">{{ e.version }}</span>
+            </div>
+          }
+        </div>
+      }
+    </ng-template>
+
+    <!-- Programación quirúrgica. Se muestra lo que falta porque, mientras falte, las escalas
+         que dependen de esas variables quedan PENDIENTES en vez de calcularse con supuestos. -->
+    <ng-template #agendaBanner>
+      @if (agendaFaltante().length && !editandoAgenda()) {
+        <div class="agenda-faltante" data-testid="review-agenda-faltante">
+          <strong>Programación incompleta</strong>
+          Las escalas que dependan de esto quedarán pendientes, no se calcularán con supuestos.
+          Falta: {{ agendaFaltante().join(', ') }}.
+          <button class="btn-completar" (click)="abrirAgenda()" data-testid="review-agenda-editar">
+            Completar programación
+          </button>
+        </div>
+      }
+      @if (editandoAgenda()) {
+        <!-- El aviso decía qué faltaba pero no había dónde llenarlo: el médico quedaba
+             mirando una advertencia que no podía resolver. -->
+        <div class="agenda-editor" data-testid="review-agenda-editor">
+          <div class="agenda-editor-head">Programación quirúrgica</div>
+          <app-schedule-form [(value)]="agendaEdit" prefijo="rev" [mostrarTitulo]="false" />
+          <div class="agenda-editor-acciones">
+            <button class="btn btn-sm" (click)="editandoAgenda.set(false)">Cancelar</button>
+            <button class="btn btn-primary btn-sm" (click)="guardarAgenda()"
+                    [disabled]="guardandoAgenda() || agendaEdit().procedimiento.trim().length < 2"
+                    data-testid="review-agenda-guardar">
+              {{ guardandoAgenda() ? 'Guardando…' : 'Guardar y recalcular escalas' }}
+            </button>
+          </div>
+        </div>
+      }
+    </ng-template>
 
     <!-- Nota privada del médico sobre este paciente. Aparece sola (no hay que buscarla): arranca
          expandida; el médico puede colapsarla y la preferencia se recuerda en localStorage. -->
@@ -614,6 +815,10 @@ export class ReviewApprovalPage implements OnInit {
   approved = signal(false);
   fields = signal<any>({});
   labs = signal<any[]>([]);
+  /** Informes no-laboratorio (ECG, ecocardiograma, radiografía, espirometría). */
+  estudios = signal<any[]>([]);
+  /** Id de la lectura que se está confirmando, para no permitir dobles envíos. */
+  confirmando = signal<string | null>(null);
   check = signal<{ ok: boolean; blockers: string[] } | null>(null);
   editingKey = signal<string | null>(null);
   editValue = signal('');
@@ -624,6 +829,78 @@ export class ReviewApprovalPage implements OnInit {
   savingEdit = signal(false);
   reopening = signal(false);
   /** Nota privada del médico sobre este paciente (o null). Aparece sola en el caso. */
+  /** Variables de la agenda que aún faltan. Vacío = programación completa. */
+  agendaFaltante = signal<string[]>([]);
+  /** Programación tal como está guardada, para poder editarla desde aquí. */
+  agenda = signal<ScheduleDef | null>(null);
+  agendaEdit = signal<ScheduleDef>(AGENDA_VACIA);
+  editandoAgenda = signal(false);
+  guardandoAgenda = signal(false);
+  /** Escalas de riesgo del caso. Las NO_INDICADA no llegan aquí. */
+  escalas = signal<{
+    escala: string; nombre: string; version: string; estado: string;
+    puntaje: number | null; categoria: string | null; faltantes: string[]; motivo: string | null;
+    resueltoAt?: string | null;
+  }[]>([]);
+  /** Escala cuya discordancia se está resolviendo, o null. */
+  resolviendo = signal<string | null>(null);
+  notaResolucion = signal('');
+
+  abrirResolucion(escala: string) {
+    this.resolviendo.set(escala);
+    this.notaResolucion.set('');
+  }
+
+  /**
+   * Deja constancia de que el médico revisó la discordancia y asumió la decisión. NO recalcula
+   * ni inventa un puntaje: la escala conserva su estado y su motivo, y deja de bloquear.
+   */
+  async resolverEscala(escala: string) {
+    await this.api.resolverEscala(this.caseId, escala, this.notaResolucion().trim());
+    this.resolviendo.set(null);
+    await this.reload();
+  }
+
+  /** Abre el editor con lo que ya haya guardado. */
+  abrirAgenda() {
+    this.agendaEdit.set({ ...AGENDA_VACIA, ...(this.agenda() ?? {}) });
+    this.editandoAgenda.set(true);
+  }
+
+  /**
+   * Guarda la programación y recalcula. Completar la agenda destraba escalas: ARISCAT depende
+   * del sitio y la duración, Caprini de la modalidad, Apfel del plan anestésico.
+   */
+  async guardarAgenda() {
+    this.guardandoAgenda.set(true);
+    try {
+      await this.api.updateSchedule(this.caseId, this.agendaEdit());
+      this.editandoAgenda.set(false);
+      await this.reload();
+    } finally {
+      this.guardandoAgenda.set(false);
+    }
+  }
+
+  /** Etiqueta del sexo registrado al nacer (el enum cambió con la especificación). */
+  sexoLabel(sexo: string | null | undefined): string {
+    if (!sexo) return '—';
+    return (
+      {
+        MUJER: 'Mujer', HOMBRE: 'Hombre', INTERSEXUAL: 'Intersexual',
+        NO_SABE: 'No sabe', PREFIERE_NO_RESPONDER: 'Prefiere no responder',
+        FEMENINO: 'Mujer', MASCULINO: 'Hombre',
+      }[sexo.toUpperCase()] ?? sexo
+    );
+  }
+
+  /** Etiqueta legible del estado de una escala. */
+  etiquetaEstado(e: string): string {
+    return (
+      { CALCULADA: 'Calculada', PENDIENTE: 'Pendiente', REVISION_CLINICA: 'Revisión clínica',
+        NO_INDICADA: 'No indicada' }[e] ?? e
+    );
+  }
   patientNote = signal<{ content: string; updatedAt: string } | null>(null);
   /** patientId del caso (para crear/editar la nota desde aquí). null si el caso no tiene paciente. */
   notePatientId = signal<string | null>(null);
@@ -643,7 +920,7 @@ export class ReviewApprovalPage implements OnInit {
     fullName: string;
     documentId?: string | null;
     edad?: number | null;
-    sex?: string | null;
+    sexAtBirth?: string | null;
     phone?: string | null;
     email?: string | null;
     insurer?: string | null;
@@ -786,6 +1063,45 @@ export class ReviewApprovalPage implements OnInit {
     return { total: labs.length, auto, manual, pendientes, resueltos: auto + manual };
   });
 
+  /** ¿Esta lectura está retenida por el extractor? */
+  sinConfirmar(l: any): boolean {
+    return l?.estadoExtraccion === 'PENDIENTE_CONFIRMACION';
+  }
+
+  /** Lecturas retenidas: no alimentan escalas ni tendencias hasta que el médico las confirme. */
+  retenidos = computed(() => [
+    ...this.labs().filter((l) => this.sinConfirmar(l)),
+    ...this.estudios().filter((e) => e.estadoExtraccion === 'PENDIENTE_CONFIRMACION'),
+  ]);
+
+  /**
+   * Por qué se retuvo. Decirlo cambia lo que el médico hace: una confianza baja se resuelve
+   * mirando el número en el PDF; una identidad discordante puede ser el examen de otra persona.
+   */
+  motivoRetencion(l: any): string {
+    if (l?.identityMatch === 'NO_COINCIDE') return 'el informe parece de otro paciente';
+    if (!l?.unit) return 'sin unidad en el informe';
+    if (typeof l?.confidence === 'number' && l.confidence < 0.7) {
+      return `lectura dudosa (${Math.round(l.confidence * 100)} %)`;
+    }
+    return 'sin archivo de procedencia';
+  }
+
+  /**
+   * Confirma una lectura contra el informe original. Es HITL sobre la EXTRACCIÓN, no sobre la
+   * clínica: el médico dice "sí, ahí dice 9.8", no "esto es normal". Al confirmar un laboratorio
+   * el servidor recalcula las escalas que lo esperaban, así que se recarga el caso.
+   */
+  async confirmar(tipo: 'lab' | 'estudio', id: string, confirmado: boolean) {
+    this.confirmando.set(id);
+    try {
+      await this.api.confirmarLectura(this.caseId, tipo, id, confirmado);
+      await this.reload();
+    } finally {
+      this.confirmando.set(null);
+    }
+  }
+
   /**
    * Marca (o deshace) el veredicto de un analito. Un tap marca; otro tap sobre el mismo botón
    * deshace. Actualiza el signal en vivo (sin recargar todo) para que la fila y el resumen
@@ -815,10 +1131,14 @@ export class ReviewApprovalPage implements OnInit {
     const r = await this.api.getReview(this.caseId);
     this.fields.set(r.fields ?? {});
     this.labs.set(r.labs ?? []);
+    this.estudios.set(r.estudios ?? []);
     this.labGroups.set(r.labGroups ?? []);
     this.attachments.set(r.attachments ?? []);
     this.check.set(r.canApprove);
     this.patient.set(r.patient ?? null);
+    this.agendaFaltante.set(r.agendaFaltante ?? []);
+    this.agenda.set(r.schedule ?? null);
+    this.escalas.set(r.escalas ?? []);
     this.patientNote.set(r.patientNote ?? null);
     this.notePatientId.set(r.patientId ?? null);
     this.setFindings(r.audit?.findings ?? []);

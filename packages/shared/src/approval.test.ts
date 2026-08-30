@@ -83,3 +83,65 @@ describe('applyExamNormal', () => {
     expect(canApprove(withNormal).ok).toBe(true);
   });
 });
+
+describe('canApprove — escalas', () => {
+  const examenCompleto = Object.fromEntries(
+    ['signos_vitales','via_aerea','cuello','cardiovascular_respiratorio','abdomen','extremidades','snc','peso_talla_imc']
+      .map((k) => [k, { valor: 'Normal', estado: 'ok' as const, fuente: 'anestesiologo:confirmado' }]),
+  );
+  const base = {
+    identificacion: {
+      paciente: { valor: 'Ana', estado: 'ok' as const, fuente: 'formulario:ID01' },
+      documento: { valor: '123', estado: 'ok' as const, fuente: 'formulario:ID02' },
+      procedimiento: { valor: 'Rinoplastia', estado: 'ok' as const, fuente: 'agenda:PX01' },
+      asa: { valor: 'ASA I', estado: 'ok' as const, fuente: 'derivado:IA' },
+    },
+    antecedentes: {}, paraclinicos: {}, examen_fisico: examenCompleto, valoracion_plan: {},
+  };
+  const escala = (over: Record<string, unknown> = {}) => ({
+    escala: 'ARISCAT', nombre: 'ARISCAT — riesgo pulmonar', version: 'ARISCAT@1',
+    cortesVersion: null, estado: 'PENDIENTE' as const, puntaje: null, categoria: null,
+    variables: [], faltantes: ['SpO2 preoperatoria'], motivo: null, ...over,
+  });
+
+  it('una escala PENDIENTE no impide aprobar', () => {
+    // Bloquear presionaría al médico a inventar la variable que falta para destrabar el PDF.
+    const r = canApprove({ ...base, escalas: [escala()] } as never);
+    expect(r.ok).toBe(true);
+  });
+
+  it('una REVISION_CLINICA RESUELTA deja de bloquear', () => {
+    // Sin salida, el bloqueo dejaba el caso trabado: existía el candado y no la llave. Resolver
+    // no recalcula ni inventa un puntaje; deja constancia de que un humano lo asumió.
+    const r = canApprove({
+      ...base,
+      escalas: [escala({
+        estado: 'REVISION_CLINICA', faltantes: [], motivo: 'Discordancia en la SpO2.',
+        resueltoPor: 'anest-1', resueltoAt: '2026-08-30T10:00:00.000Z',
+      })],
+    } as never);
+    expect(r.ok).toBe(true);
+  });
+
+  it('una REVISION_CLINICA sin resolver sí bloquea', () => {
+    const r = canApprove({
+      ...base,
+      escalas: [escala({ estado: 'REVISION_CLINICA', faltantes: [], motivo: 'Discordancia en la SpO2.' })],
+    } as never);
+    expect(r.ok).toBe(false);
+    expect(r.blockers.join()).toMatch(/revisión clínica/i);
+  });
+
+  it('una escala CALCULADA con faltantes es incoherente y bloquea', () => {
+    const r = canApprove({
+      ...base,
+      escalas: [escala({ estado: 'CALCULADA', puntaje: 12, faltantes: ['Hemoglobina'] })],
+    } as never);
+    expect(r.ok).toBe(false);
+    expect(r.blockers.join()).toMatch(/incoherente/i);
+  });
+
+  it('sin escalas, la aprobación se comporta como antes', () => {
+    expect(canApprove(base as never).ok).toBe(true);
+  });
+});

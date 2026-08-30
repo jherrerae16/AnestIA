@@ -1,11 +1,13 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
+import type { ScheduleDef } from '@anestia/shared';
+import { ScheduleFormComponent } from '../core/schedule-form.component';
 
 @Component({
   selector: 'app-case-creator',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ScheduleFormComponent],
   styles: [`
     .creator-wrap { max-width: 560px; margin: 0 auto; padding: 1.5rem; position: relative; z-index: 1; }
     .creator-card { padding: 24px 26px; }
@@ -19,6 +21,16 @@ import { ApiService } from '../core/api.service';
     .link-row { display: flex; gap: 8px; margin-top: 12px; }
     .link-row .ki-input { font-family: var(--font-mono); font-size: 12px; }
     .copied { display: inline-block; margin-top: 10px; font-size: 12px; color: var(--green); font-weight: 500; }
+    .creator-wrap { max-width: 640px; }
+    .grupo { margin: 22px 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--muted); }
+    .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 560px) { .fila { grid-template-columns: 1fr; } }
+    .por-que { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    /* Aviso de escalas que quedarán pendientes por falta de datos de agenda. */
+    .pendientes { margin-top: 18px; padding: 13px 15px; border-radius: 10px;
+      background: #fffaeb; border: 1px solid #fedf89; font-size: 12.5px; color: #93370d; }
+    .pendientes strong { display: block; margin-bottom: 3px; }
   `],
   template: `
     <div class="creator-wrap">
@@ -35,12 +47,9 @@ import { ApiService } from '../core/api.service';
           </select>
         </div>
 
-        <div class="field">
-          <label class="ki-label" for="proc">Procedimiento (opcional)</label>
-          <input class="ki-input" id="proc" [(ngModel)]="procedure" data-testid="case-procedure-input" />
-        </div>
+        <app-schedule-form [(value)]="schedule" prefijo="case" />
 
-        <button class="btn btn-primary create-action" (click)="create()" [disabled]="!presetId() || loading()" data-testid="case-create-button">
+        <button class="btn btn-primary create-action" (click)="create()" [disabled]="!presetId() || schedule().procedimiento.trim().length < 2 || loading()" data-testid="case-create-button">
           {{ loading() ? 'Creando…' : 'Crear y generar enlace' }}
         </button>
 
@@ -61,9 +70,17 @@ import { ApiService } from '../core/api.service';
 })
 export class CaseCreatorPage implements OnInit {
   private api = inject(ApiService);
+
   presets = signal<any[]>([]);
   presetId = signal('');
-  procedure = signal('');
+
+  /** Agenda quirúrgica (PX01–PX11). El paciente no ve nada de esto. */
+  schedule = signal<ScheduleDef>({
+    procedimiento: '', diagnosticoPreop: null, fechaHora: null, especialidad: null,
+    modalidad: null, prioridad: null, sitioQuirurgico: null, duracionEstimada: null,
+    altoRiesgoRcri: null, anestesiaProbable: null, opioidesPostop: null,
+  });
+
   loading = signal(false);
   link = signal<string | null>(null);
   expires = signal('');
@@ -80,7 +97,7 @@ export class CaseCreatorPage implements OnInit {
     this.loading.set(true);
     this.copied.set(false);
     try {
-      const res = await this.api.createCase(this.presetId(), this.procedure() || undefined);
+      const res = await this.api.createCase(this.presetId(), this.schedule());
       this.link.set(`${location.origin}/form/${res.linkToken}`);
       this.expires.set(new Date(res.linkExpiresAt).toLocaleDateString('es-CO'));
     } finally {

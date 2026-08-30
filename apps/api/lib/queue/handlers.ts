@@ -3,6 +3,7 @@ import { prisma } from '../prisma';
 import { publish } from './index';
 import { logger } from '../logger';
 import { logAudit } from '../audit';
+import { computeScalesForCase } from '../services/scales.service';
 import { extractForCase, flagForCase } from '../services/lab.service';
 import { generateForCase } from '../services/clinical.service';
 import { auditForCase } from '../services/audit-clinical.service';
@@ -19,7 +20,19 @@ type Job = { data: { caseId: string } };
  * siempre sin más señal que un estado que no avanza — que es justo lo que pasó con la
  * extracción truncada.
  */
-async function runStage(caseId: string, stage: string, fn: () => Promise<unknown>): Promise<void> {
+/**
+ * Corre una etapa del pipeline. Devuelve `false` si el caso ya no existe, para que el handler
+ * se salte el resto en vez de seguir tocando la base con un id muerto.
+ */
+async function runStage(caseId: string, stage: string, fn: () => Promise<unknown>): Promise<boolean> {
+  // Si el caso desapareció (borrado, o base reiniciada en desarrollo), el job es huérfano.
+  // Reintentarlo no puede arreglarlo: se registra y se cierra.
+  const existe = await prisma.case.findUnique({ where: { id: caseId }, select: { id: true } });
+  if (!existe) {
+    logger.warn({ caseId, stage }, 'pipeline_caso_inexistente — se descarta el job');
+    return false;
+  }
+
   try {
     await fn();
   } catch (err) {
@@ -33,6 +46,7 @@ async function runStage(caseId: string, stage: string, fn: () => Promise<unknown
     }).catch(() => {});
     throw err;
   }
+  return true;
 }
 
 /**
@@ -42,7 +56,7 @@ async function runStage(caseId: string, stage: string, fn: () => Promise<unknown
 export async function onLabExtract(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await runStage(caseId, 'lab.extract', () => extractForCase(caseId));
+    if (!(await runStage(caseId, 'lab.extract', () => extractForCase(caseId)))) continue;
     await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.LABS_ANALIZADOS } }).catch(() => {});
     await logAudit({ action: 'lab.extracted', entity: 'Case', entityId: caseId });
     logger.info({ caseId }, 'lab_extract_done');
@@ -54,9 +68,15 @@ export async function onLabExtract(jobs: Job[]): Promise<void> {
 export async function onLabFlag(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await runStage(caseId, 'lab.flag', () => flagForCase(caseId));
+    if (!(await runStage(caseId, 'lab.flag', () => flagForCase(caseId)))) continue;
     await logAudit({ action: 'lab.flagged', entity: 'Case', entityId: caseId });
     logger.info({ caseId }, 'lab_flag_done');
+
+    // Escalas ANTES del motor clínico: son determinísticas y el modelo no las produce — sólo
+    // puede citarlas. Van después del flagging porque ARISCAT y RCRI consumen hemoglobina y
+    // creatinina ya validadas.
+    await runStage(caseId, 'scales.compute', () => computeScalesForCase(caseId));
+
     await publish('clinical.generate', { caseId });
   }
 }
@@ -68,7 +88,7 @@ export async function onLabFlag(jobs: Job[]): Promise<void> {
 export async function onClinicalGenerate(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await runStage(caseId, 'clinical.generate', () => generateForCase(caseId));
+    if (!(await runStage(caseId, 'clinical.generate', () => generateForCase(caseId)))) continue;
     await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.BORRADOR_GENERADO } }).catch(() => {});
     logger.info({ caseId }, 'clinical_generate_done');
     // Eslabón nuevo: auditor independiente antes de renderizar (generador + crítico).
@@ -85,7 +105,7 @@ export async function onClinicalGenerate(jobs: Job[]): Promise<void> {
 export async function onClinicalAudit(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await runStage(caseId, 'clinical.audit', () => auditForCase(caseId));
+    if (!(await runStage(caseId, 'clinical.audit', () => auditForCase(caseId)))) continue;
     await publish('document.render', { caseId });
   }
 }
@@ -97,7 +117,7 @@ export async function onClinicalAudit(jobs: Job[]): Promise<void> {
 export async function onDocumentRender(jobs: Job[]): Promise<void> {
   for (const job of jobs) {
     const { caseId } = job.data;
-    await runStage(caseId, 'document.render', () => renderDraftForCase(caseId));
+    if (!(await runStage(caseId, 'document.render', () => renderDraftForCase(caseId)))) continue;
     await prisma.case.update({ where: { id: caseId }, data: { status: CaseStatus.PENDIENTE_REVISION } }).catch(() => {});
     logger.info({ caseId }, 'document_render_done');
   }

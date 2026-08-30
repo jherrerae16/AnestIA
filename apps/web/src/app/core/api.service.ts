@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
+import type { ScheduleDef } from '@anestia/shared';
 
 export interface PresetSummary {
   id: string;
@@ -27,8 +28,20 @@ export class ApiService {
   listPresets(): Promise<{ presets: PresetSummary[] }> {
     return firstValueFrom(this.http.get<{ presets: PresetSummary[] }>('/api/panel/presets'));
   }
-  createCase(presetId: string, procedure?: string): Promise<CreatedCase> {
-    return firstValueFrom(this.http.post<CreatedCase>('/api/panel/cases', { presetId, procedure }));
+  createCase(presetId: string, schedule: ScheduleDef, patientId?: string): Promise<CreatedCase> {
+    return firstValueFrom(
+      this.http.post<CreatedCase>('/api/panel/cases', { presetId, schedule, patientId }),
+    );
+  }
+  resolverEscala(caseId: string, escala: string, nota: string): Promise<{ ok: boolean }> {
+    return firstValueFrom(
+      this.http.post<{ ok: boolean }>(`/api/panel/cases/${caseId}/scales/${escala}/resolve`, { nota }),
+    );
+  }
+  updateSchedule(caseId: string, schedule: ScheduleDef): Promise<{ ok: boolean }> {
+    return firstValueFrom(
+      this.http.put<{ ok: boolean }>(`/api/panel/cases/${caseId}/schedule`, schedule),
+    );
   }
   getForm(token: string): Promise<any> {
     return firstValueFrom(this.http.get<any>(`/api/form/${token}`));
@@ -63,6 +76,27 @@ export class ApiService {
   /** Veredicto manual del médico sobre un analito (HITL). verdict=null deshace. */
   setLabVerdict(caseId: string, labId: string, verdict: 'NORMAL' | 'ALERTA' | 'CRITICO' | null): Promise<{ manualFlag: string | null; effectiveFlag: string }> {
     return firstValueFrom(this.http.put<{ manualFlag: string | null; effectiveFlag: string }>(`/api/panel/cases/${caseId}/labs/${labId}/verdict`, { verdict }));
+  }
+  /**
+   * Confirma (o vuelve a retener) una lectura que el extractor marcó dudosa. Distinto del
+   * veredicto clínico: aquí el médico dice que el valor leído es el que está impreso.
+   */
+  confirmarLectura(caseId: string, tipo: 'lab' | 'estudio', lecturaId: string, confirmado: boolean): Promise<{ estadoExtraccion: string }> {
+    return firstValueFrom(
+      this.http.put<{ estadoExtraccion: string }>(
+        `/api/panel/cases/${caseId}/lecturas/${tipo}/${lecturaId}/confirmar`,
+        { confirmado },
+      ),
+    );
+  }
+  /** Preguntas propias del anestesiólogo en un cuestionario suyo. */
+  listPropias(presetId: string): Promise<{ propias: any[] }> {
+    return firstValueFrom(this.http.get<{ propias: any[] }>(`/api/panel/presets/${presetId}/propias`));
+  }
+  savePropias(presetId: string, propias: unknown[]): Promise<{ errores: string[]; guardadas: number }> {
+    return firstValueFrom(
+      this.http.put<{ errores: string[]; guardadas: number }>(`/api/panel/presets/${presetId}/propias`, { propias }),
+    );
   }
   /** Re-corre el auditor determinístico sobre el borrador actual. Cero tokens. */
   reaudit(caseId: string): Promise<{ audit: { findings: { level: string; category: string; message: string }[] } | null }> {
@@ -125,9 +159,6 @@ export class ApiService {
     const fd = new FormData();
     fd.append('file', file);
     return firstValueFrom(this.http.post<{ ok: boolean; url?: string }>(`/api/panel/profile/branding?kind=${kind}`, fd));
-  }
-  exportSheets(): Promise<{ ok: boolean; url?: string; error?: string; count?: number }> {
-    return firstValueFrom(this.http.post<{ ok: boolean; url?: string; error?: string; count?: number }>('/api/panel/export/sheets', {}));
   }
 
   // --- Calendario de cirugías ---

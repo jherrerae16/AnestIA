@@ -1,6 +1,8 @@
 import { getBoss } from './index';
 import { logger } from '../logger';
 import { onLabExtract, onLabFlag, onClinicalGenerate, onClinicalAudit, onDocumentRender, onDailyReminder } from './handlers';
+import { assertDictionaryValid, diffPresetVsDiccionario } from '@anestia/shared';
+import { prisma } from '../prisma';
 import { reconcileStuckCases } from '../services/reconciler.service';
 
 /**
@@ -24,6 +26,27 @@ async function main() {
 
   // Reconciliador (C-1): al arrancar, re-emite form.submitted para casos enviados que se
   // quedaron sin pipeline (p. ej. un publish falló tras el commit). Idempotente.
+  // Falla al arrancar si el diccionario está mal formado: un código duplicado o una regla que
+  // apunta a una pregunta inexistente produce ramas que nunca se abren y fuentes equivocadas en
+  // un documento firmado. Reventar aquí es barato.
+  assertDictionaryValid();
+
+  // Y que lo sembrado coincida con el código. Si divergen, el formulario sirve reglas viejas y
+  // abre (o cierra) ramas que ya no corresponden, sin que nada falle a la vista.
+  const preset = await prisma.questionnairePreset.findFirst({
+    where: { isDefault: true },
+    include: { questions: true },
+  });
+  if (preset) {
+    const diffs = diffPresetVsDiccionario(preset.questions);
+    if (diffs.length > 0) {
+      logger.warn(
+        { diffs: diffs.slice(0, 10), total: diffs.length },
+        'preset_desincronizado_del_diccionario — corre `npm run seed`',
+      );
+    }
+  }
+
   await reconcileStuckCases().catch((err) =>
     logger.error({ err: err instanceof Error ? err.message : 'unknown' }, 'reconciler_boot_failed'),
   );

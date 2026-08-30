@@ -37,7 +37,7 @@ X) Other (describe después de [Answer]:)
 ## Question 2 — Email de sign in de Luquetta
 El seed necesita un email único para el perfil (login + `Anesthesiologist.email`). ¿Cuál uso?
 
-A) Usar tu email de sesión: `contacto@ejemplo.com`. (recomendado — es tuyo, real)
+A) Usar tu email de sesión: `jocahere72@gmail.com`. (recomendado — es tuyo, real)
 B) Un placeholder `luquetta@anestia.local`.
 X) Other (describe después de [Answer]:)
 

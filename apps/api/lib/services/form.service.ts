@@ -1,3 +1,4 @@
+import type { CaseSchedule } from '@prisma/client';
 import { CaseStatus } from '@prisma/client';
 import { prisma } from '../prisma';
 import { publish } from '../queue';
@@ -11,6 +12,9 @@ import {
   medicalTerm,
   type FormAnswers,
   type QuestionDef,
+  CODES,
+  buildFacts,
+  pruneHiddenAnswers,
 } from '@anestia/shared';
 
 /** Carga el formulario por caso (preset + preguntas + respuestas parciales + consentimiento). */
@@ -19,17 +23,28 @@ export async function getFormForCase(caseId: string) {
     where: { id: caseId },
     include: {
       preset: { include: { questions: { orderBy: { order: 'asc' } } } },
+      schedule: true,
       formResponse: true,
       consent: true,
       anesthesiologist: { select: { fullName: true, clinicLogoUrl: true } },
     },
   });
   if (!kase) return null;
+  // Los datos de AGENDA no se le envían al paciente: la Especificación es explícita en que no
+  // decide si su cirugía es de alto riesgo, cuánto dura ni qué incisión tendrá. El filtro va
+  // por FUENTE, no por obligatoriedad: PX10/PX11 vienen de la agenda pero los verifica el
+  // anestesiólogo (obligacion V), así que un filtro por `obligacion !== SISTEMA` los dejaba pasar.
+  const questions = (kase.preset?.questions ?? []).filter((q) => q.fuente === 'PACIENTE');
   return {
     caseId: kase.id,
     branding: { logo: kase.anesthesiologist.clinicLogoUrl, doctor: kase.anesthesiologist.fullName },
-    questions: kase.preset?.questions ?? [],
+    questions,
     answers: (kase.formResponse?.answers as FormAnswers) ?? {},
+    // La edad y, con ella, la ruta clínica se derivan contra la fecha del procedimiento.
+    procedureDate: kase.procedureDate ? kase.procedureDate.toISOString().slice(0, 10) : null,
+    // Atributos de la agenda. NO son preguntas: son los hechos con los que el formulario decide
+    // qué ramas abrir (Caprini por cirugía mayor, DASI por sitio quirúrgico elevado…).
+    schedule: scheduleFactsDe(kase.schedule),
     consentAccepted: Boolean(kase.consent),
     submitted: Boolean(kase.formResponse?.submittedAt),
   };
@@ -45,7 +60,7 @@ export async function acceptConsent(caseId: string): Promise<void> {
 
 /** Guardado parcial: valida forma, persiste partial=true. NO emite evento. */
 export async function savePartial(caseId: string, rawAnswers: unknown): Promise<void> {
-  const answers = formAnswersSchema.parse(rawAnswers);
+  let answers = formAnswersSchema.parse(rawAnswers);
 
   // Tras enviar, el autosave NO puede pisar las respuestas. El token del formulario sigue
   // vivo 7 días, así que una pestaña abierta puede disparar un save mientras el worker ya
@@ -84,12 +99,12 @@ function procedureFromAnswers(
   if (!kase.procedure) {
     // Mismo término médico que usa el documento ('lipo' → 'Liposucción'), para que el
     // panel y el PDF no muestren textos distintos del mismo procedimiento.
-    const p = medicalTerm(answerText(answers, '9'));
+    const p = medicalTerm(answerText(answers, CODES.procedimiento));
     if (p) out.procedure = p;
   }
 
   if (!kase.procedureDate) {
-    const raw = answerText(answers, '10');
+    const raw = answerText(answers, CODES.fechaProcedimiento);
     const d = raw ? new Date(raw) : null;
     if (d && !isNaN(d.getTime())) out.procedureDate = d;
   }
@@ -102,12 +117,13 @@ function procedureFromAnswers(
  * persiste en transacción, upserta el paciente y emite `form.submitted` (una sola vez, idempotente).
  */
 export async function submitForm(caseId: string, rawAnswers: unknown): Promise<{ errors?: string[] }> {
-  const answers = formAnswersSchema.parse(rawAnswers);
+  let answers = formAnswersSchema.parse(rawAnswers);
 
   const kase = await prisma.case.findUnique({
     where: { id: caseId },
     include: {
       preset: { include: { questions: { orderBy: { order: 'asc' } } } },
+      schedule: true,
       formResponse: true,
       consent: true,
     },
@@ -119,21 +135,44 @@ export async function submitForm(caseId: string, rawAnswers: unknown): Promise<{
 
   if (!kase.consent) return { errors: ['Debes aceptar el consentimiento antes de enviar.'] };
 
-  // Validación de completitud contra el preset (por order → Answer).
-  const byOrder: Record<number, { value: unknown }> = {};
-  for (const [k, v] of Object.entries(answers)) byOrder[Number(k)] = { value: v.value };
+  // Validación contra el cuestionario: completitud, opciones válidas, "Ninguna" excluyente y
+  // que ningún dato de agenda venga del formulario público. El adaptador `byOrder` que había
+  // aquí desapareció: las respuestas ya vienen indexadas por código.
   const questions: QuestionDef[] = (kase.preset?.questions ?? []).map((q) =>
     questionSchema.parse({
+      code: q.code,
       order: q.order,
       label: q.label,
       type: q.type,
       required: q.required,
+      obligacion: OBLIGACION_A_CODIGO[q.obligacion],
+      seccion: q.seccion ?? undefined,
+      grupo: q.grupo ?? undefined,
+      alimenta: q.alimenta ?? [],
       options: q.options ?? undefined,
       conditional: q.conditional ?? undefined,
     }),
   );
-  const errors = validateAnswers(questions, byOrder as never);
+
+  // Los hechos derivados (edad, banda etaria, ruta) deciden qué ramas estaban abiertas. La
+  // fecha de referencia es la del procedimiento, que viene de la agenda — no del paciente.
+  const facts = buildFacts({
+    answers,
+    schedule: scheduleFactsDe(kase.schedule),
+    refDateISO: kase.procedureDate ? kase.procedureDate.toISOString().slice(0, 10) : null,
+  });
+
+  // Se descartan las respuestas de ramas que quedaron cerradas. Sin esto, responder "Sí",
+  // escribir el detalle y volver a "No" dejaba el detalle guardado y se enviaba igual.
+  const limpias = pruneHiddenAnswers(
+    questions.map((q) => ({ code: q.code, activacion: q.conditional ?? null })),
+    answers,
+    facts,
+  );
+
+  const errors = validateAnswers(questions, limpias, facts);
   if (errors.length) return { errors };
+  answers = limpias;
 
   const anesthesiologistId = kase.anesthesiologistId;
 
@@ -177,3 +216,29 @@ export async function submitForm(caseId: string, rawAnswers: unknown): Promise<{
 
   return {};
 }
+
+/**
+ * Fila de `CaseSchedule` → hechos de agenda. Se envían al formulario del paciente como HECHOS,
+ * nunca como preguntas: el paciente no ve la programación, pero sus ramas dependen de ella.
+ */
+function scheduleFactsDe(s: CaseSchedule | null) {
+  if (s == null) return null;
+  return {
+    especialidad: s.especialidad,
+    modalidad: s.modalidad,
+    prioridad: s.prioridad,
+    sitioQuirurgico: s.sitioQuirurgico,
+    duracionEstimada: s.duracionEstimada,
+    altoRiesgoRcri: s.altoRiesgoRcri,
+    opioidesPostop: s.opioidesPostop,
+    anestesiaProbable: s.anestesiaProbable,
+  };
+}
+
+/** Enum de la BD → código de obligatoriedad de la especificación. */
+const OBLIGACION_A_CODIGO = {
+  OBLIGATORIA: 'O',
+  CONDICIONAL: 'C',
+  SISTEMA: 'S',
+  VERIFICA: 'V',
+} as const;

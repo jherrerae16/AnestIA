@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { prisma } from '../prisma';
+import { getScalesForCase } from './scales.service';
 import { activeModelLabel, getAIProvider, type ClinicalInput } from '../ai';
 import { logAudit } from '../audit';
 import {
+  aSnapshots,
   computeIMC,
   computeAge,
   enforceGuardrails,
@@ -16,6 +18,16 @@ import {
   PROMPT_MAESTRO_VERSION,
   type DocField,
   type FormAnswers,
+  CODES,
+  getMulti,
+  getClinicalText,
+  getText,
+  NOMBRE_ESCALA,
+  agruparEstudios,
+  normalizeGrupo,
+  calcularTendencias,
+  describirTendencia,
+  soloMasReciente,
 } from '@anestia/shared';
 
 /** Carga el system prompt (prompt-maestro-v2) desde docs/. */
@@ -31,32 +43,42 @@ export async function loadPromptMaestro(): Promise<string> {
 export async function assembleInput(caseId: string): Promise<ClinicalInput> {
   const fr = await prisma.formResponse.findUnique({ where: { caseId } });
   const labs = await prisma.extractedLabResult.findMany({ where: { caseId } });
+  const kase = await prisma.case.findUnique({ where: { id: caseId }, include: { schedule: true } });
   const answers = (fr?.answers as FormAnswers) ?? {};
 
-  // GLP-1 se detecta del detalle de medicamentos (P15 ¿cuáles?).
-  const p15 = answers['15']?.value;
-  const glp1 = detectGLP1(typeof p15 === 'string' ? p15 : Array.isArray(p15) ? p15.join(' ') : '');
+  // GLP-1: ahora hay un módulo estructurado (GL01) además del texto libre de medicamentos.
+  // Se mira primero el módulo, y el texto libre queda como red de seguridad para lo que el
+  // paciente escriba por su cuenta.
+  const glp1Modulo = getMulti(answers, CODES.glp1).filter(
+    (o) => !/^(ninguno|no sabe)$/i.test(o.trim()),
+  );
+  const glp1 = glp1Modulo.length > 0
+    ? { declared: true, drug: glp1Modulo.join(', ') }
+    : detectGLP1(getClinicalText(answers, CODES.listaMedicamentos) + ' ' + getText(answers, CODES.naturales));
 
   // parseNumeric normaliza la coma decimal ("78,5"→78.5) — un paciente que teclea coma no
   // debe hacer que el IMC se caiga en silencio (C-3). Un solo helper compartido para todos
   // los sitios de lectura de peso/talla.
-  const peso = answers['5']?.value != null ? parseNumeric(answers['5'].value as string | number) : null;
-  const talla = answers['6']?.value != null ? parseNumeric(answers['6'].value as string | number) : null;
+  const peso = parseNumeric(getText(answers, CODES.peso));
+  const talla = parseNumeric(getText(answers, CODES.talla));
   const pesoKg = peso != null && peso > 0 ? peso : null;
   const tallaCm = talla != null && talla > 0 ? talla : null;
   const imc = pesoKg != null && tallaCm != null ? computeIMC(pesoKg, tallaCm) : null;
 
-  // Edad de P3 (nacimiento) vs P10 (fecha de cirugía) — misma base que el documento, sin Date.now.
-  const birth = answers['3']?.value;
-  const ref = answers['10']?.value;
-  const edad = computeAge(
-    typeof birth === 'string' ? birth : null,
-    typeof ref === 'string' ? ref : null,
-  );
+  // Edad: nacimiento (ID03) contra la fecha del procedimiento — misma base que el documento y
+  // sin Date.now. La fecha viene de la AGENDA, no del paciente: la Especificación es explícita
+  // en que el acto quirúrgico no lo describe el paciente.
+  const birth = getText(answers, CODES.fechaNacimiento) || null;
+  const agendaFecha = kase?.schedule?.fechaHora ?? kase?.procedureDate ?? null;
+  const ref = agendaFecha ? agendaFecha.toISOString().slice(0, 10) : null;
+  const edad = computeAge(birth, ref);
 
   return {
     caseId,
     answers,
+    procedimiento: kase?.schedule?.procedimiento ?? kase?.procedure ?? null,
+    diagnosticoPreop: kase?.schedule?.diagnosticoPreop ?? null,
+    fechaProcedimiento: ref,
     pesoKg,
     tallaCm,
     edad,
@@ -92,7 +114,10 @@ function buildParaclinicos(
 ): Record<string, DocField> {
   if (provided && Object.keys(provided).length > 0) return provided;
   const out: Record<string, DocField> = {};
-  for (const g of groupLabsToProse(labs ?? [], hoy)) {
+  // Un analito con varios informes se lista una vez, con el más reciente (§16). Los anteriores
+  // siguen en la base y son los que sustentan la nota de evolución; repetirlos aquí se leería
+  // como dos analitos distintos en vez de una caída.
+  for (const g of groupLabsToProse(soloMasReciente(labs ?? []), hoy)) {
     out[g.grupo] = {
       valor: g.texto,
       estado: 'ok',
@@ -138,7 +163,7 @@ export async function regenerateParaclinicos(caseId: string, hoy: string): Promi
     }));
 
   const out: Record<string, DocField> = {};
-  for (const g of groupLabsToProse(groupable, hoy)) {
+  for (const g of groupLabsToProse(soloMasReciente(groupable), hoy)) {
     out[g.grupo] = {
       valor: g.texto,
       estado: 'ok',
@@ -146,6 +171,11 @@ export async function regenerateParaclinicos(caseId: string, hoy: string): Promi
       alerta: g.alerta,
     };
   }
+  // La evolución y los estudios se recalculan aquí también. Si sólo se anotaran al generar, el
+  // congelado del documento aprobado los perdería — y el PDF firmado diría menos que el borrador.
+  anotarTendencias(out, await tendenciasDeCaso(caseId));
+  Object.assign(out, await estudiosDeCaso(caseId));
+  await marcarSinConfirmar(caseId, out);
   return out;
 }
 
@@ -160,40 +190,72 @@ export async function generateForCase(caseId: string): Promise<void> {
   const existing = await prisma.generatedAssessment.findUnique({ where: { caseId } });
   if (existing) return;
 
+  const kase = await prisma.case.findUnique({ where: { id: caseId }, include: { schedule: true } });
   const input = await assembleInput(caseId);
   const raw = await getAIProvider().generateAssessment(input);
 
-  // Paraclínicos: los arma el CÓDIGO desde los labs realmente extraídos, nunca el modelo.
-  // Así los valores del documento son los del laboratorio, no los que el modelo recuerde (CS2).
+  // Paraclínicos y ESCALAS: los arma el CÓDIGO, nunca el modelo. Los valores del documento son
+  // los del laboratorio y los puntajes son determinísticos, no lo que el modelo recuerde (CS2).
   const withParaclinicos = {
     ...raw,
     paraclinicos: buildParaclinicos(input.labs, raw.paraclinicos, new Date().toISOString().slice(0, 10)),
+    escalas: await buildEscalas(caseId),
   };
+
+  // Tendencia: si un analito tiene resultados sucesivos, el cambio se anota junto al valor. Una
+  // hemoglobina de 9.8 que viene de 13.9 en tres semanas es una historia distinta de una que
+  // lleva un año igual, y el documento sólo mostraba la última cifra (Especificación §16).
+  anotarTendencias(withParaclinicos.paraclinicos, await tendenciasDeCaso(caseId));
+
+  // Informes que no son de laboratorio (ECG, ecocardiograma, radiografía, espirometría). El
+  // extractor los descartaba enteros: era seguro —no inventaba nada— pero el dato no le llegaba
+  // al médico. Se transcriben; no se interpretan y no alimentan escalas (§16).
+  Object.assign(withParaclinicos.paraclinicos, await estudiosDeCaso(caseId));
+  await marcarSinConfirmar(caseId, withParaclinicos.paraclinicos);
 
   // Validación de contrato (rechaza malformado / campos prohibidos) — CS5.
   const parsed = documentSchema.parse(withParaclinicos);
 
   // Guardarraíles (segunda línea) — CS2/CS3/CS4. peso/talla/IMC se fuerzan a los datos reales
   // del paciente: el modelo no decide esos números (evita el 71/188 fabricado sobre 78/193).
-  // Signos vitales: se estiman en standby SOLO si el paciente no declaró comorbilidades (P12);
-  // el estimado se etiqueta y sigue bloqueando la aprobación hasta que el médico lo confirme (CS3).
-  const declaraEnfermedad = String(input.answers['12']?.value ?? '')
-    .trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') === 'si';
+  //
+  // Los signos vitales YA NO se estiman. Antes se proponía un rango de referencia en standby
+  // cuando el paciente no declaraba comorbilidades, y ese texto incluía "SatO₂ ≥ 96 %" — una
+  // saturación verosímil que nadie midió, en el único punto del sistema que la escribe. La
+  // Especificación exige que la SpO2 se mida ("nunca inferirla") porque alimenta ARISCAT, y el
+  // campo bloqueaba la aprobación de todas formas, así que el estimado no aportaba nada.
   const doc = enforceGuardrails(parsed, {
     imc: input.imc ?? null,
     pesoKg: input.pesoKg,
     tallaCm: input.tallaCm,
     edad: input.edad ?? null,
-    estimarSignos: !declaraEnfermedad,
   });
+
+  // Capacidad funcional: se restituye desde el DASI, que SÍ la mide (D01-D12 con sus pesos
+  // originales). Antes se afirmaba "≥ 4 METs" derivándolo de que el paciente no declarara
+  // enfermedades — una invención. Ahora, o hay un DASI calculado que la sustente, o el campo
+  // queda sin reportar hasta la evaluación presencial (CS4).
+  const dasi = await prisma.scaleResult.findUnique({
+    where: { caseId_escala: { caseId, escala: 'DASI' } },
+  });
+  if (dasi?.estado === 'CALCULADA' && dasi.puntaje != null) {
+    doc.identificacion['capacidad_funcional'] = {
+      valor: `${dasi.puntaje.toFixed(1)} puntos DASI`,
+      estado: 'ok',
+      fuente: `escala:${dasi.version}`,
+      nota: dasi.categoria
+        ? dasi.categoria
+        : 'Interpretación pendiente de validación institucional de los puntos de corte.',
+    };
+  }
 
   // Procedimiento ambiguo ("operación de la nariz"): el modelo tiende a elegir una cirugía
   // específica (rinoplastia) por sesgo, pero eso es inventar el procedimiento — en anestesia el
-  // manejo depende de cuál sea. Guardarraíl determinístico: si el P9 del paciente es ambiguo, se
-  // conserva su texto original en procedimiento y diagnóstico, sin importar lo que puso el modelo.
-  const procOriginal = valorTexto(input.answers['9']?.value);
+  // manejo depende de cuál sea. Guardarraíl determinístico: si el procedimiento programado es
+  // ambiguo, se conserva su texto original, sin importar lo que puso el modelo.
+  const procOriginal = kase?.schedule?.procedimiento ?? kase?.procedure ?? null;
   if (procOriginal && isAmbiguousProcedure(procOriginal)) {
-    const fuente = 'formulario:P9';
+    const fuente = 'agenda:PX01';
     doc.identificacion['procedimiento'] = { valor: procOriginal, estado: 'ok', fuente };
     if (doc.identificacion['diagnostico_preoperatorio']) {
       doc.identificacion['diagnostico_preoperatorio'] = { valor: procOriginal, estado: 'ok', fuente };
@@ -235,4 +297,109 @@ export async function generateForCase(caseId: string): Promise<void> {
     entityId: caseId,
     meta: { modelUsed, ...(correcciones.length ? { terminologiaCorregida: correcciones } : {}) },
   });
+}
+
+/**
+ * Escalas del documento. Se leen de `ScaleResult`, que es la fuente de verdad; el documento es
+ * una proyección. Las `NO_INDICADA` se omiten del documento —no aportan nada al lector— pero se
+ * conservan en la base con su motivo, para poder auditar por qué no se aplicaron.
+ */
+async function buildEscalas(caseId: string) {
+  const filas = await getScalesForCase(caseId);
+  return aSnapshots(filas);
+}
+
+/** Tendencias de los analitos del caso con más de un resultado fechado. */
+async function tendenciasDeCaso(caseId: string) {
+  const filas = await prisma.extractedLabResult.findMany({
+    where: { caseId, estadoExtraccion: { not: 'PENDIENTE_CONFIRMACION' } },
+  });
+  return calcularTendencias(filas);
+}
+
+/**
+ * Anota la tendencia en la fila del estudio correspondiente.
+ *
+ * Se añade al texto existente en vez de sustituirlo: el valor actual con su rango sigue siendo
+ * lo primero que lee el anestesiólogo, y la evolución va detrás.
+ */
+function anotarTendencias(
+  paraclinicos: Record<string, DocField>,
+  tendencias: ReturnType<typeof calcularTendencias>,
+): void {
+  if (tendencias.length === 0) return;
+  const relevantes = tendencias.filter((t) => t.direccion !== 'estable');
+  if (relevantes.length === 0) return;
+
+  for (const campo of Object.values(paraclinicos)) {
+    if (campo?.valor == null) continue;
+    const propias = relevantes.filter((t) =>
+      campo.valor!.toLowerCase().includes(t.analito.toLowerCase()),
+    );
+    if (propias.length === 0) continue;
+
+    campo.nota = `Evolución — ${propias.map((t) => `${t.analito}: ${describirTendencia(t)}`).join(' · ')}`;
+    // El valor previo que cita la nota ya no aparece en la prosa; su informe se añade a la
+    // procedencia del campo para que la cifra siga siendo rastreable (CS2).
+    const previas = propias.map((t) => t.previoSourceRef).filter((r): r is string => !!r);
+    if (previas.length > 0) {
+      const fuente = typeof campo.fuente === 'string' ? campo.fuente : '';
+      const faltan = previas.filter((r) => !fuente.includes(r));
+      if (faltan.length > 0) campo.fuente = [fuente, ...faltan].filter(Boolean).join(', ');
+    }
+  }
+}
+
+/**
+ * Estudios no-laboratorio del caso, ya en prosa, listos para la banda de paraclínicos.
+ *
+ * Uno pendiente de confirmación se muestra **diciendo que lo está**: ocultarlo le esconde al
+ * médico un ECG que existe, y darlo por bueno le presenta como leído lo que el extractor no
+ * pudo leer bien.
+ */
+async function estudiosDeCaso(caseId: string): Promise<Record<string, DocField>> {
+  const filas = await prisma.extractedStudy.findMany({ where: { caseId } });
+  const out: Record<string, DocField> = {};
+  for (const g of agruparEstudios(filas)) {
+    out[g.clave] = {
+      valor: g.texto,
+      estado: 'ok',
+      fuente: g.fuentes.length ? g.fuentes.join(', ') : 'estudio',
+      ...(g.pendiente
+        ? { nota: 'Lectura pendiente de confirmación: verifique contra el informe original.' }
+        : {}),
+    };
+  }
+  return out;
+}
+
+/**
+ * Marca en el documento los grupos que contienen alguna lectura sin confirmar.
+ *
+ * El valor se muestra igual —perderlo sería peor— pero el documento tiene que decir que esa
+ * cifra no alimentó las escalas. Sin la marca, un puntaje `PENDIENTE` y un laboratorio visible
+ * en la misma página se contradicen sin explicación.
+ */
+async function marcarSinConfirmar(
+  caseId: string,
+  paraclinicos: Record<string, DocField>,
+): Promise<void> {
+  const dudosos = await prisma.extractedLabResult.findMany({
+    where: { caseId, estadoExtraccion: 'PENDIENTE_CONFIRMACION' },
+    select: { analyte: true, grupo: true },
+  });
+  if (dudosos.length === 0) return;
+
+  const porGrupo = new Map<string, string[]>();
+  for (const d of dudosos) {
+    const g = normalizeGrupo(d.grupo);
+    porGrupo.set(g, [...(porGrupo.get(g) ?? []), d.analyte]);
+  }
+
+  for (const [grupo, analitos] of porGrupo) {
+    const campo = paraclinicos[grupo];
+    if (!campo) continue;
+    const aviso = `Sin confirmar: ${[...new Set(analitos)].join(', ')} — no alimenta escalas hasta que el anestesiólogo verifique la lectura contra el informe.`;
+    campo.nota = campo.nota ? `${campo.nota} · ${aviso}` : aviso;
+  }
 }

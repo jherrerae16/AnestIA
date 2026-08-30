@@ -115,3 +115,22 @@ describe('pesoTallaImcText', () => {
     expect(pesoTallaImcText(70, 0, 25)).toBeNull();
   });
 });
+
+describe('enforceGuardrails — escalas', () => {
+  it('no borra las escalas al reconstruir el documento', () => {
+    // Regresión: `enforceGuardrails` arma el resultado clave por clave; al añadir `escalas` al
+    // contrato sin añadirla aquí, el documento salía siempre sin escalas.
+    const escala = {
+      escala: 'ARISCAT', nombre: 'ARISCAT — riesgo pulmonar', version: 'ARISCAT@1',
+      cortesVersion: null, estado: 'PENDIENTE' as const, puntaje: null, categoria: null,
+      variables: [], faltantes: ['SpO2 preoperatoria'], motivo: null,
+    };
+    const doc = {
+      identificacion: {}, antecedentes: {}, paraclinicos: {},
+      examen_fisico: {}, valoracion_plan: {}, escalas: [escala],
+    };
+    const out = enforceGuardrails(doc as never, { imc: null, pesoKg: null, tallaCm: null });
+    expect(out.escalas).toHaveLength(1);
+    expect(out.escalas?.[0]?.escala).toBe('ARISCAT');
+  });
+});
