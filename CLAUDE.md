@@ -267,5 +267,20 @@ cubierta por tests; el componente de Angular es un renderizador.
 
 Las cuatro fases de la especificación del Dr. Luquetta están completas.
 
+**Tests de `apps/web`.** El workspace pasó de cero a un recorrido completo del formulario del
+paciente, montado con TestBed sobre el diccionario real. Se usa el compilador JIT de Angular —
+todas las plantillas son cadenas en línea, así que no hace falta plugin de build.
+
+Lo que cubre y `packages/shared` no puede cubrir: que **cada tipo de pregunta renderice el
+control que le corresponde** en las 17 pantallas de la ruta adulta, que ninguna `PX` llegue al
+paciente, que un menor abra la ruta pediátrica y no la de fragilidad (y al revés en un mayor de
+65), y que una cirugía menor recorra menos pantallas que una mayor. Más los tres bugs que ya
+mordieron: el repetidor que mandaba la dosis a otra fila, el acordeón con "Ninguna" excluyente y
+`ARCHIVO` cayendo a un input de texto.
+
+El script de test de `apps/web` era `echo … && exit 0`: `npm test` pasaba en verde con cero
+tests. `workspaces.guard.test.ts` falla si alguno vuelve a "pasar" sin ejecutar nada.
+
 **Pendientes conocidos:** editor de cuestionarios propios; reconciliador de casos atascados;
-decisión sobre la exportación a Google Sheets; rotar la key (hoy en claro en `.env`).
+Manual Clínico sin firmar (las ocho escalas siguen `SIN_VALIDAR`); rotar la key cuando toque —
+procedimiento en `docs/secretos.md`.
