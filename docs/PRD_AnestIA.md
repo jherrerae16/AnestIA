@@ -767,7 +767,11 @@ Si algún punto falla, corrige antes de emitir. No entregues una salida que no c
 
 - Editor de cuestionarios propios (hoy sólo el preset base; el selector al crear caso ya existe).
 - Reconciliador de casos atascados si falla el `publish` a la cola (hoy se recupera a mano).
-- Decisión sobre la exportación opcional a Google Sheets (funciona, disparo manual; poco uso real).
+- ~~Decisión sobre la exportación opcional a Google Sheets~~ — **resuelta el 2026-08-30: se elimina.**
+  Nunca se configuró (el botón sólo devolvía "no está configurado"), Postgres es la fuente de
+  verdad y mantener una credencial de service account viva para una función que nadie usó es
+  superficie de riesgo sin contrapartida. Si el Dr. pide un listado, se hace un CSV local sin
+  sacar datos de pacientes a Google.
 - Rotar la `ANTHROPIC_API_KEY` (hoy en claro en `.env`, no versionada).
 
 ### Notas de dominio pendientes de validación del Dr. Luquetta

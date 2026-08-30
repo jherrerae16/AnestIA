@@ -139,9 +139,6 @@ export class ApiService {
     fd.append('file', file);
     return firstValueFrom(this.http.post<{ ok: boolean; url?: string }>(`/api/panel/profile/branding?kind=${kind}`, fd));
   }
-  exportSheets(): Promise<{ ok: boolean; url?: string; error?: string; count?: number }> {
-    return firstValueFrom(this.http.post<{ ok: boolean; url?: string; error?: string; count?: number }>('/api/panel/export/sheets', {}));
-  }
 
   // --- Calendario de cirugías ---
   calendar(view: 'month' | 'week', anchor: string): Promise<{ view: string; cases: CalendarCase[] }> {
