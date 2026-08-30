@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   evaluarTodas, evaluarSTOPBang, evaluarApfel, evaluarFRAIL, evaluarARISCAT,
   evaluarRCRI, evaluarCaprini, evaluarDASI, evaluarPOVOC, type ContextoEscalas,
@@ -349,5 +351,33 @@ describe('proyección al documento', () => {
     const s = aSnapshot({ ...fila, resueltoPor: null, resueltoAt: null });
     expect(s.resueltoPor).toBeNull();
     expect(s.resueltoAt).toBeNull();
+  });
+});
+
+describe('cortes — el estado de validación no se desincroniza de la documentación', () => {
+  /**
+   * `docs/escalas.md` y `docs/manual-clinico-decisiones.md` afirman que las ocho escalas están
+   * `SIN_VALIDAR`. En el momento en que el Dr. firme una y alguien cambie `cutpoints.ts`, esas
+   * dos frases pasan a ser falsas — y una documentación que miente sobre qué interpreta el
+   * sistema es peor que no tenerla. Este test obliga a actualizar la hoja de decisiones en el
+   * mismo cambio.
+   */
+  it('si alguna escala pasa a VALIDADO, la hoja de decisiones debe registrarlo', () => {
+    const sinValidar = escalasSinValidar();
+    const hoja = readFileSync(
+      join(__dirname, '../../../../docs/manual-clinico-decisiones.md'),
+      'utf8',
+    );
+    if (sinValidar.length === SCALE_KEYS.length) {
+      expect(hoja).toContain('Estado: **sin firmar**');
+      return;
+    }
+    // Ya hay al menos una firmada: la hoja no puede seguir diciendo que no hay ninguna.
+    expect(hoja).not.toContain('Estado: **sin firmar**');
+    for (const e of SCALE_KEYS.filter((k) => !sinValidar.includes(k))) {
+      expect(hoja, `${e} está VALIDADO pero la hoja no dice quién lo firmó`).toMatch(
+        new RegExp(`${e}[\\s\\S]{0,400}(firmad|aprobad)`, 'i'),
+      );
+    }
   });
 });

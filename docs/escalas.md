@@ -48,7 +48,9 @@ para destrabar el PDF, que es el modo de falla que CS3 existe para prevenir, inv
 
 ## Pendiente antes de producción
 
-Las ocho están **`SIN_VALIDAR`**. Falta que el Manual Clínico defina:
+Las ocho están **`SIN_VALIDAR`**. Las decisiones que faltan están recogidas, una por una y en
+forma de casillas, en **[`manual-clinico-decisiones.md`](manual-clinico-decisiones.md)** — esa es
+la hoja que el Dr. revisa y firma. En resumen, falta definir:
 
 1. **Caprini**: qué versión (2005, 2010 o 2013) aplica a cada especialidad. La Especificación
    advierte: *"No mezclar versiones ni duplicar un mismo factor"*. Hoy está sembrado 2005.
