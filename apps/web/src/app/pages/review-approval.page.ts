@@ -190,6 +190,22 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .lab-row.sev-pendiente { background:transparent; border-left-color:var(--border2); }
     .lab-row.sev-pendiente .lr-value { color:var(--muted); }
     .lr-unparsed { font-size:11px; color:var(--muted2); cursor:help; margin-left:3px; }
+    .lab-retenido { background:var(--sev-alerta-bg); border:1px solid var(--sev-alerta-line);
+      color:var(--sev-alerta); border-radius:8px; padding:9px 12px; font-size:12.5px; margin-bottom:8px; }
+    .lr-confirm { flex-shrink:0; font-size:11.5px; padding:4px 9px; border-radius:6px;
+      border:1px solid var(--border2); background:var(--card); color:var(--text); cursor:pointer; }
+    .lr-confirm:hover { border-color:var(--brand); color:var(--brand); }
+    .lr-confirm:disabled { opacity:.5; cursor:default; }
+    .lr-confirmado { flex-shrink:0; font-size:11px; color:var(--muted2); }
+    .est-head { margin:18px 0 8px; font-size:11px; font-weight:700; text-transform:uppercase;
+      letter-spacing:.07em; color:var(--muted); }
+    .est-row { display:flex; align-items:flex-start; gap:10px; padding:9px;
+      border:1px solid var(--border2); border-radius:8px; margin-bottom:6px; }
+    .est-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+    .est-titulo { font-weight:500; color:var(--text); font-size:13px; }
+    .est-fecha { font-weight:400; color:var(--muted2); }
+    .est-texto { font-size:12px; color:var(--muted); line-height:1.45; }
+
     /* Marca de verdicto manual del médico */
     .lr-manual { font-size:10px; color:var(--primary); background:var(--it-50); border-radius:100px; padding:1px 7px; white-space:nowrap; }
     .lr-review { font-size:10px; color:var(--sev-stale); background:var(--sev-stale-bg); border:1px solid var(--sev-stale-line); border-radius:100px; padding:1px 7px; white-space:nowrap; }
@@ -527,6 +543,19 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
               </div>
             }
 
+            @if (retenidos().length) {
+              <!--
+                Un resultado con confianza baja, sin unidad o con identidad dudosa no alimenta
+                escalas ni tendencias. Antes eso pasaba en silencio: el médico no sabía que
+                existía y no había forma de rescatarlo. Ahora se dice y se puede confirmar.
+              -->
+              <div class="lab-retenido" data-testid="labs-retenidos">
+                ⚠ {{ retenidos().length }} lectura{{ retenidos().length === 1 ? '' : 's' }} sin
+                confirmar. No alimentan escalas ni tendencias hasta que verifiques contra el
+                informe original.
+              </div>
+            }
+
             @for (l of sortedLabs(); track l.id) {
               <div class="lab-row" [class]="'lab-row sev-' + sevClass(l)" [attr.data-testid]="'lab-row'">
                 <div class="lr-main">
@@ -538,9 +567,20 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                   </span>
                   <span class="lr-meta">
                     {{ grupoLabel(l.grupo) }}@if (l.refRange) { · ref {{ l.refRange }} }
+                    @if (sinConfirmar(l)) { · {{ motivoRetencion(l) }} }
                   </span>
                 </div>
                 <span class="lr-value">{{ l.value }} {{ l.unit }}</span>
+                @if (sinConfirmar(l)) {
+                  <button class="lr-confirm" (click)="confirmar('lab', l.id, true)"
+                          [disabled]="confirmando() === l.id"
+                          title="Confirmo que el informe dice este valor"
+                          [attr.data-testid]="'confirmar-lab-' + l.id">Confirmar lectura</button>
+                } @else if (l.estadoExtraccion === 'CONFIRMADO') {
+                  <span class="lr-confirmado" title="Lectura verificada por ti contra el informe">
+                    lectura confirmada
+                  </span>
+                }
                 @if (needsVerdict(l)) {
                   @if (l.manualFlag) {
                     <span class="lr-manual" [title]="manualTitle(l)">tu veredicto</span>
@@ -558,6 +598,27 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
             }
           } @else {
             <div class="empty">Sin laboratorios cargados.</div>
+          }
+
+          @if (estudios().length) {
+            <!-- ECG y demás informes diagnósticos: se transcriben, no se interpretan, y no
+                 alimentan ninguna escala (§16). La lectura clínica es del anestesiólogo. -->
+            <div class="est-head">Otros estudios</div>
+            @for (e of estudios(); track e.id) {
+              <div class="est-row" [attr.data-testid]="'estudio-row'">
+                <div class="est-main">
+                  <span class="est-titulo">
+                    {{ e.titulo }}@if (e.fecha) { <span class="est-fecha"> · {{ formatFecha(e.fecha) }}</span> }
+                  </span>
+                  <span class="est-texto">{{ e.texto }}</span>
+                </div>
+                @if (e.estadoExtraccion === 'PENDIENTE_CONFIRMACION') {
+                  <button class="lr-confirm" (click)="confirmar('estudio', e.id, true)"
+                          [disabled]="confirmando() === e.id"
+                          [attr.data-testid]="'confirmar-estudio-' + e.id">Confirmar lectura</button>
+                }
+              </div>
+            }
           }
         </div>
         </div>
@@ -754,6 +815,10 @@ export class ReviewApprovalPage implements OnInit {
   approved = signal(false);
   fields = signal<any>({});
   labs = signal<any[]>([]);
+  /** Informes no-laboratorio (ECG, ecocardiograma, radiografía, espirometría). */
+  estudios = signal<any[]>([]);
+  /** Id de la lectura que se está confirmando, para no permitir dobles envíos. */
+  confirmando = signal<string | null>(null);
   check = signal<{ ok: boolean; blockers: string[] } | null>(null);
   editingKey = signal<string | null>(null);
   editValue = signal('');
@@ -998,6 +1063,45 @@ export class ReviewApprovalPage implements OnInit {
     return { total: labs.length, auto, manual, pendientes, resueltos: auto + manual };
   });
 
+  /** ¿Esta lectura está retenida por el extractor? */
+  sinConfirmar(l: any): boolean {
+    return l?.estadoExtraccion === 'PENDIENTE_CONFIRMACION';
+  }
+
+  /** Lecturas retenidas: no alimentan escalas ni tendencias hasta que el médico las confirme. */
+  retenidos = computed(() => [
+    ...this.labs().filter((l) => this.sinConfirmar(l)),
+    ...this.estudios().filter((e) => e.estadoExtraccion === 'PENDIENTE_CONFIRMACION'),
+  ]);
+
+  /**
+   * Por qué se retuvo. Decirlo cambia lo que el médico hace: una confianza baja se resuelve
+   * mirando el número en el PDF; una identidad discordante puede ser el examen de otra persona.
+   */
+  motivoRetencion(l: any): string {
+    if (l?.identityMatch === 'NO_COINCIDE') return 'el informe parece de otro paciente';
+    if (!l?.unit) return 'sin unidad en el informe';
+    if (typeof l?.confidence === 'number' && l.confidence < 0.7) {
+      return `lectura dudosa (${Math.round(l.confidence * 100)} %)`;
+    }
+    return 'sin archivo de procedencia';
+  }
+
+  /**
+   * Confirma una lectura contra el informe original. Es HITL sobre la EXTRACCIÓN, no sobre la
+   * clínica: el médico dice "sí, ahí dice 9.8", no "esto es normal". Al confirmar un laboratorio
+   * el servidor recalcula las escalas que lo esperaban, así que se recarga el caso.
+   */
+  async confirmar(tipo: 'lab' | 'estudio', id: string, confirmado: boolean) {
+    this.confirmando.set(id);
+    try {
+      await this.api.confirmarLectura(this.caseId, tipo, id, confirmado);
+      await this.reload();
+    } finally {
+      this.confirmando.set(null);
+    }
+  }
+
   /**
    * Marca (o deshace) el veredicto de un analito. Un tap marca; otro tap sobre el mismo botón
    * deshace. Actualiza el signal en vivo (sin recargar todo) para que la fila y el resumen
@@ -1027,6 +1131,7 @@ export class ReviewApprovalPage implements OnInit {
     const r = await this.api.getReview(this.caseId);
     this.fields.set(r.fields ?? {});
     this.labs.set(r.labs ?? []);
+    this.estudios.set(r.estudios ?? []);
     this.labGroups.set(r.labGroups ?? []);
     this.attachments.set(r.attachments ?? []);
     this.check.set(r.canApprove);

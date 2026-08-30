@@ -24,6 +24,7 @@ import {
   getText,
   NOMBRE_ESCALA,
   agruparEstudios,
+  normalizeGrupo,
   calcularTendencias,
   describirTendencia,
   soloMasReciente,
@@ -174,6 +175,7 @@ export async function regenerateParaclinicos(caseId: string, hoy: string): Promi
   // congelado del documento aprobado los perdería — y el PDF firmado diría menos que el borrador.
   anotarTendencias(out, await tendenciasDeCaso(caseId));
   Object.assign(out, await estudiosDeCaso(caseId));
+  await marcarSinConfirmar(caseId, out);
   return out;
 }
 
@@ -209,6 +211,7 @@ export async function generateForCase(caseId: string): Promise<void> {
   // extractor los descartaba enteros: era seguro —no inventaba nada— pero el dato no le llegaba
   // al médico. Se transcriben; no se interpretan y no alimentan escalas (§16).
   Object.assign(withParaclinicos.paraclinicos, await estudiosDeCaso(caseId));
+  await marcarSinConfirmar(caseId, withParaclinicos.paraclinicos);
 
   // Validación de contrato (rechaza malformado / campos prohibidos) — CS5.
   const parsed = documentSchema.parse(withParaclinicos);
@@ -368,4 +371,35 @@ async function estudiosDeCaso(caseId: string): Promise<Record<string, DocField>>
     };
   }
   return out;
+}
+
+/**
+ * Marca en el documento los grupos que contienen alguna lectura sin confirmar.
+ *
+ * El valor se muestra igual —perderlo sería peor— pero el documento tiene que decir que esa
+ * cifra no alimentó las escalas. Sin la marca, un puntaje `PENDIENTE` y un laboratorio visible
+ * en la misma página se contradicen sin explicación.
+ */
+async function marcarSinConfirmar(
+  caseId: string,
+  paraclinicos: Record<string, DocField>,
+): Promise<void> {
+  const dudosos = await prisma.extractedLabResult.findMany({
+    where: { caseId, estadoExtraccion: 'PENDIENTE_CONFIRMACION' },
+    select: { analyte: true, grupo: true },
+  });
+  if (dudosos.length === 0) return;
+
+  const porGrupo = new Map<string, string[]>();
+  for (const d of dudosos) {
+    const g = normalizeGrupo(d.grupo);
+    porGrupo.set(g, [...(porGrupo.get(g) ?? []), d.analyte]);
+  }
+
+  for (const [grupo, analitos] of porGrupo) {
+    const campo = paraclinicos[grupo];
+    if (!campo) continue;
+    const aviso = `Sin confirmar: ${[...new Set(analitos)].join(', ')} — no alimenta escalas hasta que el anestesiólogo verifique la lectura contra el informe.`;
+    campo.nota = campo.nota ? `${campo.nota} · ${aviso}` : aviso;
+  }
 }

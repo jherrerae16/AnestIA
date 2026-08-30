@@ -22,7 +22,13 @@
     }
   },
   "include": ["src/**/*.ts", "../../packages/shared/src/**/*.ts"],
-  "exclude": ["../../packages/shared/src/**/*.test.ts"],
+  // Los tests no entran al bundle de la aplicación: usan `vitest` y sus tipos, y compilarlos
+  // aquí rompe el build con errores que sólo existen en el arnés de pruebas.
+  "exclude": [
+    "../../packages/shared/src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/test-setup.ts"
+  ],
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
     "strictInjectionParameters": true,

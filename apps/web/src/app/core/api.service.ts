@@ -77,6 +77,18 @@ export class ApiService {
   setLabVerdict(caseId: string, labId: string, verdict: 'NORMAL' | 'ALERTA' | 'CRITICO' | null): Promise<{ manualFlag: string | null; effectiveFlag: string }> {
     return firstValueFrom(this.http.put<{ manualFlag: string | null; effectiveFlag: string }>(`/api/panel/cases/${caseId}/labs/${labId}/verdict`, { verdict }));
   }
+  /**
+   * Confirma (o vuelve a retener) una lectura que el extractor marcó dudosa. Distinto del
+   * veredicto clínico: aquí el médico dice que el valor leído es el que está impreso.
+   */
+  confirmarLectura(caseId: string, tipo: 'lab' | 'estudio', lecturaId: string, confirmado: boolean): Promise<{ estadoExtraccion: string }> {
+    return firstValueFrom(
+      this.http.put<{ estadoExtraccion: string }>(
+        `/api/panel/cases/${caseId}/lecturas/${tipo}/${lecturaId}/confirmar`,
+        { confirmado },
+      ),
+    );
+  }
   /** Re-corre el auditor determinístico sobre el borrador actual. Cero tokens. */
   reaudit(caseId: string): Promise<{ audit: { findings: { level: string; category: string; message: string }[] } | null }> {
     return firstValueFrom(this.http.post<{ audit: { findings: { level: string; category: string; message: string }[] } | null }>(`/api/panel/cases/${caseId}/reaudit`, {}));

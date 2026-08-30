@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { prisma } from '../prisma';
 import { getAIProvider, type FileRef } from '../ai';
 import { logAudit } from '../audit';
+import { computeScalesForCase } from './scales.service';
 import { logger } from '../logger';
 import { getStorageProvider } from '../storage';
 import { mimeFor } from '../mime';
@@ -557,4 +558,69 @@ async function registrarPaginas(
       );
     }
   }
+}
+
+/** Qué se confirma: un analito de laboratorio o un informe diagnóstico. */
+export type TipoLectura = 'lab' | 'estudio';
+
+/**
+ * Confirma (o vuelve a retener) una lectura que el extractor marcó dudosa.
+ *
+ * Cierra una puerta de una sola vía. Un resultado con confianza baja, sin unidad o con identidad
+ * no verificable queda en `PENDIENTE_CONFIRMACION` y **no alimenta escalas ni tendencias**, que
+ * es lo correcto — pero hasta ahora nada escribía nunca `CONFIRMADO`: el dato quedaba retenido
+ * para siempre, sin forma de rescatarlo y sin que el médico supiera que existía.
+ *
+ * Confirmar es un acto del anestesiólogo sobre el informe original, no una corrección del valor:
+ * él mira el PDF y dice "sí, ahí dice 9.8". Por eso queda en el audit log con su id, y por eso
+ * al confirmar un laboratorio se **recalculan las escalas** — el dato que faltaba ya está.
+ */
+export async function confirmarLectura(
+  anesthesiologistId: string,
+  caseId: string,
+  tipo: TipoLectura,
+  id: string,
+  confirmado: boolean,
+): Promise<{ estadoExtraccion: string }> {
+  const estado = confirmado ? 'CONFIRMADO' : 'PENDIENTE_CONFIRMACION';
+
+  if (tipo === 'lab') {
+    const lab = await prisma.extractedLabResult.findFirst({
+      where: { id, caseId, case: { anesthesiologistId } },
+    });
+    if (!lab) throw new LabNotFoundError();
+    await prisma.extractedLabResult.update({
+      where: { id: lab.id },
+      data: { estadoExtraccion: estado as never },
+    });
+    await logAudit({
+      actorId: anesthesiologistId,
+      action: confirmado ? 'lab.lectura_confirmada' : 'lab.lectura_retenida',
+      entity: 'ExtractedLabResult',
+      entityId: lab.id,
+      meta: { caseId, analyte: lab.analyte, value: lab.value, confidence: lab.confidence },
+    });
+  } else {
+    const est = await prisma.extractedStudy.findFirst({
+      where: { id, caseId, case: { anesthesiologistId } },
+    });
+    if (!est) throw new LabNotFoundError();
+    await prisma.extractedStudy.update({
+      where: { id: est.id },
+      data: { estadoExtraccion: estado as never },
+    });
+    await logAudit({
+      actorId: anesthesiologistId,
+      action: confirmado ? 'estudio.lectura_confirmada' : 'estudio.lectura_retenida',
+      entity: 'ExtractedStudy',
+      entityId: est.id,
+      meta: { caseId, tipo: est.tipo, confidence: est.confidence },
+    });
+  }
+
+  // Un laboratorio confirmado entra a las escalas que lo esperaban; uno retenido sale de ellas.
+  // Los estudios no alimentan ninguna (§16), así que no hay nada que recalcular.
+  if (tipo === 'lab') await computeScalesForCase(caseId);
+
+  return { estadoExtraccion: estado };
 }

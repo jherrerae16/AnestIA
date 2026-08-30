@@ -25,7 +25,10 @@ import {
   normalizeGrupo,
   faltantesDeAgenda,
   NOMBRE_ESCALA,
+  NOMBRE_ESTUDIO,
+  describirEstudio,
   type Branding,
+  type TipoEstudio,
   type DocumentJSON,
   type AuditReport,
 } from '@anestia/shared';
@@ -79,6 +82,7 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
       assessment: true,
       formResponse: true,
       labResults: true,
+      estudios: true,
       attachments: true,
       approval: true,
       patient: true,
@@ -135,6 +139,37 @@ export async function getReview(caseId: string, anesthesiologistId: string) {
       // true = el rango impreso no se pudo leer; la UI avisa "verifica manualmente".
       rangeUnparsed: l.rangeUnparsed,
       sourceRef: l.sourceRef,
+      // Procedencia y estado de la LECTURA, distinto del veredicto clínico. Sin estos tres, un
+      // resultado retenido por confianza baja era invisible: no alimentaba escalas y el médico
+      // no tenía cómo enterarse ni cómo confirmarlo.
+      estadoExtraccion: l.estadoExtraccion,
+      confidence: l.confidence,
+      identityMatch: l.identityMatch,
+      page: l.page,
+    })),
+    // Informes que no son de laboratorio (ECG, ecocardiograma, radiografía, espirometría). Se
+    // transcriben y no alimentan escalas (§16); el médico los lee e interpreta.
+    estudios: kase.estudios.map((e) => ({
+      id: e.id,
+      tipo: e.tipo,
+      titulo: e.tipoRaw?.trim() || NOMBRE_ESTUDIO[e.tipo as TipoEstudio] || e.tipo,
+      texto: describirEstudio({
+        tipo: e.tipo,
+        tipoRaw: e.tipoRaw,
+        ritmo: e.ritmo,
+        frecuencia: e.frecuencia,
+        intervalos: e.intervalos,
+        conclusion: e.conclusion,
+        hallazgos: e.hallazgos,
+        institucion: e.institucion,
+        collectedAt: e.collectedAt,
+        reportDate: e.reportDate,
+        sourceRef: e.sourceRef,
+      }),
+      fecha: (e.collectedAt ?? e.reportDate)?.toISOString().slice(0, 10) ?? null,
+      estadoExtraccion: e.estadoExtraccion,
+      confidence: e.confidence,
+      identityMatch: e.identityMatch,
     })),
     // Agrupado por estudio con fecha y vigencia ya resueltas: la regla de antigüedad vive
     // en shared (un solo sitio), no duplicada en el cliente.
