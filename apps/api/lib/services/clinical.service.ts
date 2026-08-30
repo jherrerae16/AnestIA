@@ -23,6 +23,10 @@ import {
   getClinicalText,
   getText,
   NOMBRE_ESCALA,
+  agruparEstudios,
+  calcularTendencias,
+  describirTendencia,
+  soloMasReciente,
 } from '@anestia/shared';
 
 /** Carga el system prompt (prompt-maestro-v2) desde docs/. */
@@ -109,7 +113,10 @@ function buildParaclinicos(
 ): Record<string, DocField> {
   if (provided && Object.keys(provided).length > 0) return provided;
   const out: Record<string, DocField> = {};
-  for (const g of groupLabsToProse(labs ?? [], hoy)) {
+  // Un analito con varios informes se lista una vez, con el más reciente (§16). Los anteriores
+  // siguen en la base y son los que sustentan la nota de evolución; repetirlos aquí se leería
+  // como dos analitos distintos en vez de una caída.
+  for (const g of groupLabsToProse(soloMasReciente(labs ?? []), hoy)) {
     out[g.grupo] = {
       valor: g.texto,
       estado: 'ok',
@@ -155,7 +162,7 @@ export async function regenerateParaclinicos(caseId: string, hoy: string): Promi
     }));
 
   const out: Record<string, DocField> = {};
-  for (const g of groupLabsToProse(groupable, hoy)) {
+  for (const g of groupLabsToProse(soloMasReciente(groupable), hoy)) {
     out[g.grupo] = {
       valor: g.texto,
       estado: 'ok',
@@ -163,6 +170,10 @@ export async function regenerateParaclinicos(caseId: string, hoy: string): Promi
       alerta: g.alerta,
     };
   }
+  // La evolución y los estudios se recalculan aquí también. Si sólo se anotaran al generar, el
+  // congelado del documento aprobado los perdería — y el PDF firmado diría menos que el borrador.
+  anotarTendencias(out, await tendenciasDeCaso(caseId));
+  Object.assign(out, await estudiosDeCaso(caseId));
   return out;
 }
 
@@ -188,6 +199,16 @@ export async function generateForCase(caseId: string): Promise<void> {
     paraclinicos: buildParaclinicos(input.labs, raw.paraclinicos, new Date().toISOString().slice(0, 10)),
     escalas: await buildEscalas(caseId),
   };
+
+  // Tendencia: si un analito tiene resultados sucesivos, el cambio se anota junto al valor. Una
+  // hemoglobina de 9.8 que viene de 13.9 en tres semanas es una historia distinta de una que
+  // lleva un año igual, y el documento sólo mostraba la última cifra (Especificación §16).
+  anotarTendencias(withParaclinicos.paraclinicos, await tendenciasDeCaso(caseId));
+
+  // Informes que no son de laboratorio (ECG, ecocardiograma, radiografía, espirometría). El
+  // extractor los descartaba enteros: era seguro —no inventaba nada— pero el dato no le llegaba
+  // al médico. Se transcriben; no se interpretan y no alimentan escalas (§16).
+  Object.assign(withParaclinicos.paraclinicos, await estudiosDeCaso(caseId));
 
   // Validación de contrato (rechaza malformado / campos prohibidos) — CS5.
   const parsed = documentSchema.parse(withParaclinicos);
@@ -283,4 +304,68 @@ export async function generateForCase(caseId: string): Promise<void> {
 async function buildEscalas(caseId: string) {
   const filas = await getScalesForCase(caseId);
   return aSnapshots(filas);
+}
+
+/** Tendencias de los analitos del caso con más de un resultado fechado. */
+async function tendenciasDeCaso(caseId: string) {
+  const filas = await prisma.extractedLabResult.findMany({
+    where: { caseId, estadoExtraccion: { not: 'PENDIENTE_CONFIRMACION' } },
+  });
+  return calcularTendencias(filas);
+}
+
+/**
+ * Anota la tendencia en la fila del estudio correspondiente.
+ *
+ * Se añade al texto existente en vez de sustituirlo: el valor actual con su rango sigue siendo
+ * lo primero que lee el anestesiólogo, y la evolución va detrás.
+ */
+function anotarTendencias(
+  paraclinicos: Record<string, DocField>,
+  tendencias: ReturnType<typeof calcularTendencias>,
+): void {
+  if (tendencias.length === 0) return;
+  const relevantes = tendencias.filter((t) => t.direccion !== 'estable');
+  if (relevantes.length === 0) return;
+
+  for (const campo of Object.values(paraclinicos)) {
+    if (campo?.valor == null) continue;
+    const propias = relevantes.filter((t) =>
+      campo.valor!.toLowerCase().includes(t.analito.toLowerCase()),
+    );
+    if (propias.length === 0) continue;
+
+    campo.nota = `Evolución — ${propias.map((t) => `${t.analito}: ${describirTendencia(t)}`).join(' · ')}`;
+    // El valor previo que cita la nota ya no aparece en la prosa; su informe se añade a la
+    // procedencia del campo para que la cifra siga siendo rastreable (CS2).
+    const previas = propias.map((t) => t.previoSourceRef).filter((r): r is string => !!r);
+    if (previas.length > 0) {
+      const fuente = typeof campo.fuente === 'string' ? campo.fuente : '';
+      const faltan = previas.filter((r) => !fuente.includes(r));
+      if (faltan.length > 0) campo.fuente = [fuente, ...faltan].filter(Boolean).join(', ');
+    }
+  }
+}
+
+/**
+ * Estudios no-laboratorio del caso, ya en prosa, listos para la banda de paraclínicos.
+ *
+ * Uno pendiente de confirmación se muestra **diciendo que lo está**: ocultarlo le esconde al
+ * médico un ECG que existe, y darlo por bueno le presenta como leído lo que el extractor no
+ * pudo leer bien.
+ */
+async function estudiosDeCaso(caseId: string): Promise<Record<string, DocField>> {
+  const filas = await prisma.extractedStudy.findMany({ where: { caseId } });
+  const out: Record<string, DocField> = {};
+  for (const g of agruparEstudios(filas)) {
+    out[g.clave] = {
+      valor: g.texto,
+      estado: 'ok',
+      fuente: g.fuentes.length ? g.fuentes.join(', ') : 'estudio',
+      ...(g.pendiente
+        ? { nota: 'Lectura pendiente de confirmación: verifique contra el informe original.' }
+        : {}),
+    };
+  }
+  return out;
 }

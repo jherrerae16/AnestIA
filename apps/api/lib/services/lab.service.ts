@@ -3,6 +3,9 @@ import { prisma } from '../prisma';
 import { getAIProvider, type FileRef } from '../ai';
 import { logAudit } from '../audit';
 import { logger } from '../logger';
+import { getStorageProvider } from '../storage';
+import { mimeFor } from '../mime';
+import { readPdfText } from '../ai/pdf-text';
 import {
   CODES,
   detectGLP1,
@@ -11,6 +14,7 @@ import {
   getClinicalText,
   getText,
   canonicalAnalyte,
+  canonicalEstudio,
   convertirUnidad,
   verificarIdentidad,
   normalizeGrupo,
@@ -46,6 +50,30 @@ const extractedLabSchema = z.object({
   pacienteNombre: z.string().nullish(),
   pacienteDocumento: z.string().nullish(),
   collectedAt: z.string().nullish(),
+});
+
+/**
+ * Borde de validación de los informes NO de laboratorio (§16). Mismo criterio que los labs: sin
+ * `sourceRef` no hay trazabilidad y no se persiste.
+ */
+const extractedEstudioSchema = z.object({
+  tipo: z.string().nullish(),
+  tipoRaw: z.string().nullish(),
+  ritmo: z.string().nullish(),
+  frecuencia: z.string().nullish(),
+  intervalos: z.string().nullish(),
+  conclusion: z.string().nullish(),
+  hallazgos: z.string().nullish(),
+  institucion: z.string().nullish(),
+  collectedAt: z.string().nullish(),
+  reportDate: z.string().nullish(),
+  page: z.number().int().positive().nullish(),
+  confidence: z.number().min(0).max(1).nullish(),
+  pacienteNombre: z.string().nullish(),
+  pacienteDocumento: z.string().nullish(),
+  extractionLayer: z.enum(['texto', 'vision']).nullish(),
+  attachmentId: z.string().nullish(),
+  sourceRef: z.string().min(1),
 });
 
 /**
@@ -208,6 +236,79 @@ async function persistLab(
 }
 
 /**
+ * Persiste un informe diagnóstico no-laboratorio. Devuelve 1 si persistió.
+ *
+ * Un estudio sin ningún contenido legible NO se guarda: una fila que sólo diga
+ * "Electrocardiograma" le sugiere al médico que se leyó algo cuando no se leyó nada.
+ *
+ * Estos datos **no alimentan escalas** (§16: "interpretación clínica; no autocalcular escalas").
+ * La garantía no está en esta función sino en CS9: `estudio:*` no está en la lista blanca de
+ * procedencias, y hay un test que lo comprueba.
+ */
+async function persistEstudio(
+  caseId: string,
+  candidate: unknown,
+  now: Date,
+  forceMethod?: 'texto' | 'vision',
+  identidadCaso?: { fullName: string; documentId: string } | null,
+): Promise<number> {
+  const parsed = extractedEstudioSchema.safeParse(candidate);
+  if (!parsed.success) {
+    logger.warn({ caseId, tipo: (candidate as { tipo?: string })?.tipo }, 'estudio_extract_discarded_untraceable');
+    return 0;
+  }
+  const e = parsed.data;
+
+  const contenido = [e.ritmo, e.frecuencia, e.intervalos, e.conclusion, e.hallazgos]
+    .map((v) => (v ?? '').trim())
+    .filter(Boolean);
+  if (contenido.length === 0) {
+    logger.warn({ caseId, tipo: e.tipo }, 'estudio_extract_sin_contenido');
+    return 0;
+  }
+
+  const identidad = identidadCaso
+    ? verificarIdentidad(identidadCaso, { nombre: e.pacienteNombre, documento: e.pacienteDocumento })
+    : { match: 'NO_VERIFICABLE' as const, motivo: 'El caso no tiene paciente vinculado todavía.' };
+
+  const confianza = e.confidence ?? null;
+  const dudoso =
+    (confianza != null && confianza < CONFIANZA_MINIMA) ||
+    e.attachmentId == null ||
+    identidad.match === 'NO_COINCIDE';
+
+  if (identidad.match === 'NO_COINCIDE') {
+    logger.warn({ caseId, tipo: e.tipo, motivo: identidad.motivo }, 'estudio_identidad_discordante');
+  }
+
+  await prisma.extractedStudy.create({
+    data: {
+      caseId,
+      attachmentId: e.attachmentId ?? null,
+      page: e.page ?? null,
+      // El tipo se canonicaliza por código a partir de lo impreso: lo que no se reconoce cae en
+      // OTRO conservando el nombre del informe, en vez de forzarlo a una categoría que no es.
+      tipo: canonicalEstudio(e.tipo ?? e.tipoRaw),
+      tipoRaw: e.tipoRaw ?? e.tipo ?? null,
+      ritmo: e.ritmo ?? null,
+      frecuencia: e.frecuencia ?? null,
+      intervalos: e.intervalos ?? null,
+      conclusion: e.conclusion ?? null,
+      hallazgos: e.hallazgos ?? null,
+      institucion: e.institucion ?? null,
+      collectedAt: parseReportDate(e.collectedAt, now),
+      reportDate: parseReportDate(e.reportDate, now),
+      confidence: confianza,
+      estadoExtraccion: dudoso ? 'PENDIENTE_CONFIRMACION' : 'AUTOMATICO',
+      identityMatch: identidad.match,
+      sourceRef: e.sourceRef,
+      extractionMethod: forceMethod ?? e.extractionLayer ?? 'vision',
+    },
+  });
+  return 1;
+}
+
+/**
  * lab.extract: extrae los labs de los adjuntos del caso (AIProvider) y persiste
  * ExtractedLabResult con sourceRef. Idempotente. NUNCA fabrica valores ausentes (CS2).
  *
@@ -221,8 +322,11 @@ async function persistLab(
  * También detecta GLP-1 declarado (P15) y lo registra en audit.
  */
 export async function extractForCase(caseId: string): Promise<void> {
-  const existing = await prisma.extractedLabResult.count({ where: { caseId } });
-  if (existing > 0) return; // idempotencia
+  const [existing, existingEstudios] = await Promise.all([
+    prisma.extractedLabResult.count({ where: { caseId } }),
+    prisma.extractedStudy.count({ where: { caseId } }),
+  ]);
+  if (existing > 0 || existingEstudios > 0) return; // idempotencia
 
   // Identidad del caso, para comprobar que cada informe sea de este paciente. Si el caso aún no
   // tiene paciente vinculado, la comprobación queda en NO_VERIFICABLE en vez de darse por buena.
@@ -242,6 +346,10 @@ export async function extractForCase(caseId: string): Promise<void> {
     filename: a.filename ?? a.url,
     attachmentId: a.id,
   }));
+
+  // Número de páginas de cada PDF. `unpdf` ya lo calcula al leer el texto y se descartaba; sirve
+  // para saber si la página que cita un resultado existe de verdad.
+  await registrarPaginas(attachments);
   const provider = getAIProvider();
   const mode = extractionMode();
   const now = new Date();
@@ -256,6 +364,8 @@ export async function extractForCase(caseId: string): Promise<void> {
 
     let persisted = 0;
     for (const c of visionRes.labs) persisted += await persistLab(caseId, c, now, 'vision', identidadCaso);
+    let estudios = 0;
+    for (const e of visionRes.estudios ?? []) estudios += await persistEstudio(caseId, e, now, 'vision', identidadCaso);
 
     const diff =
       'error' in capasRes
@@ -266,24 +376,26 @@ export async function extractForCase(caseId: string): Promise<void> {
       entity: 'Case',
       entityId: caseId,
       meta: {
-        vision: { labs: visionRes.labs.length, perFile: visionRes.perFile },
+        vision: { labs: visionRes.labs.length, estudios: visionRes.estudios?.length ?? 0, perFile: visionRes.perFile },
         capas: 'error' in capasRes ? { error: (capasRes as { error: string }).error } : { labs: capasRes.labs.length, perFile: capasRes.perFile },
         discrepancia: 'discrepancia' in diff ? diff.discrepancia : false,
         ...diff,
       },
     });
-    logger.info({ caseId, mode, persisted, discrepancia: 'discrepancia' in diff ? diff.discrepancia : 'error' }, 'lab_extract_compared');
+    logger.info({ caseId, mode, persisted, estudios, discrepancia: 'discrepancia' in diff ? diff.discrepancia : 'error' }, 'lab_extract_compared');
   } else {
     // 'capas' o 'vision'. Cada lab ya trae su capa de origen (extractionLayer), así que el
     // método persistido es fiel por analito, no una aproximación del caso.
     const res = await provider.extractLabs(files, mode);
     let persisted = 0;
     for (const c of res.labs) persisted += await persistLab(caseId, c, now, undefined, identidadCaso);
+    let estudios = 0;
+    for (const e of res.estudios ?? []) estudios += await persistEstudio(caseId, e, now, undefined, identidadCaso);
     await logAudit({
       action: 'extraction.done',
       entity: 'Case',
       entityId: caseId,
-      meta: { mode, persisted, perFile: res.perFile },
+      meta: { mode, persisted, estudios, perFile: res.perFile },
     });
   }
 
@@ -415,4 +527,34 @@ export async function setLabVerdict(
     },
   });
   return { manualFlag: verdict, effectiveFlag: verdict };
+}
+
+/**
+ * Guarda cuántas páginas tiene cada PDF adjunto.
+ *
+ * No es decorativo: un resultado dice de qué página salió, y sin saber cuántas tiene el
+ * documento no se puede detectar una cita imposible ("página 7" en un informe de 2 páginas).
+ * Falla en silencio por archivo: no poder contar las páginas de uno no puede impedir la
+ * extracción de los demás.
+ */
+async function registrarPaginas(
+  attachments: readonly { id: string; url: string; filename: string | null; pageCount: number | null }[],
+): Promise<void> {
+  const storage = getStorageProvider();
+  for (const a of attachments) {
+    if (a.pageCount != null) continue;
+    const nombre = a.filename ?? a.url;
+    if (mimeFor(nombre) !== 'application/pdf') continue;
+    try {
+      const res = await readPdfText(await storage.get(a.url), nombre);
+      if (res.totalPages != null) {
+        await prisma.attachment.update({ where: { id: a.id }, data: { pageCount: res.totalPages } });
+      }
+    } catch (err) {
+      logger.warn(
+        { attachmentId: a.id, err: err instanceof Error ? err.message : String(err) },
+        'pdf_pagecount_failed',
+      );
+    }
+  }
 }

@@ -78,9 +78,40 @@ export interface FileExtractionInfo {
   fallbackReason?: 'sin_texto' | 'ilegible' | 'no_parece_lab' | 'error';
 }
 
+/**
+ * Informe diagnóstico no-laboratorio leído de un adjunto (ECG, ecocardiograma, radiografía,
+ * espirometría). Especificación §16: se transcribe ritmo, frecuencia, intervalos y conclusión;
+ * la interpretación es clínica y NINGUNA escala se autocalcula con esto.
+ */
+export interface ExtractedEstudio {
+  /** Tipo canónico. El adaptador lo normaliza; el modelo puede devolver el nombre impreso. */
+  tipo?: string | null;
+  tipoRaw?: string | null;
+  ritmo?: string | null;
+  frecuencia?: string | null;
+  intervalos?: string | null;
+  conclusion?: string | null;
+  hallazgos?: string | null;
+  institucion?: string | null;
+  collectedAt?: string | null;
+  reportDate?: string | null;
+  page?: number | null;
+  confidence?: number | null;
+  pacienteNombre?: string | null;
+  pacienteDocumento?: string | null;
+  attachmentId?: string | null;
+  sourceRef?: string | null;
+  extractionLayer?: 'texto' | 'vision';
+}
+
 /** Resultado de extractLabs: los labs + cómo se resolvió cada archivo. */
 export interface ExtractLabsResult {
   labs: ExtractedLab[];
+  /**
+   * Informes no-laboratorio del mismo barrido. Van aparte de `labs` porque no son
+   * analito/valor/rango y porque no pueden alimentar escalas (§16).
+   */
+  estudios?: ExtractedEstudio[];
   perFile: FileExtractionInfo[];
 }
 

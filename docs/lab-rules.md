@@ -84,3 +84,39 @@ El valor y la unidad originales se conservan **siempre**, incluso cuando sí se 
 Las reglas se escriben con el nombre **canónico** del analito (el que devuelve `canonicalAnalyte`:
 "Glucemia", no "Glucosa"). Un nombre coloquial no coincide nunca y la conversión se perdería sin
 error visible; hay un test que lo comprueba.
+
+
+## Tendencia entre informes sucesivos (§16)
+
+Cada resultado se conserva con su fecha; la prosa del documento lista **sólo el más reciente** de
+cada analito y añade una nota de evolución con el anterior:
+
+> Hemoglobina 9.8 g/dL. Dentro de los rangos reportados.
+> *Evolución — Hemoglobina: 13.9 → 9.8 g/dL en 21 días (-29.5 %)*
+
+Reglas:
+
+- Manda la **fecha de toma** (`collectedAt`) sobre la de emisión (`reportDate`).
+- Un cambio menor al **5 %** se considera estable y no genera nota: por debajo de eso suele ser
+  ruido de método entre laboratorios, y marcarlo añade alarma sin información.
+- Un analito con un solo resultado no produce tendencia.
+- Si a algún resultado de un analito le falta la fecha, se listan **todos** los suyos: sin fecha
+  no hay forma de saber cuál es el último.
+- El informe del valor previo se añade a la `fuente` del campo: la nota cita una cifra que ya no
+  aparece en la prosa y tiene que seguir siendo rastreable (CS2).
+
+## Informes que no son de laboratorio (§16)
+
+ECG, ecocardiograma, radiografía de tórax y espirometría se guardan en `ExtractedStudy`, no en
+`ExtractedLabResult`. Del ECG se transcriben **ritmo, frecuencia, intervalos y conclusión**; de
+los demás, la conclusión y los hallazgos que el informe separe.
+
+- **Se transcribe, no se interpreta.** El sistema no decide si un estudio es normal ni traduce un
+  hallazgo a un diagnóstico. Eso lo firma el anestesiólogo.
+- **No alimentan escalas.** `estudio:*` no está en la lista blanca de CS9, y hay un test que lo
+  comprueba: un RCRI no se puntúa porque un ECG mencione ondas Q.
+- Confianza baja, sin archivo de procedencia o identidad discordante → `PENDIENTE_CONFIRMACION`.
+  El estudio **se muestra igual**, diciendo que la lectura está sin confirmar: ocultarlo le
+  escondería al médico un informe que existe.
+- Un estudio sin ningún campo legible no se guarda: una fila que sólo diga "Electrocardiograma"
+  sugiere que se leyó algo.

@@ -18,6 +18,8 @@ export interface PdfTextResult {
   text: string;
   /** Motivo cuando usable=false, para el audit log (no se adivina en silencio). */
   reason?: 'sin_texto' | 'ilegible' | 'no_parece_lab' | 'error';
+  /** Páginas del documento. `unpdf` ya lo calcula; se descartaba. */
+  totalPages?: number | null;
 }
 
 /**
@@ -69,14 +71,14 @@ export function looksLikeLabText(text: string): { usable: boolean; reason?: PdfT
 export async function readPdfText(bytes: Buffer, label: string): Promise<PdfTextResult> {
   try {
     const pdf = await getDocumentProxy(new Uint8Array(bytes));
-    const { text } = await extractText(pdf, { mergePages: true });
+    const { text, totalPages } = await extractText(pdf, { mergePages: true });
     const cleaned = clean(String(text ?? ''));
     const verdict = looksLikeLabText(cleaned);
     if (!verdict.usable) {
       logger.info({ label, chars: cleaned.length, reason: verdict.reason }, 'pdf_text_not_usable');
-      return { usable: false, text: '', reason: verdict.reason };
+      return { usable: false, text: '', reason: verdict.reason, totalPages };
     }
-    return { usable: true, text: cleaned };
+    return { usable: true, text: cleaned, totalPages };
   } catch (err) {
     logger.warn({ label, err: err instanceof Error ? err.message : String(err) }, 'pdf_text_read_error');
     return { usable: false, text: '', reason: 'error' };

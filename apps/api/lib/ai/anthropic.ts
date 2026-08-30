@@ -6,6 +6,7 @@ import {
   documentSchema,
   LAB_GRUPOS,
   QUESTION_DICTIONARY,
+  TIPOS_ESTUDIO,
   type DocumentJSON,
 } from '@anestia/shared';
 import { logger } from '../logger';
@@ -15,6 +16,7 @@ import { getStorageProvider } from '../storage';
 import type {
   AIProvider,
   ClinicalInput,
+  ExtractedEstudio,
   ExtractedLab,
   ExtractionMethod,
   ExtractLabsResult,
@@ -146,8 +148,35 @@ const extractionJsonSchema = {
         additionalProperties: false,
       },
     },
+    estudios: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          tipo: { type: 'string', enum: [...TIPOS_ESTUDIO] },
+          tipoRaw: { type: 'string' },
+          // Los cuatro campos que la Especificación §16 nombra para el ECG. Cadena vacía si el
+          // informe no los trae (evita uniones nullable).
+          ritmo: { type: 'string' },
+          frecuencia: { type: 'string' },
+          intervalos: { type: 'string' },
+          conclusion: { type: 'string' },
+          hallazgos: { type: 'string' },
+          institucion: { type: 'string' },
+          collectedAt: { type: 'string' },
+          reportDate: { type: 'string' },
+          page: { type: 'integer' },
+          confidence: { type: 'number' },
+          pacienteNombre: { type: 'string' },
+          pacienteDocumento: { type: 'string' },
+          sourceRef: { type: 'string' },
+        },
+        required: ['tipo', 'conclusion', 'sourceRef', 'page', 'confidence'],
+        additionalProperties: false,
+      },
+    },
   },
-  required: ['labs'],
+  required: ['labs', 'estudios'],
   additionalProperties: false,
 } as const;
 
@@ -172,6 +201,31 @@ const extractionSchema = z.object({
       collectedAt: z.string().nullish(),
     }),
   ),
+  /**
+   * Informes no-laboratorio (§16). Opcional en el borde: un modelo que devuelva sólo `labs` no
+   * debe tumbar la extracción entera — el resultado es que no hay estudios, que es lo cierto.
+   */
+  estudios: z
+    .array(
+      z.object({
+        tipo: z.string().nullish(),
+        tipoRaw: z.string().nullish(),
+        ritmo: z.string().nullish(),
+        frecuencia: z.string().nullish(),
+        intervalos: z.string().nullish(),
+        conclusion: z.string().nullish(),
+        hallazgos: z.string().nullish(),
+        institucion: z.string().nullish(),
+        collectedAt: z.string().nullish(),
+        reportDate: z.string().nullish(),
+        page: z.number().int().positive().nullish(),
+        confidence: z.number().min(0).max(1).nullish(),
+        pacienteNombre: z.string().nullish(),
+        pacienteDocumento: z.string().nullish(),
+        sourceRef: z.string().min(1),
+      }),
+    )
+    .nullish(),
 });
 
 /**
@@ -252,8 +306,18 @@ PROCEDENCIA (obligatoria en cada valor):
 - "collectedAt": fecha de TOMA de la muestra en formato AAAA-MM-DD, si el informe la distingue
   de la fecha de emisión. Si sólo hay una fecha, deja este campo vacío.
 
-Extrae los analitos de laboratorio con su valor, unidad y rango de referencia si aparecen.
-Si el documento no es un laboratorio (p. ej. un ECG o un ecocardiograma), devuelve una lista vacía.
+Extrae los analitos de laboratorio con su valor, unidad y rango de referencia si aparecen, en "labs".
+
+INFORMES QUE NO SON DE LABORATORIO ("estudios"):
+- Un ECG, un ecocardiograma, una radiografía de tórax o una espirometría NO van en "labs": van en
+  "estudios", que es una lista aparte.
+- De un ECG transcribe "ritmo", "frecuencia", "intervalos" y "conclusion" tal como los diga el
+  informe. De los demás estudios basta "conclusion" y, si el informe los separa, "hallazgos".
+- TRANSCRIBE, NO INTERPRETES. No decidas si el estudio es normal, no traduzcas un hallazgo a un
+  diagnóstico y no saques conclusiones que el informe no escriba. La lectura clínica la hace el
+  anestesiólogo; tu trabajo es que le llegue el texto, no un juicio.
+- "tipoRaw": el nombre del estudio tal como está impreso ("EKG de 12 derivaciones").
+- Si el documento no es ni laboratorio ni un estudio legible, devuelve ambas listas vacías.
 
 TIPO DE ESTUDIO (campo "grupo"):
 - Asigna cada analito al estudio bajo el cual aparece en el informe, usando los encabezados
@@ -290,17 +354,19 @@ export class AnthropicAIProvider implements AIProvider {
    * Un documento ilegible produce lista vacía — nunca valores inventados (CS2).
    */
   async extractLabs(files: FileRef[], method: ExtractionMethod = 'capas'): Promise<ExtractLabsResult> {
-    if (!files || files.length === 0) return { labs: [], perFile: [] };
+    if (!files || files.length === 0) return { labs: [], estudios: [], perFile: [] };
 
     if (method === 'vision') {
       // Un archivo por llamada: con varios juntos no se sabe de cuál salió cada valor, y sin eso
       // no hay procedencia que persistir (Especificación §15).
       const labs: ExtractedLab[] = [];
+      const estudios: ExtractedEstudio[] = [];
       for (const f of files) {
         const raw = await this.extractByVision([f]);
-        labs.push(...raw.map((l) => ({ ...l, extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null })));
+        labs.push(...raw.labs.map((l) => ({ ...l, extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null })));
+        estudios.push(...raw.estudios.map((e) => ({ ...e, extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null })));
       }
-      return { labs, perFile: files.map((f) => ({ file: f.filename, layer: 'vision' })) };
+      return { labs, estudios, perFile: files.map((f) => ({ file: f.filename, layer: 'vision' })) };
     }
 
     // Modo capas: decidir capa archivo por archivo.
@@ -324,35 +390,31 @@ export class AnthropicAIProvider implements AIProvider {
     }
 
     const labs: ExtractedLab[] = [];
+    const estudios: ExtractedEstudio[] = [];
     // Capa 3: los archivos con texto usable, extraídos por Haiku (uno por archivo para no
     // mezclar sourceRef entre informes distintos). Cada lab lleva su método de origen.
     for (const f of textFiles) {
       const t = await readPdfText(await storage.get(f.key), f.filename);
       const fromText = await this.extractFromText(t.text, f.filename);
-      labs.push(
-        ...fromText.map((l) => ({
-          ...l,
-          extractionLayer: 'texto' as const,
-          attachmentId: f.attachmentId ?? null,
-        })),
-      );
+      const marca = { extractionLayer: 'texto' as const, attachmentId: f.attachmentId ?? null };
+      labs.push(...fromText.labs.map((l) => ({ ...l, ...marca })));
+      estudios.push(...fromText.estudios.map((e) => ({ ...e, ...marca })));
     }
     // Capa 4: fallback a visión, también archivo por archivo, para conservar la procedencia.
     for (const f of visionFiles) {
       const byVision = await this.extractByVision([f]);
-      labs.push(
-        ...byVision.map((l) => ({
-          ...l,
-          extractionLayer: 'vision' as const,
-          attachmentId: f.attachmentId ?? null,
-        })),
-      );
+      const marca = { extractionLayer: 'vision' as const, attachmentId: f.attachmentId ?? null };
+      labs.push(...byVision.labs.map((l) => ({ ...l, ...marca })));
+      estudios.push(...byVision.estudios.map((e) => ({ ...e, ...marca })));
     }
-    return { labs, perFile };
+    return { labs, estudios, perFile };
   }
 
   /** Capa 3 — extracción a JSON con Haiku sobre el TEXTO ya extraído (cero imagen). */
-  private async extractFromText(text: string, label: string): Promise<ExtractedLab[]> {
+  private async extractFromText(
+    text: string,
+    label: string,
+  ): Promise<{ labs: ExtractedLab[]; estudios: ExtractedEstudio[] }> {
     // Sin thinking: Haiku 4.5 no soporta adaptive thinking, y transcribir una tabla ya en
     // texto plano a JSON no lo necesita — es lectura estructurada, no razonamiento.
     const stream = this.client.messages.stream({
@@ -360,21 +422,26 @@ export class AnthropicAIProvider implements AIProvider {
       max_tokens: EXTRACTION_MAX_TOKENS,
       system: EXTRACTION_SYSTEM,
       output_config: { format: { type: 'json_schema', schema: extractionJsonSchema as never } },
-      messages: [{ role: 'user', content: `Extrae los laboratorios de este informe:\n\n${text}` }],
+      messages: [
+        { role: 'user', content: `Extrae los laboratorios y los estudios de este informe:\n\n${text}` },
+      ],
     });
     const response = await stream.finalMessage();
     this.guardResponse(response, `texto:${label}`);
     const parsed = extractionSchema.parse(parseJson(firstText(response)));
     logger.info(
       { label, layer: 'texto', model: TEXT_EXTRACTION_MODEL_ID, labs: parsed.labs.length,
+        estudios: parsed.estudios?.length ?? 0,
         inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
       'anthropic_extract_done',
     );
-    return parsed.labs;
+    return { labs: parsed.labs, estudios: parsed.estudios ?? [] };
   }
 
   /** Capa 4 — extracción por visión sobre los archivos (PDF como documento, imagen como imagen). */
-  private async extractByVision(files: FileRef[]): Promise<ExtractedLab[]> {
+  private async extractByVision(
+    files: FileRef[],
+  ): Promise<{ labs: ExtractedLab[]; estudios: ExtractedEstudio[] }> {
     const storage = getStorageProvider();
     const content: Anthropic.ContentBlockParam[] = [];
     for (const f of files) {
@@ -390,8 +457,8 @@ export class AnthropicAIProvider implements AIProvider {
         content.push({ type: 'image', source: { type: 'base64', media_type: mime as 'image/png', data } });
       }
     }
-    if (content.length === 0) return [];
-    content.push({ type: 'text', text: 'Extrae los laboratorios de estos documentos.' });
+    if (content.length === 0) return { labs: [], estudios: [] };
+    content.push({ type: 'text', text: 'Extrae los laboratorios y los estudios de estos documentos.' });
 
     // Streaming + max_tokens alto: por encima de ~16k una petición no-streaming se cae por
     // timeout HTTP del SDK, y con poco margen el JSON se corta a medias (CS2).
@@ -408,10 +475,11 @@ export class AnthropicAIProvider implements AIProvider {
     const parsed = extractionSchema.parse(parseJson(firstText(response)));
     logger.info(
       { files: files.length, layer: 'vision', model: VISION_EXTRACTION_MODEL_ID, labs: parsed.labs.length,
+        estudios: parsed.estudios?.length ?? 0,
         inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens },
       'anthropic_extract_done',
     );
-    return parsed.labs;
+    return { labs: parsed.labs, estudios: parsed.estudios ?? [] };
   }
 
   /** Rechazo o truncamiento: se falla explícito. Un JSON a medias no se parsea (CS2). */

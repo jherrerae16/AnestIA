@@ -145,6 +145,7 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .edit-actions { display:flex; gap:8px; }
     .field.derivado { border-left:3px solid var(--gold); padding-left:9px; margin-left:-9px; }
     .v.alerta { color:var(--red-text); font-weight:700; }
+    .field-nota { display:block; font-size:11.5px; color:var(--muted); font-style:italic; margin-top:3px; }
     .v.pending { color:var(--amber-text); font-weight:600; }
     .lab-flag { font-family:var(--font-mono); font-size:11px; }
     /* #2 capacidad funcional: hint de UX en pantalla (NO va al PDF). */
@@ -493,6 +494,9 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                       @else { — }
                       <span class="edit-pencil">✎</span>
                     </span>
+                    <!-- Evolución entre informes sucesivos y avisos de lectura sin confirmar.
+                         Se calculaban y no se mostraban en ningún lado. -->
+                    @if (f.v?.nota) { <span class="field-nota">{{ f.v.nota }}</span> }
                   }
                 </div>
               }

@@ -1,5 +1,6 @@
 import type { DocumentJSON, DocField, ScaleSnapshot } from './document';
 import { grupoLabel, isLabGrupo } from './lab-groups';
+import { CLAVE_ESTUDIO, NOMBRE_ESTUDIO, type TipoEstudio } from './estudios';
 
 export interface Branding {
   logoUrl?: string | null;
@@ -148,14 +149,24 @@ export function buildDocumentHtml(doc: DocumentJSON, branding: Branding, opts: B
   const ant = doc.antecedentes ?? {};
   const vp = doc.valoracion_plan ?? {};
 
+  // Etiqueta de un informe no-laboratorio. Sin esto, "radiografia_torax" se imprimiría sin
+  // tilde en un documento firmado.
+  const etiquetaEstudio = (clave: string): string | null => {
+    const tipo = (Object.keys(CLAVE_ESTUDIO) as TipoEstudio[]).find((t) => CLAVE_ESTUDIO[t] === clave);
+    return tipo ? NOMBRE_ESTUDIO[tipo] : null;
+  };
+
   // Paraclínicos: una fila por tipo de estudio. Las claves ya vienen agrupadas desde el
   // motor (clinical.service); las de documentos antiguos (una clave por analito) siguen
   // renderizando con su propio nombre.
   const paraclinicos = Object.entries(doc.paraclinicos ?? {})
     .map(([k, f], i) => {
       const shade = i % 2 === 1 ? ' class="alt"' : '';
-      const label = isLabGrupo(k) ? grupoLabel(k) : sentenceCase(k.replace(/_/g, ' '));
-      return `<tr${shade}><th class="estudio">${escapeHtml(label)}</th><td${alertClass(f, draft)}>${fieldVal(f)}</td></tr>`;
+      const label = isLabGrupo(k) ? grupoLabel(k) : (etiquetaEstudio(k) ?? sentenceCase(k.replace(/_/g, ' ')));
+      // La nota va bajo el valor: es donde viven la evolución entre informes sucesivos (§16) y
+      // el aviso de una lectura sin confirmar. Sin esto se calculaban y se perdían en el render.
+      const nota = f?.nota ? `<div class="nota">${escapeHtml(f.nota)}</div>` : '';
+      return `<tr${shade}><th class="estudio">${escapeHtml(label)}</th><td${alertClass(f, draft)}>${fieldVal(f)}${nota}</td></tr>`;
     })
     .join('') || '<tr><td colspan="2">No se cargaron paraclínicos.</td></tr>';
 

@@ -262,6 +262,7 @@ model Case {
   formResponse   FormResponse?
   attachments    Attachment[]
   labResults     ExtractedLabResult[]
+  estudios       ExtractedStudy[]
   assessment     GeneratedAssessment?
   approval       ApprovalRecord?
   deliveries     DeliveryRecord[]
@@ -295,7 +296,57 @@ model Attachment {
   sizeBytes Int?
   pageCount Int?
   labResults ExtractedLabResult[]
+  estudios   ExtractedStudy[]
   createdAt DateTime @default(now())
+}
+
+/// Informe diagnóstico que NO es de laboratorio: electrocardiograma, ecocardiograma, radiografía,
+/// espirometría. La Especificación §16 pide "ritmo, frecuencia, intervalos y conclusión; otros
+/// informes diagnósticos" con "interpretación clínica; no autocalcular escalas".
+///
+/// Va en su propia tabla y no en `ExtractedLabResult` porque no es analito/valor/rango: es un
+/// informe con conclusión en prosa. Meterlo ahí lo dejaría a un `findMany` de distancia de
+/// alimentar una escala, y la spec lo prohíbe explícitamente.
+model ExtractedStudy {
+  id     String @id @default(cuid())
+  case   Case   @relation(fields: [caseId], references: [id])
+  caseId String
+
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id])
+  attachmentId String?
+  /// Página del documento donde se leyó (1-based).
+  page         Int?
+
+  tipo    TipoEstudio
+  /// Nombre del estudio tal como está impreso ("EKG de 12 derivaciones").
+  tipoRaw String?
+
+  /// Campos que la Especificación §16 nombra uno por uno para el ECG. Cada uno es texto: son lo
+  /// que dice el informe, no una medición que el sistema pueda interpretar.
+  ritmo       String?
+  frecuencia  String?
+  intervalos  String?
+  /// La conclusión del informe, transcrita. Es lo único que el médico lee de un vistazo.
+  conclusion  String?
+  /// Hallazgos adicionales transcritos, cuando el informe los separa de la conclusión.
+  hallazgos   String?
+
+  institucion String?
+  /// Fecha de realización del estudio, distinta de la de emisión del informe.
+  collectedAt DateTime?
+  reportDate  DateTime?
+
+  confidence       Float?
+  estadoExtraccion EstadoExtraccion @default(AUTOMATICO)
+  identityMatch    IdentityMatch    @default(NO_VERIFICABLE)
+
+  /// Trazabilidad al informe original (CS2). Sin esto el estudio se descarta.
+  sourceRef        String
+  extractionMethod String?
+
+  createdAt DateTime @default(now())
+
+  @@index([caseId])
 }
 
 /// Valor de laboratorio extraído (NUNCA fabricado). Guarda la referencia a la fuente.
@@ -583,6 +634,16 @@ enum AttachmentType {
 }
 
 /// Estado de una extracción de laboratorio (Especificación §15).
+/// Tipo de informe diagnóstico no-laboratorio. Cerrado a propósito: `OTRO` conserva el nombre
+/// impreso en `tipoRaw` en vez de inventar una categoría.
+enum TipoEstudio {
+  ECG
+  ECOCARDIOGRAMA
+  RADIOGRAFIA_TORAX
+  ESPIROMETRIA
+  OTRO
+}
+
 enum EstadoExtraccion {
   AUTOMATICO
   PENDIENTE_CONFIRMACION

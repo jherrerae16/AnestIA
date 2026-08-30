@@ -250,6 +250,21 @@ cubierta por tests; el componente de Angular es un renderizador.
 - **`diffPresetVsDiccionario` comparaba cadenas** y Postgres reordena las claves de JSONB, así
   que avisaba siempre. Ahora compara estructuras.
 
+**Paraclínicos §16 — evolución y estudios no-laboratorio:**
+
+- **Tendencia entre informes sucesivos.** Cada analito se lista una vez, con el resultado más
+  reciente, y una nota de evolución debajo: *"13.9 → 9.8 g/dL en 21 días (-29.5 %)"*. Antes se
+  listaban todos los informes seguidos, que se lee como dos analitos distintos en vez de una
+  caída. El informe del valor previo se añade a la `fuente`, porque la nota cita una cifra que
+  ya no aparece en la prosa.
+- **ECG y demás informes diagnósticos** (`ExtractedStudy`): ritmo, frecuencia, intervalos y
+  conclusión transcritos. El extractor los descartaba enteros — seguro, pero el dato no le
+  llegaba al médico. Se transcriben, no se interpretan, y **no alimentan escalas**: `estudio:*`
+  no está en la lista blanca de CS9 y un test lo comprueba.
+- **La `nota` de un campo ya se renderiza.** Se calculaba y se perdía: no estaba ni en el PDF ni
+  en la pantalla de revisión.
+- **`Attachment.pageCount`** poblado desde `unpdf`, que ya lo calculaba y se descartaba.
+
 Las cuatro fases de la especificación del Dr. Luquetta están completas.
 
 **Pendientes conocidos:** editor de cuestionarios propios; reconciliador de casos atascados;
