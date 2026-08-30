@@ -17,7 +17,8 @@
     "seed": "tsx prisma/seed.ts",
     "worker": "npm run worker --workspace apps/api",
     "test": "npm run test --workspaces --if-present",
-    "test:api": "npm run test --workspace apps/api"
+    "test:api": "npm run test --workspace apps/api",
+    "anestesiologo": "tsx prisma/crear-anestesiologo.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

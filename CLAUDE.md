@@ -295,6 +295,12 @@ propias son informativas, se muestran a todos, van al final y **nunca alimentan 
 garantía no es disciplina: el servicio sólo lee y escribe filas `origen = PROPIA`, y
 `diffPresetVsDiccionario` las ignora para no gritar en cada arranque.
 
+**Decisiones del piloto** (2026-08-30, detalle en `docs/decisiones-piloto.md`): sigue todo local
+hasta que el Dr. valide; firma visual ahora y certificada como requisito de salida a producción;
+envío del enlace manual por su WhatsApp; y alta manual de anestesiólogos —
+`npm run anestesiologo -- --email … --nombre …`, que crea el perfil **y** su cuestionario, porque
+un perfil sin preset no puede crear casos y la falla aparecería mucho después.
+
 **Pendientes conocidos:** Manual Clínico sin firmar (las ocho escalas siguen `SIN_VALIDAR` —
 hoja de decisiones en `docs/manual-clinico-decisiones.md`); rotar la key cuando corresponda
 (`docs/secretos.md`).
