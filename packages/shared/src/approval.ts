@@ -51,7 +51,10 @@ export function canApprove(fields: DocumentJSON): ApprovalCheck {
   // invertido. Lo que sí bloquea es una REVISION_CLINICA sin resolver: ese estado significa que
   // el motor determinístico encontró una contradicción, y una contradicción hay que reconocerla.
   for (const e of fields.escalas ?? []) {
-    if (e.estado === 'REVISION_CLINICA') {
+    // Una revisión clínica YA RESUELTA no bloquea: el anestesiólogo la miró y asumió la
+    // decisión, que queda con su nombre y fecha. Bloquear igual sería dejar el caso trabado
+    // sin salida.
+    if (e.estado === 'REVISION_CLINICA' && !e.resueltoAt) {
       blockers.push(
         `${e.nombre} quedó en revisión clínica: ${e.motivo ?? 'discordancia detectada'}. ` +
           `Resuélvela antes de aprobar.`,

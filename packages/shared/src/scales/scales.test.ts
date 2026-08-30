@@ -6,7 +6,7 @@ import {
 } from './evaluadores';
 import { CORTES, categoriaDe, escalasSinValidar } from './cutpoints';
 import { fuenteAdmisible, violaCS9 } from './resolve';
-import { SCALE_KEYS, type ScaleResult } from './types';
+import { SCALE_KEYS, aSnapshot, aSnapshots, type ScaleResult } from './types';
 import { buildFacts } from '../facts';
 import { scheduleToFacts } from '../schedule';
 import { CODES, CODIGOS_DASI } from '../dictionary/codes';
@@ -309,5 +309,45 @@ describe('POVOC — cirugía de estrabismo', () => {
   it('queda pendiente si no se conoce el procedimiento', () => {
     const r = evaluarPOVOC({ ...ctxPed(''), procedimiento: null });
     expect(r.estado).toBe('PENDIENTE');
+  });
+});
+
+describe('proyección al documento', () => {
+  const fila = {
+    escala: 'ARISCAT', version: 'ARISCAT@1', cortesVersion: null,
+    estado: 'REVISION_CLINICA', puntaje: null, categoria: null, variables: [],
+    faltantes: [], motivo: 'Discordancia.', resueltoPor: 'anest-1',
+    resueltoAt: new Date('2026-08-30T10:00:00.000Z'),
+  };
+
+  it('conserva la resolución de una revisión clínica', () => {
+    // Estaba duplicada en el motor clínico y en la revisión, y se separaron: uno incluía la
+    // resolución y el otro no, así que la escala seguía bloqueando aunque el médico la hubiera
+    // resuelto. Una sola función para los dos.
+    const s = aSnapshot(fila);
+    expect(s.resueltoPor).toBe('anest-1');
+    expect(s.resueltoAt).toBe('2026-08-30T10:00:00.000Z');
+  });
+
+  it('traduce el nombre de la escala', () => {
+    expect(aSnapshot(fila).nombre).toBe('ARISCAT — riesgo pulmonar');
+  });
+
+  it('acepta la fecha ya serializada', () => {
+    expect(aSnapshot({ ...fila, resueltoAt: '2026-08-30T10:00:00.000Z' }).resueltoAt)
+      .toBe('2026-08-30T10:00:00.000Z');
+  });
+
+  it('omite del documento las escalas no indicadas, pero no las demás', () => {
+    const filas = [fila, { ...fila, escala: 'POVOC', estado: 'NO_INDICADA' }];
+    const out = aSnapshots(filas);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.escala).toBe('ARISCAT');
+  });
+
+  it('sin resolución deja los campos en null, no undefined', () => {
+    const s = aSnapshot({ ...fila, resueltoPor: null, resueltoAt: null });
+    expect(s.resueltoPor).toBeNull();
+    expect(s.resueltoAt).toBeNull();
   });
 });

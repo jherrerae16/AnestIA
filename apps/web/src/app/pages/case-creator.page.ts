@@ -1,22 +1,13 @@
 import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../core/api.service';
-import {
-  ANESTESIAS,
-  DURACIONES,
-  ESPECIALIDADES,
-  ETIQUETAS_AGENDA,
-  MODALIDADES,
-  PRIORIDADES,
-  SITIOS_ARISCAT,
-  faltantesDeAgenda,
-  type ScheduleDef,
-} from '@anestia/shared';
+import type { ScheduleDef } from '@anestia/shared';
+import { ScheduleFormComponent } from '../core/schedule-form.component';
 
 @Component({
   selector: 'app-case-creator',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, ScheduleFormComponent],
   styles: [`
     .creator-wrap { max-width: 560px; margin: 0 auto; padding: 1.5rem; position: relative; z-index: 1; }
     .creator-card { padding: 24px 26px; }
@@ -56,128 +47,9 @@ import {
           </select>
         </div>
 
-        <div class="grupo">Programación quirúrgica</div>
+        <app-schedule-form [(value)]="schedule" prefijo="case" />
 
-        <div class="field">
-          <label class="ki-label" for="proc">Cirugía o procedimiento *</label>
-          <input class="ki-input" id="proc" [(ngModel)]="procedimiento"
-                 data-testid="case-procedure-input" placeholder="Colecistectomía laparoscópica" />
-        </div>
-
-        <div class="fila">
-          <div class="field">
-            <label class="ki-label" for="dx">Diagnóstico preoperatorio</label>
-            <input class="ki-input" id="dx" [(ngModel)]="diagnosticoPreop"
-                   data-testid="case-dx-input" placeholder="Colelitiasis" />
-            <div class="por-que">No se le exige al paciente conocerlo.</div>
-          </div>
-          <div class="field">
-            <label class="ki-label" for="fecha">Fecha del procedimiento</label>
-            <input class="ki-input" id="fecha" type="date" [(ngModel)]="fechaHora"
-                   data-testid="case-date-input" />
-            <div class="por-que">De aquí sale la edad y la ruta clínica del paciente.</div>
-          </div>
-        </div>
-
-        <div class="fila">
-          <div class="field">
-            <label class="ki-label" for="esp">Especialidad</label>
-            <select class="ki-select" id="esp" [(ngModel)]="especialidad" data-testid="case-especialidad">
-              <option value="">—</option>
-              @for (o of especialidades; track o) {
-                <option [value]="o">{{ etiquetas.especialidad[o] }}</option>
-              }
-            </select>
-          </div>
-          <div class="field">
-            <label class="ki-label" for="mod">Modalidad</label>
-            <select class="ki-select" id="mod" [(ngModel)]="modalidad" data-testid="case-modalidad">
-              <option value="">—</option>
-              @for (o of modalidades; track o) {
-                <option [value]="o">{{ etiquetas.modalidad[o] }}</option>
-              }
-            </select>
-            <div class="por-que">Alimenta Caprini.</div>
-          </div>
-        </div>
-
-        <div class="fila">
-          <div class="field">
-            <label class="ki-label" for="pri">Prioridad</label>
-            <select class="ki-select" id="pri" [(ngModel)]="prioridad" data-testid="case-prioridad">
-              <option value="">—</option>
-              @for (o of prioridades; track o) {
-                <option [value]="o">{{ etiquetas.prioridad[o] }}</option>
-              }
-            </select>
-            <div class="por-que">Alimenta ARISCAT.</div>
-          </div>
-          <div class="field">
-            <label class="ki-label" for="sitio">Sitio quirúrgico</label>
-            <select class="ki-select" id="sitio" [(ngModel)]="sitioQuirurgico" data-testid="case-sitio">
-              <option value="">—</option>
-              @for (o of sitios; track o) {
-                <option [value]="o">{{ etiquetas.sitioQuirurgico[o] }}</option>
-              }
-            </select>
-            <div class="por-que">Alimenta ARISCAT.</div>
-          </div>
-        </div>
-
-        <div class="fila">
-          <div class="field">
-            <label class="ki-label" for="dur">Duración estimada</label>
-            <select class="ki-select" id="dur" [(ngModel)]="duracionEstimada" data-testid="case-duracion">
-              <option value="">—</option>
-              @for (o of duraciones; track o) {
-                <option [value]="o">{{ etiquetas.duracionEstimada[o] }}</option>
-              }
-            </select>
-            <div class="por-que">Alimenta ARISCAT y POVOC.</div>
-          </div>
-          <div class="field">
-            <label class="ki-label" for="anes">Anestesia probable</label>
-            <select class="ki-select" id="anes" [(ngModel)]="anestesiaProbable" data-testid="case-anestesia">
-              <option value="">—</option>
-              @for (o of anestesias; track o) {
-                <option [value]="o">{{ etiquetas.anestesiaProbable[o] }}</option>
-              }
-            </select>
-            <div class="por-que">Alimenta Apfel.</div>
-          </div>
-        </div>
-
-        <div class="fila">
-          <div class="field">
-            <label class="ki-label" for="rcri">Cirugía cardiovascular de alto riesgo</label>
-            <select class="ki-select" id="rcri" [(ngModel)]="altoRiesgoRcri" data-testid="case-rcri">
-              <option value="">Pendiente de clasificación</option>
-              <option value="si">Sí</option>
-              <option value="no">No</option>
-            </select>
-            <div class="por-que">Alimenta RCRI.</div>
-          </div>
-          <div class="field">
-            <label class="ki-label" for="opio">¿Se esperan opioides posoperatorios?</label>
-            <select class="ki-select" id="opio" [(ngModel)]="opioidesPostop" data-testid="case-opioides">
-              <option value="">Por definir</option>
-              <option value="si">Sí</option>
-              <option value="no">No</option>
-            </select>
-            <div class="por-que">Alimenta Apfel. No lo estima el paciente.</div>
-          </div>
-        </div>
-
-        @if (pendientes().length) {
-          <div class="pendientes" data-testid="case-pendientes">
-            <strong>Faltan datos de programación</strong>
-            Puedes crear el caso igual: las escalas que dependan de esto quedarán
-            <em>pendientes</em> en vez de calcularse con supuestos. Falta:
-            {{ pendientes().join(', ') }}.
-          </div>
-        }
-
-        <button class="btn btn-primary create-action" (click)="create()" [disabled]="!presetId() || procedimiento().trim().length < 2 || loading()" data-testid="case-create-button">
+        <button class="btn btn-primary create-action" (click)="create()" [disabled]="!presetId() || schedule().procedimiento.trim().length < 2 || loading()" data-testid="case-create-button">
           {{ loading() ? 'Creando…' : 'Crear y generar enlace' }}
         </button>
 
@@ -199,48 +71,15 @@ import {
 export class CaseCreatorPage implements OnInit {
   private api = inject(ApiService);
 
-  readonly especialidades = ESPECIALIDADES;
-  readonly modalidades = MODALIDADES;
-  readonly prioridades = PRIORIDADES;
-  readonly sitios = SITIOS_ARISCAT;
-  readonly duraciones = DURACIONES;
-  readonly anestesias = ANESTESIAS;
-  readonly etiquetas = ETIQUETAS_AGENDA;
-
   presets = signal<any[]>([]);
   presetId = signal('');
 
-  // Agenda quirúrgica (PX01–PX11). El paciente no ve nada de esto.
-  procedimiento = signal('');
-  diagnosticoPreop = signal('');
-  fechaHora = signal('');
-  especialidad = signal('');
-  modalidad = signal('');
-  prioridad = signal('');
-  sitioQuirurgico = signal('');
-  duracionEstimada = signal('');
-  anestesiaProbable = signal('');
-  altoRiesgoRcri = signal('');
-  opioidesPostop = signal('');
-
-  /** Qué escalas quedarán pendientes por falta de programación. */
-  pendientes = computed(() => faltantesDeAgenda(this.schedule()));
-
-  /** La agenda tal como la espera el contrato compartido. */
-  private schedule = computed<ScheduleDef>(() => ({
-    procedimiento: this.procedimiento().trim(),
-    diagnosticoPreop: this.diagnosticoPreop().trim() || null,
-    fechaHora: this.fechaHora() || null,
-    especialidad: (this.especialidad() || null) as ScheduleDef['especialidad'],
-    modalidad: (this.modalidad() || null) as ScheduleDef['modalidad'],
-    prioridad: (this.prioridad() || null) as ScheduleDef['prioridad'],
-    sitioQuirurgico: (this.sitioQuirurgico() || null) as ScheduleDef['sitioQuirurgico'],
-    duracionEstimada: (this.duracionEstimada() || null) as ScheduleDef['duracionEstimada'],
-    anestesiaProbable: (this.anestesiaProbable() || null) as ScheduleDef['anestesiaProbable'],
-    // '' significa "sin definir", que NO es "no". Un null deja la escala pendiente.
-    altoRiesgoRcri: this.altoRiesgoRcri() === '' ? null : this.altoRiesgoRcri() === 'si',
-    opioidesPostop: this.opioidesPostop() === '' ? null : this.opioidesPostop() === 'si',
-  }));
+  /** Agenda quirúrgica (PX01–PX11). El paciente no ve nada de esto. */
+  schedule = signal<ScheduleDef>({
+    procedimiento: '', diagnosticoPreop: null, fechaHora: null, especialidad: null,
+    modalidad: null, prioridad: null, sitioQuirurgico: null, duracionEstimada: null,
+    altoRiesgoRcri: null, anestesiaProbable: null, opioidesPostop: null,
+  });
 
   loading = signal(false);
   link = signal<string | null>(null);

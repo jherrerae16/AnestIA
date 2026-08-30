@@ -33,6 +33,11 @@ export class ApiService {
       this.http.post<CreatedCase>('/api/panel/cases', { presetId, schedule, patientId }),
     );
   }
+  resolverEscala(caseId: string, escala: string, nota: string): Promise<{ ok: boolean }> {
+    return firstValueFrom(
+      this.http.post<{ ok: boolean }>(`/api/panel/cases/${caseId}/scales/${escala}/resolve`, { nota }),
+    );
+  }
   updateSchedule(caseId: string, schedule: ScheduleDef): Promise<{ ok: boolean }> {
     return firstValueFrom(
       this.http.put<{ ok: boolean }>(`/api/panel/cases/${caseId}/schedule`, schedule),

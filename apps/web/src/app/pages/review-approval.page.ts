@@ -3,6 +3,15 @@ import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
+import { ScheduleFormComponent } from '../core/schedule-form.component';
+import type { ScheduleDef } from '@anestia/shared';
+
+/** Agenda en blanco, para abrir el editor cuando el caso aún no tiene programación. */
+const AGENDA_VACIA: ScheduleDef = {
+  procedimiento: '', diagnosticoPreop: null, fechaHora: null, especialidad: null,
+  modalidad: null, prioridad: null, sitioQuirurgico: null, duracionEstimada: null,
+  altoRiesgoRcri: null, anestesiaProbable: null, opioidesPostop: null,
+};
 
 const SECTION_LABELS: Record<string, string> = {
   paciente: 'Paciente', documento: 'Documento', edad: 'Edad', sexo: 'Sexo',
@@ -54,7 +63,7 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
 @Component({
   selector: 'app-review-approval',
   standalone: true,
-  imports: [FormsModule, NgTemplateOutlet],
+  imports: [FormsModule, NgTemplateOutlet, ScheduleFormComponent],
   styles: [`
     /* Escalas de riesgo: el estado se lee de un vistazo, junto al puntaje. */
     .esc-panel { margin: 0 0 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
@@ -68,10 +77,23 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     .esc-retenida { font-size: 11.5px; color: var(--muted); font-style: italic; }
     .esc-falta { font-size: 11.5px; color: #b54708; margin-top: 3px; }
     .esc-ver { font-size: 10px; color: var(--muted2); white-space: nowrap; }
+    .esc-resolver { margin-top: 8px; }
+    .esc-resolver-acciones { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; }
+    .esc-btn { margin-top: 5px; background: none; border: none; color: #b42318; font-weight: 700;
+      text-decoration: underline; cursor: pointer; font-size: 11.5px; padding: 0; }
+    .esc-resuelta { font-size: 11.5px; color: #027a48; margin-top: 3px; }
     .esc-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
     .esc-calculada { background: #ecfdf3; color: #027a48; }
     .esc-pendiente { background: #fffaeb; color: #b54708; }
     .esc-revision_clinica { background: #fef3f2; color: #b42318; }
+
+    .btn-completar { display: inline-block; margin-left: 8px; background: none; border: none;
+      color: #93370d; font-weight: 700; text-decoration: underline; cursor: pointer; font-size: 12.5px; }
+    .agenda-editor { margin: 0 0 16px; padding: 16px 18px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg2, #fff); }
+    .agenda-editor-head { font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--primary); margin-bottom: 10px; }
+    .agenda-editor-acciones { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 
     /* Programación incompleta: no bloquea nada, avisa de qué escalas quedarán pendientes. */
     .agenda-faltante { margin: 0 0 16px; padding: 12px 15px; border-radius: 10px;
@@ -607,6 +629,31 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
                   <div class="esc-falta">Falta: {{ e.faltantes.join(', ') }}</div>
                 }
                 @if (e.motivo) { <div class="esc-falta">{{ e.motivo }}</div> }
+                @if (e.estado === 'REVISION_CLINICA' && !e.resueltoAt) {
+                  <!-- Sin esto la escala bloqueaba la aprobación y no había forma de levantarla:
+                       el caso quedaba trabado sin salida. -->
+                  @if (resolviendo() === e.escala) {
+                    <div class="esc-resolver">
+                      <input class="ki-input" [ngModel]="notaResolucion()"
+                             (ngModelChange)="notaResolucion.set($event)"
+                             placeholder="¿Qué decidiste? Queda en el documento."
+                             [attr.data-testid]="'esc-nota-' + e.escala" />
+                      <div class="esc-resolver-acciones">
+                        <button class="btn btn-sm" (click)="resolviendo.set(null)">Cancelar</button>
+                        <button class="btn btn-primary btn-sm"
+                                [disabled]="notaResolucion().trim().length < 3"
+                                (click)="resolverEscala(e.escala)"
+                                [attr.data-testid]="'esc-resolver-' + e.escala">Resolver</button>
+                      </div>
+                    </div>
+                  } @else {
+                    <button class="esc-btn" (click)="abrirResolucion(e.escala)"
+                            [attr.data-testid]="'esc-abrir-' + e.escala">Resolver esta discordancia</button>
+                  }
+                }
+                @if (e.resueltoAt) {
+                  <div class="esc-resuelta">Resuelta por el anestesiólogo.</div>
+                }
               </div>
               <span class="esc-ver">{{ e.version }}</span>
             </div>
@@ -618,11 +665,30 @@ function imcLocal(pesoKg: number | null, tallaRaw: number | null): number | null
     <!-- Programación quirúrgica. Se muestra lo que falta porque, mientras falte, las escalas
          que dependen de esas variables quedan PENDIENTES en vez de calcularse con supuestos. -->
     <ng-template #agendaBanner>
-      @if (agendaFaltante().length) {
+      @if (agendaFaltante().length && !editandoAgenda()) {
         <div class="agenda-faltante" data-testid="review-agenda-faltante">
           <strong>Programación incompleta</strong>
           Las escalas que dependan de esto quedarán pendientes, no se calcularán con supuestos.
           Falta: {{ agendaFaltante().join(', ') }}.
+          <button class="btn-completar" (click)="abrirAgenda()" data-testid="review-agenda-editar">
+            Completar programación
+          </button>
+        </div>
+      }
+      @if (editandoAgenda()) {
+        <!-- El aviso decía qué faltaba pero no había dónde llenarlo: el médico quedaba
+             mirando una advertencia que no podía resolver. -->
+        <div class="agenda-editor" data-testid="review-agenda-editor">
+          <div class="agenda-editor-head">Programación quirúrgica</div>
+          <app-schedule-form [(value)]="agendaEdit" prefijo="rev" [mostrarTitulo]="false" />
+          <div class="agenda-editor-acciones">
+            <button class="btn btn-sm" (click)="editandoAgenda.set(false)">Cancelar</button>
+            <button class="btn btn-primary btn-sm" (click)="guardarAgenda()"
+                    [disabled]="guardandoAgenda() || agendaEdit().procedimiento.trim().length < 2"
+                    data-testid="review-agenda-guardar">
+              {{ guardandoAgenda() ? 'Guardando…' : 'Guardar y recalcular escalas' }}
+            </button>
+          </div>
         </div>
       }
     </ng-template>
@@ -696,11 +762,56 @@ export class ReviewApprovalPage implements OnInit {
   /** Nota privada del médico sobre este paciente (o null). Aparece sola en el caso. */
   /** Variables de la agenda que aún faltan. Vacío = programación completa. */
   agendaFaltante = signal<string[]>([]);
+  /** Programación tal como está guardada, para poder editarla desde aquí. */
+  agenda = signal<ScheduleDef | null>(null);
+  agendaEdit = signal<ScheduleDef>(AGENDA_VACIA);
+  editandoAgenda = signal(false);
+  guardandoAgenda = signal(false);
   /** Escalas de riesgo del caso. Las NO_INDICADA no llegan aquí. */
   escalas = signal<{
     escala: string; nombre: string; version: string; estado: string;
     puntaje: number | null; categoria: string | null; faltantes: string[]; motivo: string | null;
+    resueltoAt?: string | null;
   }[]>([]);
+  /** Escala cuya discordancia se está resolviendo, o null. */
+  resolviendo = signal<string | null>(null);
+  notaResolucion = signal('');
+
+  abrirResolucion(escala: string) {
+    this.resolviendo.set(escala);
+    this.notaResolucion.set('');
+  }
+
+  /**
+   * Deja constancia de que el médico revisó la discordancia y asumió la decisión. NO recalcula
+   * ni inventa un puntaje: la escala conserva su estado y su motivo, y deja de bloquear.
+   */
+  async resolverEscala(escala: string) {
+    await this.api.resolverEscala(this.caseId, escala, this.notaResolucion().trim());
+    this.resolviendo.set(null);
+    await this.reload();
+  }
+
+  /** Abre el editor con lo que ya haya guardado. */
+  abrirAgenda() {
+    this.agendaEdit.set({ ...AGENDA_VACIA, ...(this.agenda() ?? {}) });
+    this.editandoAgenda.set(true);
+  }
+
+  /**
+   * Guarda la programación y recalcula. Completar la agenda destraba escalas: ARISCAT depende
+   * del sitio y la duración, Caprini de la modalidad, Apfel del plan anestésico.
+   */
+  async guardarAgenda() {
+    this.guardandoAgenda.set(true);
+    try {
+      await this.api.updateSchedule(this.caseId, this.agendaEdit());
+      this.editandoAgenda.set(false);
+      await this.reload();
+    } finally {
+      this.guardandoAgenda.set(false);
+    }
+  }
 
   /** Etiqueta del sexo registrado al nacer (el enum cambió con la especificación). */
   sexoLabel(sexo: string | null | undefined): string {
@@ -917,6 +1028,7 @@ export class ReviewApprovalPage implements OnInit {
     this.check.set(r.canApprove);
     this.patient.set(r.patient ?? null);
     this.agendaFaltante.set(r.agendaFaltante ?? []);
+    this.agenda.set(r.schedule ?? null);
     this.escalas.set(r.escalas ?? []);
     this.patientNote.set(r.patientNote ?? null);
     this.notePatientId.set(r.patientId ?? null);

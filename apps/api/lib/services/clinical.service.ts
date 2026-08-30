@@ -5,6 +5,7 @@ import { getScalesForCase } from './scales.service';
 import { activeModelLabel, getAIProvider, type ClinicalInput } from '../ai';
 import { logAudit } from '../audit';
 import {
+  aSnapshots,
   computeIMC,
   computeAge,
   enforceGuardrails,
@@ -281,18 +282,5 @@ export async function generateForCase(caseId: string): Promise<void> {
  */
 async function buildEscalas(caseId: string) {
   const filas = await getScalesForCase(caseId);
-  return filas
-    .filter((f) => f.estado !== 'NO_INDICADA')
-    .map((f) => ({
-      escala: f.escala,
-      nombre: NOMBRE_ESCALA[f.escala as keyof typeof NOMBRE_ESCALA] ?? f.escala,
-      version: f.version,
-      cortesVersion: f.cortesVersion,
-      estado: f.estado,
-      puntaje: f.puntaje,
-      categoria: f.categoria,
-      variables: (f.variables ?? []) as never,
-      faltantes: f.faltantes,
-      motivo: f.motivo,
-    }));
+  return aSnapshots(filas);
 }

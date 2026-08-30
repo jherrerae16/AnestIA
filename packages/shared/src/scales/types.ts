@@ -118,3 +118,51 @@ export function revisionClinica(
     puntaje: null, categoria: null, variables, faltantes: [], motivo,
   };
 }
+
+/** Fila de `ScaleResult` tal como la devuelve Prisma, sin depender del cliente generado. */
+export interface FilaEscala {
+  escala: string;
+  version: string;
+  cortesVersion: string | null;
+  estado: string;
+  puntaje: number | null;
+  categoria: string | null;
+  variables: unknown;
+  faltantes: string[];
+  motivo: string | null;
+  resueltoPor?: string | null;
+  resueltoAt?: Date | string | null;
+}
+
+/**
+ * Fila guardada → instantánea del documento.
+ *
+ * Vive aquí porque la usan el motor clínico y la revisión. Estaba duplicada en los dos, y se
+ * separaron: uno incluía la resolución de una revisión clínica y el otro no, así que la escala
+ * seguía bloqueando la aprobación aunque el médico ya la hubiera resuelto.
+ */
+export function aSnapshot(f: FilaEscala) {
+  return {
+    escala: f.escala,
+    nombre: NOMBRE_ESCALA[f.escala as ScaleKey] ?? f.escala,
+    version: f.version,
+    cortesVersion: f.cortesVersion,
+    estado: f.estado,
+    puntaje: f.puntaje,
+    categoria: f.categoria,
+    variables: f.variables,
+    faltantes: f.faltantes,
+    motivo: f.motivo,
+    resueltoPor: f.resueltoPor ?? null,
+    resueltoAt: f.resueltoAt
+      ? typeof f.resueltoAt === 'string'
+        ? f.resueltoAt
+        : f.resueltoAt.toISOString()
+      : null,
+  };
+}
+
+/** Las que NO_INDICADA no van al documento, pero se conservan en la base con su motivo. */
+export function aSnapshots(filas: readonly FilaEscala[]) {
+  return filas.filter((f) => f.estado !== 'NO_INDICADA').map(aSnapshot);
+}

@@ -88,6 +88,12 @@ export const scaleSnapshotSchema = z.object({
   ),
   faltantes: z.array(z.string()),
   motivo: z.string().nullable(),
+  /**
+   * Quién resolvió una `REVISION_CLINICA` y cuándo. Mientras sea null, esa escala bloquea la
+   * aprobación: la contradicción que detectó el motor sigue sin que nadie la reconozca.
+   */
+  resueltoPor: z.string().nullable().optional(),
+  resueltoAt: z.string().nullable().optional(),
 });
 export type ScaleSnapshot = z.infer<typeof scaleSnapshotSchema>;
 

@@ -110,6 +110,19 @@ describe('canApprove — escalas', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('una REVISION_CLINICA RESUELTA deja de bloquear', () => {
+    // Sin salida, el bloqueo dejaba el caso trabado: existía el candado y no la llave. Resolver
+    // no recalcula ni inventa un puntaje; deja constancia de que un humano lo asumió.
+    const r = canApprove({
+      ...base,
+      escalas: [escala({
+        estado: 'REVISION_CLINICA', faltantes: [], motivo: 'Discordancia en la SpO2.',
+        resueltoPor: 'anest-1', resueltoAt: '2026-08-30T10:00:00.000Z',
+      })],
+    } as never);
+    expect(r.ok).toBe(true);
+  });
+
   it('una REVISION_CLINICA sin resolver sí bloquea', () => {
     const r = canApprove({
       ...base,

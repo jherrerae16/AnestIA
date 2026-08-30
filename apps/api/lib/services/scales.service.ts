@@ -188,3 +188,55 @@ export async function getScalesForCase(caseId: string) {
   const orden = ['DASI', 'STOP_BANG', 'APFEL', 'FRAIL', 'CAPRINI', 'RCRI', 'ARISCAT', 'POVOC'];
   return filas.sort((a, b) => orden.indexOf(a.escala) - orden.indexOf(b.escala));
 }
+
+/**
+ * Marca una escala en `REVISION_CLINICA` como resuelta por el anestesiólogo.
+ *
+ * Ese estado significa que el motor determinístico encontró una contradicción, y por eso bloquea
+ * la aprobación: una contradicción hay que reconocerla. Pero sin forma de resolverla el caso
+ * quedaba trabado sin salida — el bloqueo existía y el mecanismo para levantarlo, no.
+ *
+ * Resolver NO recalcula ni inventa un puntaje: deja constancia de que un humano la revisó y
+ * asumió la decisión. La escala conserva su estado, sus variables y su motivo; lo que cambia es
+ * que deja de bloquear, con nombre y fecha de quién lo hizo.
+ */
+export async function resolverEscala(
+  caseId: string,
+  escala: string,
+  anesthesiologistId: string,
+  nota: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const fila = await prisma.scaleResult.findUnique({
+    where: { caseId_escala: { caseId, escala: escala as never } },
+  });
+  if (!fila) return { ok: false, error: 'La escala no existe en este caso.' };
+  if (fila.estado !== 'REVISION_CLINICA') {
+    return { ok: false, error: 'Sólo se resuelven las escalas en revisión clínica.' };
+  }
+
+  await prisma.scaleResult.update({
+    where: { caseId_escala: { caseId, escala: escala as never } },
+    data: {
+      resueltoPor: anesthesiologistId,
+      resueltoAt: new Date(),
+      // La nota se suma al motivo: el documento debe conservar qué se encontró Y qué se decidió.
+      motivo: `${fila.motivo ?? 'Discordancia detectada.'} · Resuelto por el anestesiólogo: ${nota}`,
+    },
+  });
+
+  await logAudit({
+    actorId: anesthesiologistId,
+    action: 'scales.resolved',
+    entity: 'Case',
+    entityId: caseId,
+    meta: { escala, nota },
+  });
+  return { ok: true };
+}
+
+/** Escalas en revisión clínica que siguen sin resolver. Son las que bloquean la aprobación. */
+export async function escalasSinResolver(caseId: string) {
+  return prisma.scaleResult.findMany({
+    where: { caseId, estado: 'REVISION_CLINICA', resueltoAt: null },
+  });
+}

@@ -14,6 +14,7 @@ import { getNoteForCase } from './note.service';
 import { reflagForCase } from './lab.service';
 import { regenerateParaclinicos } from './clinical.service';
 import {
+  aSnapshots,
   canApprove,
   applyExamNormal,
   applyEdit,
@@ -256,20 +257,7 @@ export async function refrescarEscalas(caseId: string): Promise<void> {
     if (!assessment) return;
     const filas = await getScalesForCase(caseId);
     const fields = assessment.fields as DocumentJSON;
-    const escalas = filas
-      .filter((f) => f.estado !== 'NO_INDICADA')
-      .map((f) => ({
-        escala: f.escala,
-        nombre: NOMBRE_ESCALA[f.escala as keyof typeof NOMBRE_ESCALA] ?? f.escala,
-        version: f.version,
-        cortesVersion: f.cortesVersion,
-        estado: f.estado,
-        puntaje: f.puntaje,
-        categoria: f.categoria,
-        variables: f.variables as never,
-        faltantes: f.faltantes,
-        motivo: f.motivo,
-      }));
+    const escalas = aSnapshots(filas);
     await prisma.generatedAssessment.update({
       where: { caseId },
       data: { fields: { ...fields, escalas } as never },
