@@ -53,7 +53,11 @@ describe('AuthService — session sign/verify (PBT round-trip)', () => {
         async (payload) => {
           const token = await signSession(payload);
           const back = await verifySession(token);
-          expect(back).toEqual(payload);
+          // La identidad viaja intacta...
+          expect(back).toMatchObject(payload);
+          // ...y además vuelve el instante de emisión, que es lo que permite invalidar las
+          // sesiones anteriores a un cambio de contraseña.
+          expect(typeof back!.emitidaEn).toBe('number');
         },
       ),
       { numRuns: 15 },

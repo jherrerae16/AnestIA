@@ -1,8 +1,9 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
+import { PASSWORD_MIN } from '@anestia/shared';
 
 @Component({
   selector: 'app-profile',
@@ -10,6 +11,12 @@ import { AuthService } from '../core/auth.service';
   imports: [FormsModule],
   styles: [`
     :host { display:block; max-width:640px; }
+    .pw-nota { font-size:13px; color:var(--muted); margin:0 0 14px; }
+    .pw-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media (max-width:560px) { .pw-grid { grid-template-columns:1fr; } }
+    .pw-hint { font-size:11.5px; color:var(--muted2); margin-top:5px; }
+    .pw-error { color:var(--red-text); font-size:12.5px; margin-top:12px; }
+    .pw-ok { color:var(--muted); font-size:12.5px; margin-top:12px; }
     .page-head { margin-bottom:20px; }
     .page-title { font-family:var(--font-display); font-size:22px; font-weight:600; letter-spacing:-0.5px; color:var(--text); }
     .page-sub { font-size:13px; color:var(--muted); margin-top:6px; line-height:1.5; }
@@ -118,6 +125,35 @@ import { AuthService } from '../core/auth.service';
     </div>
 
     <div class="card" style="margin-top:16px">
+      <div class="section-label">Contraseña</div>
+      <p class="pw-nota">
+        Al cambiarla se cierran tus otras sesiones. La de este dispositivo sigue abierta.
+      </p>
+      <div class="pw-grid">
+        <div>
+          <label class="ki-label" for="pw-actual">Contraseña actual</label>
+          <input class="ki-input" id="pw-actual" type="password" autocomplete="current-password"
+                 [ngModel]="pwActual()" (ngModelChange)="pwActual.set($event); pwError.set('')"
+                 data-testid="pw-actual" />
+        </div>
+        <div>
+          <label class="ki-label" for="pw-nueva">Contraseña nueva</label>
+          <input class="ki-input" id="pw-nueva" type="password" autocomplete="new-password"
+                 [ngModel]="pwNueva()" (ngModelChange)="pwNueva.set($event); pwError.set('')"
+                 data-testid="pw-nueva" />
+          <div class="pw-hint">Mínimo {{ pwMin }} caracteres. Larga y fácil de recordar vale más que rara.</div>
+        </div>
+      </div>
+      @if (pwError()) { <div class="pw-error" role="alert" data-testid="pw-error">{{ pwError() }}</div> }
+      @if (pwListo()) { <div class="pw-ok" role="status" data-testid="pw-ok">✔ Contraseña actualizada.</div> }
+      <button class="btn btn-primary" style="margin-top:12px"
+              (click)="guardarPassword()" [disabled]="pwGuardando() || !pwCompleta()"
+              data-testid="pw-guardar">
+        {{ pwGuardando() ? 'Guardando…' : 'Cambiar contraseña' }}
+      </button>
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <div class="section-label">Sesión</div>
       <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Cierra tu sesión en este dispositivo.</p>
       <button class="btn" (click)="signOut()" data-testid="panel-logout-button">Cerrar sesión</button>
@@ -134,6 +170,37 @@ export class ProfilePage implements OnInit {
   savedMsg = signal('');
   reminderOn = signal(true); // ON por defecto
   reminderMsg = signal('');
+
+  // --- Contraseña ---
+  readonly pwMin = PASSWORD_MIN;
+  pwActual = signal('');
+  pwNueva = signal('');
+  pwError = signal('');
+  pwListo = signal(false);
+  pwGuardando = signal(false);
+  pwCompleta = computed(() => this.pwActual().length > 0 && this.pwNueva().length >= PASSWORD_MIN);
+
+  /**
+   * Cambia la contraseña. Los dos campos se limpian al terminar bien: dejar la contraseña
+   * nueva escrita en pantalla es lo que hace que quede a la vista de quien pase por detrás.
+   */
+  async guardarPassword() {
+    this.pwGuardando.set(true);
+    this.pwError.set('');
+    this.pwListo.set(false);
+    try {
+      await this.api.cambiarPassword(this.pwActual(), this.pwNueva());
+      this.pwActual.set('');
+      this.pwNueva.set('');
+      this.pwListo.set(true);
+    } catch (e: any) {
+      this.pwError.set(
+        e?.error?.error ?? e?.error?.issues?.[0]?.message ?? 'No se pudo cambiar la contraseña.',
+      );
+    } finally {
+      this.pwGuardando.set(false);
+    }
+  }
 
   async ngOnInit() {
     const { profile } = await this.api.getProfile();

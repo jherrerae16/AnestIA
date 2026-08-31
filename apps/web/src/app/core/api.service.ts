@@ -89,6 +89,18 @@ export class ApiService {
       ),
     );
   }
+  /** Cambia la contraseña propia. Exige la actual: una sesión robada no basta para tomar la cuenta. */
+  cambiarPassword(actual: string, nueva: string): Promise<{ ok: boolean }> {
+    return firstValueFrom(this.http.put<{ ok: boolean }>('/api/panel/profile/password', { actual, nueva }));
+  }
+  /** Pide un enlace de restablecimiento. Responde igual exista o no el correo. */
+  olvidePassword(email: string): Promise<{ ok: boolean; mensaje: string }> {
+    return firstValueFrom(this.http.post<{ ok: boolean; mensaje: string }>('/api/panel/auth/password/olvide', { email }));
+  }
+  /** Aplica el restablecimiento con el token del correo. */
+  restablecerPassword(token: string, nueva: string): Promise<{ ok: boolean }> {
+    return firstValueFrom(this.http.post<{ ok: boolean }>('/api/panel/auth/password/restablecer', { token, nueva }));
+  }
   /** Preguntas propias del anestesiólogo en un cuestionario suyo. */
   listPropias(presetId: string): Promise<{ propias: any[] }> {
     return firstValueFrom(this.http.get<{ propias: any[] }>(`/api/panel/presets/${presetId}/propias`));

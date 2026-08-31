@@ -25,6 +25,12 @@ clave con forma de secreto dentro de un archivo del repo.
 - **Redacción en logs.** El logger ya redactaba contraseñas, tokens y cookies; se añadieron
   `apiKey`, `x-api-key` y `headers.authorization`. La key no se loguea a propósito, pero un
   objeto de error del SDK puede arrastrar la cabecera de la petición.
+- **Respaldos cifrados** (2026-08-31). `pg_dump` produce texto plano con el contenido de todas
+  las tablas, incluida `Patient` con nombres y documentos; guardarlo así dentro de la carpeta del
+  proyecto significa que cualquier copia de esa carpeta se lleva la historia clínica. Ahora
+  `./scripts/respaldo.sh` cifra con AES-256 y clave por teclado, y `./scripts/restaurar.sh`
+  descifra pidiendo confirmación del nombre de la base. Se borró el volcado del 29-ago, que
+  además era anterior a la migración del diccionario y ya no se podía restaurar.
 - **Google Sheets eliminado** (decisión del 2026-08-30). Con él se borró
   `.secrets/google-sheets-sa.json`, una credencial de service account que seguía viva en disco
   para una función que nunca se configuró.

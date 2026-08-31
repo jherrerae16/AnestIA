@@ -39,7 +39,10 @@ export async function verifySession(token: string): Promise<SessionPayload | nul
   try {
     const { payload } = await jwtVerify(token, secretKey());
     const parsed = sessionPayloadSchema.safeParse(payload);
-    return parsed.success ? parsed.data : null;
+    if (!parsed.success) return null;
+    // `iat` viaja para poder invalidar sesiones al cambiar la contraseña; no forma parte del
+    // contrato de la sesión, así que se devuelve aparte del payload validado.
+    return { ...parsed.data, emitidaEn: typeof payload.iat === 'number' ? payload.iat : null };
   } catch {
     return null;
   }

@@ -18,7 +18,8 @@ vive la key, dónde viven los adjuntos de pacientes, cómo se respalda y cuánto
 
 - La key sale de `.env` al gestor de secretos del proveedor; una clave por entorno.
 - `storage/` sale del disco local a almacenamiento de objetos, fuera del repositorio.
-- Los respaldos salen de `.secrets/backups` — hoy contienen datos de pacientes en claro.
+- Los respaldos ya se hacen cifrados (`./scripts/respaldo.sh`, `./scripts/restaurar.sh`); en el
+  despliegue hay que decidir además dónde se guardan y cuánto tiempo.
 - Copias, retención y borrado: qué se guarda, cuánto tiempo, quién puede leerlo.
 - Rotar la `ANTHROPIC_API_KEY` (procedimiento en `secretos.md`). Hoy no urge: se auditó y nunca
   salió del disco local.
@@ -68,8 +69,19 @@ No pisa un perfil existente: cambiar la contraseña de alguien por escribir mal 
 accidente caro y silencioso.
 
 El aislamiento por perfil ya se respeta en cada consulta del panel, así que añadir médicos no
-obliga a reescribir nada. Lo que **sí** falta antes de que un tercero use esto en serio: cambio
-de contraseña desde el perfil, y recuperación cuando se olvide.
+obliga a reescribir nada.
+
+**Contraseñas** (resuelto el 2026-08-31, al abrir el alta manual):
+
+- **Cambio desde el perfil**, exigiendo la actual. Sin eso, una sesión robada o un equipo
+  desbloqueado bastan para quedarse con la cuenta.
+- **Recuperación por correo**: enlace de un solo uso, válido una hora. De la base sólo se puede
+  leer el **hash** del token, así que quien la lea no puede restablecer la contraseña de nadie.
+- La respuesta es **la misma exista o no el correo**: decir "ese correo no está registrado"
+  convertiría el formulario en un detector de qué anestesiólogos usan el sistema.
+- **Cambiar la contraseña cierra las sesiones anteriores.** Sin esto, restablecer la contraseña
+  de una cuenta comprometida no echaba a quien ya estaba dentro hasta que su cookie caducara
+  sola, ocho horas después.
 
 **Reabre esta decisión:** que el Dr. quiera invitar colegas sin pasar por él, o que esto deje de
 ser un piloto de una clínica.

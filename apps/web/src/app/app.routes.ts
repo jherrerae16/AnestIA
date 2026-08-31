@@ -7,6 +7,12 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/signin.page').then((m) => m.SignInPage),
   },
   {
+    // Restablecer contraseña — pública por necesidad: quien llega aquí no tiene sesión,
+    // justamente porque perdió el acceso. El token viaja en la query.
+    path: 'restablecer',
+    loadComponent: () => import('./pages/restablecer.page').then((m) => m.RestablecerPage),
+  },
+  {
     // Formulario del paciente — público, por token (sin guard).
     path: 'form/:token',
     loadComponent: () => import('./pages/patient-form.page').then((m) => m.PatientFormPage),

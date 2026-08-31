@@ -36,6 +36,12 @@ model Anesthesiologist {
   // desde su perfil si no lo quiere. No hay más config (hora fija 7am Colombia en el cron).
   dailyReminderOptOut Boolean @default(false)
 
+  /// Cuándo cambió la contraseña por última vez. Las sesiones emitidas ANTES de ese instante
+  /// dejan de valer: sin esto, restablecer la contraseña de una cuenta comprometida no echaba
+  /// a quien ya estaba dentro hasta que su cookie caducara sola (8 h).
+  passwordChangedAt DateTime?
+
+  passwordResets PasswordReset[]
   presets   QuestionnairePreset[]
   patients  Patient[]
   cases     Case[]
@@ -639,6 +645,23 @@ enum AttachmentType {
 }
 
 /// Estado de una extracción de laboratorio (Especificación §15).
+/// Enlace de restablecimiento de contraseña.
+///
+/// Se guarda el HASH del token, nunca el token: quien pueda leer la base no debe poder
+/// restablecer la contraseña de nadie. De un solo uso y con caducidad corta.
+model PasswordReset {
+  id                 String   @id @default(cuid())
+  anesthesiologist   Anesthesiologist @relation(fields: [anesthesiologistId], references: [id])
+  anesthesiologistId String
+  /// SHA-256 del token que viaja en el correo.
+  tokenHash          String   @unique
+  expiresAt          DateTime
+  usedAt             DateTime?
+  createdAt          DateTime @default(now())
+
+  @@index([anesthesiologistId])
+}
+
 /// De dónde sale una pregunta del cuestionario.
 enum OrigenPregunta {
   DICCIONARIO

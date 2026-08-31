@@ -10,7 +10,13 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 const SESSION_COOKIE = 'anestia_session';
 
-const PUBLIC_PANEL_PATHS = ['/api/panel/auth/login'];
+// Quien restablece su contraseña no tiene sesión — justamente porque perdió el acceso. Estas
+// dos rutas son públicas por necesidad y llevan su propio throttle en el handler.
+const PUBLIC_PANEL_PATHS = [
+  '/api/panel/auth/login',
+  '/api/panel/auth/password/olvide',
+  '/api/panel/auth/password/restablecer',
+];
 
 // Rate limit in-memory (SECURITY-11). Rutas públicas: form del paciente, descarga, login.
 const RL_HITS = new Map<string, number[]>();
@@ -25,7 +31,8 @@ function isPublicLimited(pathname: string): boolean {
   return (
     pathname.startsWith('/api/form/') ||
     pathname.startsWith('/api/download/') ||
-    pathname.startsWith('/api/panel/auth/login')
+    pathname.startsWith('/api/panel/auth/login') ||
+    pathname.startsWith('/api/panel/auth/password/')
   );
 }
 
