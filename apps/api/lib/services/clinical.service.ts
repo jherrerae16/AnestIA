@@ -399,7 +399,15 @@ async function marcarSinConfirmar(
   for (const [grupo, analitos] of porGrupo) {
     const campo = paraclinicos[grupo];
     if (!campo) continue;
-    const aviso = `Sin confirmar: ${[...new Set(analitos)].join(', ')} — no alimenta escalas hasta que el anestesiólogo verifique la lectura contra el informe.`;
-    campo.nota = campo.nota ? `${campo.nota} · ${aviso}` : aviso;
+    const nombres = [...new Set(analitos)];
+    // Con pocos, se nombran: el médico sabe cuál mirar. Con muchos, se cuentan — un informe de
+    // 20 analitos producía una nota de 500 caracteres que en una página a una columna es un
+    // muro de texto, y un muro no se lee.
+    const aviso =
+      nombres.length <= 3
+        ? `Sin confirmar: ${nombres.join(', ')}.`
+        : `${nombres.length} lecturas de este grupo están sin confirmar.`;
+    const cola = ' No alimentan escalas hasta verificar la lectura contra el informe.';
+    campo.nota = campo.nota ? `${campo.nota} · ${aviso}${cola}` : `${aviso}${cola}`;
   }
 }

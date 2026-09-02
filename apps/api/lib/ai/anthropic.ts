@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { access, readFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import {
@@ -277,10 +277,38 @@ function toDocFields(section: Record<string, { valor: string; estado: string; fu
   return out;
 }
 
-/** Carga el prompt maestro (system prompt del motor clínico, docs/prompt-maestro-v2.md). */
+/**
+ * Carga el prompt maestro (system prompt del motor clínico, `docs/prompt-maestro-v2.md`).
+ *
+ * La ruta se BUSCA subiendo desde el directorio actual, en vez de calcularse con un número fijo
+ * de `..`. Antes era `cwd/../../docs`, que dependía de dónde se hubiera arrancado el proceso:
+ * funcionaba con el worker (arranca en `apps/api`) y fallaba con `ENOENT` en cuanto algo lo
+ * invocaba desde la raíz del repositorio. Un fallo así no lo ve ningún test y tumba la
+ * generación entera del documento.
+ *
+ * Se busca hacia arriba y no desde `import.meta.url` porque este archivo se empaqueta: según el
+ * modo de compilación acaba en CommonJS, donde `import.meta` no existe.
+ */
+export async function resolverPromptMaestro(desde = process.cwd()): Promise<string> {
+  let dir = resolve(desde);
+  for (let i = 0; i < 6; i++) {
+    const candidato = join(dir, 'docs', 'prompt-maestro-v2.md');
+    try {
+      await access(candidato);
+      return candidato;
+    } catch {
+      const padre = dirname(dir);
+      if (padre === dir) break; // raíz del sistema de archivos
+      dir = padre;
+    }
+  }
+  throw new Error(
+    `No se encontró docs/prompt-maestro-v2.md subiendo desde ${desde}. El motor clínico no puede generar sin su prompt maestro.`,
+  );
+}
+
 async function loadPromptMaestro(): Promise<string> {
-  const path = join(process.cwd(), '..', '..', 'docs', 'prompt-maestro-v2.md');
-  return readFile(path, 'utf8');
+  return readFile(await resolverPromptMaestro(), 'utf8');
 }
 
 const EXTRACTION_SYSTEM = `Eres el extractor de paraclínicos de una plataforma de valoración preanestésica.
